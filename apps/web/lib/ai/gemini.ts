@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 export interface ImageAnalysis {
   tags: string[];
@@ -27,25 +27,30 @@ Réponds en français.`;
 // Analyse une image encodée en base64 avec Gemini Vision
 export async function analyzeImageWithGemini(
   imageBuffer: Buffer,
-  mimeType: string = "image/webp"
+  mimeType: string = "image/jpeg"
 ): Promise<ImageAnalysis> {
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash-8b", // Free tier : 15 req/min, 1M tokens/jour
-    generationConfig: {
+  const response = await ai.models.generateContent({
+    model: "gemini-2.0-flash-lite",
+    contents: [
+      {
+        parts: [
+          { text: ANALYSIS_PROMPT },
+          {
+            inlineData: {
+              data: imageBuffer.toString("base64"),
+              mimeType,
+            },
+          },
+        ],
+      },
+    ],
+    config: {
       temperature: 0.3,
       maxOutputTokens: 1024,
     },
   });
 
-  const imagePart = {
-    inlineData: {
-      data: imageBuffer.toString("base64"),
-      mimeType,
-    },
-  };
-
-  const result = await model.generateContent([ANALYSIS_PROMPT, imagePart]);
-  const text = result.response.text();
+  const text = response.text ?? "";
 
   // Extraire le JSON de la réponse
   const jsonMatch = text.match(/\{[\s\S]*\}/);
