@@ -211,6 +211,9 @@ export default async function InspirationDetailPage({ params }: Props) {
                 country: inspiration.country ?? "",
                 notes: inspiration.notes ?? "",
                 sourceUrl: inspiration.sourceUrl ?? "",
+                categoryId: inspiration.categoryId ?? "",
+                subcategoryId: inspiration.subcategoryId ?? "",
+                tags: inspiration.tags.map((t) => t.tag.name),
               }}
             />
           </div>
