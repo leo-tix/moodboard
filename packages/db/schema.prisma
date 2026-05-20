@@ -39,8 +39,8 @@ model Category {
   order         Int           @default(0)
   createdAt     DateTime      @default(now())
 
-  subcategories Subcategory[]
-  inspirations  Inspiration[]
+  subcategories          Subcategory[]
+  inspirationCategories  InspirationCategory[]
 
   @@map("categories")
 }
@@ -52,11 +52,25 @@ model Subcategory {
   categoryId  String
   order       Int           @default(0)
 
-  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  inspirations Inspiration[]
+  category              Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  inspirationCategories InspirationCategory[]
 
   @@unique([categoryId, slug])
   @@map("subcategories")
+}
+
+// Many-to-many: une inspiration peut appartenir à plusieurs catégories
+model InspirationCategory {
+  inspirationId  String
+  categoryId     String
+  subcategoryId  String?
+
+  inspiration    Inspiration  @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+  category       Category     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subcategory    Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+
+  @@id([inspirationId, categoryId])
+  @@map("inspiration_categories")
 }
 
 // ============================================================
@@ -101,8 +115,6 @@ model Inspiration {
 
   // Classification
   mediaType      MediaType      @default(IMAGE)
-  categoryId     String?
-  subcategoryId  String?
 
   // Notes personnelles
   notes          String?
@@ -115,8 +127,7 @@ model Inspiration {
   updatedAt      DateTime       @updatedAt
 
   // Relations
-  category       Category?      @relation(fields: [categoryId], references: [id])
-  subcategory    Subcategory?   @relation(fields: [subcategoryId], references: [id])
+  categories     InspirationCategory[]
   images         Image[]
   tags           InspirationTag[]
   collections    CollectionItem[]
@@ -124,7 +135,6 @@ model Inspiration {
   colorPalette   InspirationColor[]
   videoImport    VideoImport?
 
-  @@index([categoryId])
   @@index([year])
   @@index([status])
   @@index([createdAt])

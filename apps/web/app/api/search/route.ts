@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
           orderBy: [{ isMain: "desc" }, { order: "asc" }],
           take: 1,
         },
-        category: { select: { name: true } },
+        categories: { include: { category: { select: { name: true } } }, take: 3 },
         tags: { include: { tag: { select: { name: true, slug: true } } }, take: 5 },
         colorPalette: { select: { hex: true }, orderBy: { order: "asc" }, take: 3 },
       },

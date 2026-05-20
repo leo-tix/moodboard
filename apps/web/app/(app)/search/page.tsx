@@ -1,14 +1,21 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { InspirationGrid } from "@/components/inspiration/InspirationGrid";
+import { InspirationGrid, type InspirationGridItem } from "@/components/inspiration/InspirationGrid";
 import { SearchBar } from "@/components/search/SearchBar";
 import { FilterPanel } from "@/components/search/FilterPanel";
-import { Spinner } from "@/components/ui/Spinner";
 import type { Prisma } from "@prisma/client";
 
 export const metadata: Metadata = { title: "Recherche" };
 export const dynamic = "force-dynamic";
+
+// Same perceptual distance as the API route (kept in sync)
+function colorDistance(hex1: string, hex2: string): number {
+  const p = (h: string, s: number) => parseInt(h.slice(s, s + 2), 16);
+  const [r1, g1, b1] = [p(hex1, 1), p(hex1, 3), p(hex1, 5)];
+  const [r2, g2, b2] = [p(hex2, 1), p(hex2, 3), p(hex2, 5)];
+  return Math.sqrt(2 * (r1-r2)**2 + 4 * (g1-g2)**2 + 3 * (b1-b2)**2);
+}
 
 interface SearchPageProps {
   searchParams: Promise<{
@@ -17,6 +24,7 @@ interface SearchPageProps {
     tags?: string;
     yearFrom?: string;
     yearTo?: string;
+    color?: string;
     page?: string;
   }>;
 }
@@ -28,11 +36,12 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const tags = params.tags ? params.tags.split(",").filter(Boolean) : [];
   const yearFrom = params.yearFrom ? parseInt(params.yearFrom) : null;
   const yearTo = params.yearTo ? parseInt(params.yearTo) : null;
+  const colorHex = params.color ? params.color.replace("#", "").toUpperCase() : "";
+  const isColorSearch = /^[0-9A-F]{6}$/.test(colorHex);
 
-  const hasFilters = q || categoryId || tags.length > 0 || yearFrom || yearTo;
+  const hasFilters = q || categoryId || tags.length > 0 || yearFrom || yearTo || isColorSearch;
 
-  // Filtres Prisma
-  const where: Prisma.InspirationWhereInput = {
+  const textWhere: Prisma.InspirationWhereInput = {
     status: "READY",
     ...(q && {
       OR: [
@@ -45,7 +54,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         { tags: { some: { tag: { name: { contains: q, mode: "insensitive" } } } } },
       ],
     }),
-    ...(categoryId && { categoryId }),
+    ...(categoryId && { categories: { some: { categoryId } } }),
     ...(tags.length > 0 && {
       AND: tags.map((slug) => ({ tags: { some: { tag: { slug } } } })),
     }),
@@ -57,32 +66,51 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     }),
   };
 
-  // Données en parallèle
-  const [inspirations, categories, popularTags] = await Promise.all([
+  const [inspirationsRaw, categories, popularTags] = await Promise.all([
     db.inspiration.findMany({
-      where,
+      where: isColorSearch ? { status: "READY", colorPalette: { some: {} } } : textWhere,
       include: {
+        colorPalette: isColorSearch ? { orderBy: { order: "asc" } } : false,
         images: {
           select: { thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
           orderBy: [{ isMain: "desc" }, { order: "asc" }],
           take: 1,
         },
-        category: { select: { name: true } },
+        categories: { include: { category: { select: { name: true } } }, take: 3 },
         tags: { include: { tag: { select: { name: true } } }, take: 5 },
       },
       orderBy: { createdAt: "desc" },
-      take: 96,
+      take: isColorSearch ? 500 : 96,
     }),
-
     db.category.findMany({ orderBy: { order: "asc" } }),
-
-    // Tags les plus utilisés
     db.tag.findMany({
       include: { _count: { select: { inspirations: true } } },
       orderBy: { inspirations: { _count: "desc" } },
       take: 20,
     }),
   ]);
+
+  // Color sort — compute min distance per inspiration, filter, sort
+  type InspirationWithColor = (typeof inspirationsRaw)[0] & { _colorDistance?: number };
+  let inspirations: InspirationWithColor[];
+
+  if (isColorSearch) {
+    const target = `#${colorHex}`;
+    const THRESHOLD = 120;
+    inspirations = (inspirationsRaw as InspirationWithColor[])
+      .map((insp) => {
+        const palette = (insp as { colorPalette?: { hex: string }[] }).colorPalette ?? [];
+        const minDist = palette.length
+          ? Math.min(...palette.map((c) => colorDistance(target, c.hex)))
+          : 999;
+        return { ...insp, _colorDistance: Math.round(minDist) };
+      })
+      .filter((i) => i._colorDistance! <= THRESHOLD)
+      .sort((a, b) => a._colorDistance! - b._colorDistance!)
+      .slice(0, 48);
+  } else {
+    inspirations = inspirationsRaw;
+  }
 
   const tagsForPanel = popularTags
     .filter((t) => t._count.inspirations > 0)
@@ -91,26 +119,33 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   return (
     <div className="p-6">
       <header className="mb-6">
-        <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">
-          Explorer
-        </p>
+        <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">Explorer</p>
         <h1 className="text-2xl font-light text-[var(--text-primary)] mb-4">Recherche</h1>
-
-        {/* Barre de recherche */}
         <Suspense>
           <SearchBar autoFocus />
         </Suspense>
       </header>
 
       <div className="flex gap-8">
-        {/* Filtres sidebar */}
         <Suspense>
           <FilterPanel categories={categories} popularTags={tagsForPanel} />
         </Suspense>
 
-        {/* Résultats */}
         <div className="flex-1 min-w-0">
-          {hasFilters && (
+          {/* Color search badge */}
+          {isColorSearch && (
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-5 h-5 rounded-sm border border-[var(--border-subtle)]" style={{ backgroundColor: `#${colorHex}` }} />
+              <p className="text-xs text-[var(--text-secondary)]">
+                Couleurs similaires à <span className="font-mono">#{colorHex}</span>
+              </p>
+              {inspirations.length > 0 && (
+                <span className="text-[10px] text-[var(--text-tertiary)]">— {inspirations.length} résultat{inspirations.length > 1 ? "s" : ""}</span>
+              )}
+            </div>
+          )}
+
+          {hasFilters && !isColorSearch && (
             <p className="text-xs text-[var(--text-tertiary)] mb-4">
               {inspirations.length === 0
                 ? "Aucun résultat"
@@ -118,17 +153,22 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             </p>
           )}
 
-          {!hasFilters && inspirations.length === 0 ? (
+          {!hasFilters ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
-              <p className="text-[var(--text-tertiary)] text-sm mb-1">
-                Tape quelque chose pour commencer
-              </p>
-              <p className="text-[var(--text-tertiary)] text-xs">
-                ou utilise les filtres pour explorer ta bibliothèque
-              </p>
+              <p className="text-[var(--text-tertiary)] text-sm mb-1">Tape quelque chose pour commencer</p>
+              <p className="text-[var(--text-tertiary)] text-xs">ou utilise les filtres pour explorer ta bibliothèque</p>
+            </div>
+          ) : inspirations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <p className="text-[var(--text-tertiary)] text-sm">Aucun résultat</p>
+              {isColorSearch && (
+                <p className="text-[var(--text-tertiary)] text-xs mt-1">
+                  Essaie une couleur plus proche de ta bibliothèque
+                </p>
+              )}
             </div>
           ) : (
-            <InspirationGrid inspirations={inspirations} columns={3} />
+            <InspirationGrid inspirations={inspirations as InspirationGridItem[]} columns={3} />
           )}
         </div>
       </div>

@@ -3,11 +3,11 @@
 import { motion } from "framer-motion";
 import { InspirationCard } from "./InspirationCard";
 
-interface Inspiration {
+export interface InspirationGridItem {
   id: string;
   title: string;
   year: number | null;
-  category: { name: string } | null;
+  categories: { category: { name: string } }[];
   images: {
     thumbnailKey: string | null;
     blurHash: string | null;
@@ -19,24 +19,25 @@ interface Inspiration {
 }
 
 interface InspirationGridProps {
-  inspirations: Inspiration[];
+  inspirations: InspirationGridItem[];
   columns?: 2 | 3 | 4 | 5;
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onSelect?: (id: string) => void;
 }
 
 export function InspirationGrid({
   inspirations,
   columns = 4,
+  selectable,
+  selectedIds,
+  onSelect,
 }: InspirationGridProps) {
   if (inspirations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-center">
-        <p className="text-[var(--text-tertiary)] text-sm mb-1">
-          Aucune inspiration pour le moment
-        </p>
-        <a
-          href="/upload"
-          className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors underline underline-offset-4"
-        >
+        <p className="text-[var(--text-tertiary)] text-sm mb-1">Aucune inspiration pour le moment</p>
+        <a href="/upload" className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors underline underline-offset-4">
           Ajouter des références →
         </a>
       </div>
@@ -54,6 +55,8 @@ export function InspirationGrid({
     <div className={`${colClass[columns]} gap-2`}>
       {inspirations.map((item, i) => {
         const mainImage = item.images.find((img) => img.isMain) ?? item.images[0];
+        const firstCategory = item.categories[0]?.category.name ?? null;
+        const extraCount = item.categories.length > 1 ? item.categories.length - 1 : 0;
 
         return (
           <motion.div
@@ -70,9 +73,12 @@ export function InspirationGrid({
               blurHash={mainImage?.blurHash ?? null}
               width={mainImage?.width ?? null}
               height={mainImage?.height ?? null}
-              category={item.category?.name}
+              category={firstCategory ? (extraCount > 0 ? `${firstCategory} +${extraCount}` : firstCategory) : null}
               tags={item.tags.map((t) => t.tag.name)}
               year={item.year}
+              selectable={selectable}
+              selected={selectedIds?.has(item.id)}
+              onSelect={onSelect}
             />
           </motion.div>
         );

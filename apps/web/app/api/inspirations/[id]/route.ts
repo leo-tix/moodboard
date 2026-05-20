@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { deleteFromR2 } from "@/lib/storage/r2";
 import { updateInspirationSchema } from "@/lib/validators/inspiration";
 
 // GET /api/inspirations/[id]
@@ -17,8 +18,12 @@ export async function GET(
     where: { id },
     include: {
       images: { orderBy: [{ isMain: "desc" }, { order: "asc" }] },
-      category: true,
-      subcategory: true,
+      categories: {
+        include: {
+          category: true,
+          subcategory: true,
+        },
+      },
       tags: { include: { tag: true } },
       colorPalette: { orderBy: { order: "asc" } },
       aiAnalysis: true,
@@ -26,10 +31,7 @@ export async function GET(
     },
   });
 
-  if (!inspiration) {
-    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
-  }
-
+  if (!inspiration) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   return NextResponse.json(inspiration);
 }
 
@@ -49,7 +51,7 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { tags, ...data } = parsed.data;
+  const { tags, categories, ...data } = parsed.data;
 
   const inspiration = await db.inspiration.update({
     where: { id },
@@ -62,23 +64,32 @@ export async function PATCH(
             tag: {
               connectOrCreate: {
                 where: { slug: name.toLowerCase().replace(/\s+/g, "-") },
-                create: {
-                  name,
-                  slug: name.toLowerCase().replace(/\s+/g, "-"),
-                },
+                create: { name, slug: name.toLowerCase().replace(/\s+/g, "-") },
               },
             },
           })),
         },
       }),
+      ...(categories !== undefined && {
+        categories: {
+          deleteMany: {},
+          create: categories.map(({ categoryId, subcategoryId }) => ({
+            categoryId,
+            subcategoryId: subcategoryId ?? null,
+          })),
+        },
+      }),
     },
-    include: { tags: { include: { tag: true } } },
+    include: {
+      tags: { include: { tag: true } },
+      categories: { include: { category: true, subcategory: true } },
+    },
   });
 
   return NextResponse.json(inspiration);
 }
 
-// DELETE /api/inspirations/[id]
+// DELETE /api/inspirations/[id] — supprime DB + objets R2
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -88,8 +99,24 @@ export async function DELETE(
 
   const { id } = await params;
 
-  // Les images R2 sont à supprimer aussi — géré côté client ou job séparé
+  // Fetch image keys before deletion (cascade will wipe them)
+  const inspiration = await db.inspiration.findUnique({
+    where: { id },
+    include: { images: { select: { storageKey: true, thumbnailKey: true } } },
+  });
+
+  if (!inspiration) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  // Delete DB record (cascade removes Image, InspirationTag, InspirationCategory, etc.)
   await db.inspiration.delete({ where: { id } });
+
+  // Delete R2 objects in parallel (non-blocking — don't fail the request if R2 errors)
+  const keysToDelete = inspiration.images.flatMap((img) =>
+    [img.storageKey, img.thumbnailKey].filter(Boolean) as string[]
+  );
+  if (keysToDelete.length > 0) {
+    await Promise.allSettled(keysToDelete.map((key) => deleteFromR2(key)));
+  }
 
   return NextResponse.json({ success: true });
 }

@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
           },
           orderBy: [{ isMain: "desc" }, { order: "asc" }],
         },
-        category: { select: { name: true } },
+        categories: { include: { category: { select: { name: true } } }, take: 3 },
         tags: { include: { tag: { select: { name: true } } } },
       },
       orderBy: { createdAt: "desc" },

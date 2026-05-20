@@ -24,15 +24,13 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
   const activeTags = (searchParams.get("tags") ?? "").split(",").filter(Boolean);
   const yearFrom = searchParams.get("yearFrom") ?? "";
   const yearTo = searchParams.get("yearTo") ?? "";
+  const activeColor = searchParams.get("color") ?? "";
 
   const updateParam = useCallback(
     (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
+      if (value) params.set(key, value);
+      else params.delete(key);
       params.delete("page");
       router.push(`${pathname}?${params.toString()}`);
     },
@@ -50,21 +48,16 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
     [searchParams, updateParam]
   );
 
-  const hasFilters = activeCategoryId || activeTags.length > 0 || yearFrom || yearTo;
+  const hasFilters = activeCategoryId || activeTags.length > 0 || yearFrom || yearTo || activeColor;
 
   const clearAll = () => {
     const params = new URLSearchParams(searchParams.toString());
-    params.delete("categoryId");
-    params.delete("tags");
-    params.delete("yearFrom");
-    params.delete("yearTo");
-    params.delete("page");
+    ["categoryId", "tags", "yearFrom", "yearTo", "color", "page"].forEach((k) => params.delete(k));
     router.push(`${pathname}?${params.toString()}`);
   };
 
   return (
     <aside className="w-52 flex-shrink-0 space-y-6">
-      {/* Clear all */}
       {hasFilters && (
         <button
           onClick={clearAll}
@@ -73,6 +66,60 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
           ← Effacer les filtres
         </button>
       )}
+
+      {/* Couleur dominante */}
+      <section>
+        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">
+          Couleur
+        </p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={activeColor ? `#${activeColor}` : "#888888"}
+              onChange={(e) => updateParam("color", e.target.value.replace("#", ""))}
+              className="w-8 h-8 rounded cursor-pointer border border-[var(--border-subtle)] bg-transparent p-0.5"
+            />
+            <div className="flex-1">
+              {activeColor ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 rounded-sm flex-shrink-0" style={{ backgroundColor: `#${activeColor}` }} />
+                  <span className="text-[10px] font-mono text-[var(--text-secondary)]">#{activeColor.toUpperCase()}</span>
+                  <button
+                    onClick={() => updateParam("color", "")}
+                    className="ml-auto text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[10px] text-[var(--text-tertiary)]">Choisir une couleur</p>
+              )}
+            </div>
+          </div>
+          {/* Quick palette presets */}
+          <div className="flex flex-wrap gap-1">
+            {[
+              "#E8E0D4", "#1a1a1a", "#4a3728", "#8B4513", "#D2691E",
+              "#2F4F4F", "#1C3A5E", "#4169E1", "#9370DB", "#C71585",
+              "#DC143C", "#FF6347", "#FFA500", "#FFD700", "#90EE90",
+            ].map((c) => (
+              <button
+                key={c}
+                title={c}
+                onClick={() => updateParam("color", c.replace("#", ""))}
+                className={cn(
+                  "w-5 h-5 rounded-sm transition-transform hover:scale-110 border",
+                  activeColor === c.replace("#", "")
+                    ? "border-[var(--text-primary)] scale-110"
+                    : "border-transparent"
+                )}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* Catégories */}
       {categories.length > 0 && (
@@ -97,9 +144,7 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
             {categories.map((cat) => (
               <li key={cat.id}>
                 <button
-                  onClick={() =>
-                    updateParam("categoryId", activeCategoryId === cat.id ? "" : cat.id)
-                  }
+                  onClick={() => updateParam("categoryId", activeCategoryId === cat.id ? "" : cat.id)}
                   className={cn(
                     "w-full text-left text-xs px-2.5 py-1.5 rounded transition-colors",
                     activeCategoryId === cat.id
@@ -117,9 +162,7 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
 
       {/* Années */}
       <section>
-        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">
-          Période
-        </p>
+        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">Période</p>
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -139,12 +182,10 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
         </div>
       </section>
 
-      {/* Tags populaires */}
+      {/* Tags */}
       {popularTags.length > 0 && (
         <section>
-          <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">
-            Tags
-          </p>
+          <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">Tags</p>
           <div className="flex flex-wrap gap-1.5">
             {popularTags.map((tag) => {
               const isActive = activeTags.includes(tag.slug);
