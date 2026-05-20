@@ -5,13 +5,12 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL") // Neon nécessite 2 URLs
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================
@@ -96,8 +95,8 @@ model Inspiration {
 
   // Contexte
   exposition     String?
-  location       String?       // lieu de capture physique
-  source         String?       // nom de la source (magazine, site...)
+  location       String?
+  source         String?
   sourceUrl      String?
 
   // Classification
@@ -114,9 +113,6 @@ model Inspiration {
   // Timestamps
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
-
-  // Recherche full-text (générée automatiquement)
-  searchVector   Unsupported("tsvector")?
 
   // Relations
   category       Category?      @relation(fields: [categoryId], references: [id])
@@ -142,29 +138,29 @@ enum MediaType {
 }
 
 enum InspirationStatus {
-  PROCESSING  // Upload en cours
-  READY       // Prêt
-  ERROR       // Erreur traitement
+  PROCESSING
+  READY
+  ERROR
 }
 
 // ============================================================
-// IMAGE — Fichiers liés à une inspiration
+// IMAGE
 // ============================================================
 model Image {
   id             String      @id @default(cuid())
   inspirationId  String
-  filename       String      // nom généré (uuid.webp)
-  originalName   String      // nom original du fichier
+  filename       String
+  originalName   String
   mimeType       String
-  size           Int         // bytes
+  size           Int
   width          Int?
   height         Int?
-  storageKey     String      // chemin dans R2: images/uuid.webp
-  thumbnailKey   String?     // chemin thumb: thumbs/uuid.webp
-  blurHash       String?     // placeholder flou
+  storageKey     String
+  thumbnailKey   String?
+  blurHash       String?
   isMain         Boolean     @default(false)
   order          Int         @default(0)
-  exifData       Json?       // données EXIF brutes
+  exifData       Json?
   createdAt      DateTime    @default(now())
 
   inspiration    Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
@@ -174,7 +170,7 @@ model Image {
 }
 
 // ============================================================
-// TAGS — Table de liaison M:M
+// TAGS (liaison M:M)
 // ============================================================
 model InspirationTag {
   inspirationId  String
@@ -225,10 +221,10 @@ model CollectionItem {
 model AIAnalysis {
   id              String      @id @default(cuid())
   inspirationId   String      @unique
-  rawResponse     Json        // réponse brute Gemini
-  styleKeywords   String[]    // mots-clés style
-  moodDescriptor  String?     // ambiance générale
-  technicalNotes  String?     // notes techniques IA
+  rawResponse     Json
+  styleKeywords   String[]
+  moodDescriptor  String?
+  technicalNotes  String?
   processedAt     DateTime    @default(now())
 
   inspiration     Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
@@ -242,12 +238,12 @@ model AIAnalysis {
 model InspirationColor {
   id              String      @id @default(cuid())
   inspirationId   String
-  hex             String      // ex: #FF5733
+  hex             String
   r               Int
   g               Int
   b               Int
-  percentage      Float       // part dans l'image (0-1)
-  order           Int         @default(0) // 0 = couleur dominante
+  percentage      Float
+  order           Int         @default(0)
 
   inspiration     Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
 
@@ -265,10 +261,10 @@ model VideoImport {
   sourceUrl       String
   platform        VideoPlatform
   title           String?
-  duration        Int?              // secondes
+  duration        Int?
   status          VideoImportStatus @default(PENDING)
-  extractedStills Json?             // URLs stills extraits [{url, timestamp}]
-  selectedStills  String[]          // URLs stills sélectionnés
+  extractedStills Json?
+  selectedStills  String[]
   errorMessage    String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -287,7 +283,7 @@ enum VideoPlatform {
 enum VideoImportStatus {
   PENDING
   PROCESSING
-  SELECTING    // stills extraits, attente sélection utilisateur
+  SELECTING
   DONE
   ERROR
 }
