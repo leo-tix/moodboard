@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { analyzeImageWithGemini } from "@/lib/ai/gemini";
+import sharp from "sharp";
 
-// Vercel: allow up to 60s (Gemini + image download can take ~10s)
 export const maxDuration = 60;
 
 export async function POST(
@@ -34,10 +34,16 @@ export async function POST(
   const imageUrl = `${process.env.R2_PUBLIC_URL}/${mainImage.thumbnailKey}`;
   const imageRes = await fetch(imageUrl);
   if (!imageRes.ok) return NextResponse.json({ error: "Impossible de récupérer l'image" }, { status: 500 });
-  const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+  const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
+
+  // Resize to 256px max — keeps Gemini payload small (~10-20KB vs ~150KB)
+  const smallBuffer = await sharp(rawBuffer)
+    .resize(256, 256, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 75 })
+    .toBuffer();
 
   // Analyze with Gemini
-  const analysis = await analyzeImageWithGemini(imageBuffer, "image/webp");
+  const analysis = await analyzeImageWithGemini(smallBuffer, "image/jpeg");
 
   // Upsert AIAnalysis
   await db.aIAnalysis.upsert({
