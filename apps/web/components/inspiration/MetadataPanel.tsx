@@ -26,13 +26,17 @@ interface MetadataPanelProps {
   };
   colorPalette?: { id: string; hex: string; order: number }[];
   aiAnalysis?: { moodDescriptor?: string | null; styleKeywords: string[] } | null;
+  /** If true, trigger AI analysis automatically on mount */
+  autoAnalyze?: boolean;
+  /** If true, render the AI section before the form fields */
+  aiFirst?: boolean;
 }
 
 const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1";
 const fld =
   "w-full bg-transparent border-b border-[var(--border-subtle)] focus:border-[var(--border-default)] text-[var(--text-primary)] text-xs py-1 focus:outline-none transition-colors placeholder:text-[var(--text-tertiary)]";
 
-export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: MetadataPanelProps) {
+export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, autoAnalyze, aiFirst }: MetadataPanelProps) {
   const [data, setData] = useState(initialData);
   const [tags, setTags] = useState<string[]>(initialData.tags ?? []);
   const [categories, setCategories] = useState<CategorySelection[]>(initialData.categories ?? []);
@@ -58,6 +62,14 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
       .then(setAllCategories)
       .catch(console.error);
   }, []);
+
+  // Auto-trigger analysis when requested (e.g. in upload slide-over)
+  useEffect(() => {
+    if (autoAnalyze && id) {
+      analyze();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, autoAnalyze]);
 
   const analyze = async () => {
     setAnalyzing(true);
@@ -146,18 +158,171 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
     }
   };
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
-        {/* Titre */}
-        <div>
-          <p className={lbl}>Titre</p>
-          <input
-            className="w-full bg-transparent text-[var(--text-primary)] text-base font-medium py-0.5 focus:outline-none border-b border-transparent hover:border-[var(--border-subtle)] focus:border-[var(--border-default)] transition-colors"
-            value={data.title}
-            onChange={(e) => update("title", e.target.value)}
-          />
+  // AI section — rendered as a standalone block so it can be placed before or after the form
+  const aiSection = (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className={lbl}>Analyse IA</p>
+        <button
+          type="button"
+          onClick={analyze}
+          disabled={analyzing}
+          className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 font-medium"
+        >
+          {analyzing ? (
+            <>
+              <div className="w-2.5 h-2.5 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
+              Analyse en cours…
+            </>
+          ) : aiResult ? (
+            "↺ Re-analyser"
+          ) : (
+            "✦ Analyser avec l'IA"
+          )}
+        </button>
+      </div>
+
+      {analyzing && (
+        <div className="flex items-center gap-2 py-3 px-3 rounded-md bg-[var(--bg-elevated)] mb-2">
+          <div className="w-3 h-3 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin flex-shrink-0" />
+          <span className="text-[10px] text-[var(--text-secondary)]">Gemini analyse l&apos;image…</span>
         </div>
+      )}
+
+      {analyzeError && !analyzing && (
+        <div className="py-2 px-3 rounded-md bg-red-500/10 mb-2">
+          <p className="text-[10px] text-red-400">{analyzeError}</p>
+        </div>
+      )}
+
+      {!analyzing && aiResult ? (
+        <div className="space-y-3">
+
+          {/* Tout accepter */}
+          <button
+            type="button"
+            onClick={acceptAll}
+            className="w-full text-[9px] text-[var(--accent,#a78bfa)] border border-dashed border-[var(--accent,#a78bfa)]/40 hover:border-[var(--accent,#a78bfa)] rounded px-2 py-1.5 transition-colors"
+          >
+            ✦ Tout accepter
+          </button>
+
+          {/* Titre suggéré */}
+          {aiResult.suggestedTitle && aiResult.suggestedTitle !== data.title && (
+            <div className="flex items-center gap-2 p-2 rounded bg-[var(--bg-elevated)]">
+              <span className="text-[10px] text-[var(--text-tertiary)] flex-1 truncate">
+                Titre : <em className="text-[var(--text-secondary)]">{aiResult.suggestedTitle}</em>
+              </span>
+              <button type="button" onClick={applySuggestedTitle} className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 flex-shrink-0">
+                Appliquer
+              </button>
+            </div>
+          )}
+
+          {/* Ambiance → description */}
+          {aiResult.moodDescriptor && (
+            <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
+              <p className="text-[11px] text-[var(--text-secondary)] italic leading-relaxed">
+                &ldquo;{aiResult.moodDescriptor}&rdquo;
+              </p>
+              <button type="button" onClick={applyMoodAsDescription}
+                className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
+                → Appliquer comme description
+              </button>
+            </div>
+          )}
+
+          {/* Notes techniques → notes */}
+          {aiResult.technicalNotes && (
+            <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
+              <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+                {aiResult.technicalNotes}
+              </p>
+              <button type="button" onClick={applyTechnicalAsNotes}
+                className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
+                → Appliquer comme notes
+              </button>
+            </div>
+          )}
+
+          {/* Mots-clés stylistiques → tags au clic */}
+          {aiResult.styleKeywords.length > 0 && (
+            <div>
+              <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Style — cliquer pour ajouter</p>
+              <div className="flex flex-wrap gap-1">
+                {aiResult.styleKeywords.map((kw) => {
+                  const already = tags.includes(kw);
+                  return (
+                    <button key={kw} type="button" onClick={() => acceptKeywordAsTag(kw)} disabled={already}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors ${
+                        already
+                          ? "bg-[var(--bg-overlay)] text-[var(--text-tertiary)] cursor-default"
+                          : "border border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)] hover:border-[var(--accent,#a78bfa)]"
+                      }`}>
+                      {already ? "✓" : "+"} {kw}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Catégories suggérées par Gemini */}
+          {pendingCategories.length > 0 && (
+            <div>
+              <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Catégories suggérées</p>
+              <div className="flex flex-wrap gap-1">
+                {pendingCategories.map((cat) => (
+                  <button key={cat.id} type="button" onClick={() => acceptCategory(cat.id)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)] hover:border-[var(--accent,#a78bfa)] transition-colors">
+                    + {cat.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tags suggérés */}
+          {pendingTags.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest">Tags suggérés</p>
+                <button type="button" onClick={acceptAllTags}
+                  className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
+                  Tout accepter
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {pendingTags.map((tag) => (
+                  <button key={tag} type="button" onClick={() => acceptTag(tag)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : !analyzing && !analyzeError ? (
+        <p className="text-[10px] text-[var(--text-tertiary)]">
+          Laisse Gemini analyser l&apos;image pour obtenir des tags, un descripteur d&apos;ambiance et des mots-clés stylistiques.
+        </p>
+      ) : null}
+    </div>
+  );
+
+  // Form fields block
+  const formFields = (
+    <>
+      {/* Titre */}
+      <div>
+        <p className={lbl}>Titre</p>
+        <input
+          className="w-full bg-transparent text-[var(--text-primary)] text-base font-medium py-0.5 focus:outline-none border-b border-transparent hover:border-[var(--border-subtle)] focus:border-[var(--border-default)] transition-colors"
+          value={data.title}
+          onChange={(e) => update("title", e.target.value)}
+        />
+      </div>
 
         {/* Catégories — multi-sélection */}
         <div>
@@ -261,147 +426,24 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
           </div>
         )}
 
-        {/* Analyse IA */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className={lbl}>Analyse IA</p>
-            <button
-              type="button"
-              onClick={analyze}
-              disabled={analyzing}
-              className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 font-medium"
-            >
-              {aiResult ? "↺ Re-analyser" : "✦ Analyser avec l'IA"}
-            </button>
-          </div>
+    </>
+  );
 
-          {analyzing && (
-            <div className="flex items-center gap-2 py-3 px-3 rounded-md bg-[var(--bg-elevated)] mb-2">
-              <div className="w-3 h-3 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin flex-shrink-0" />
-              <span className="text-[10px] text-[var(--text-secondary)]">Gemini analyse l&apos;image…</span>
-            </div>
-          )}
-
-          {analyzeError && !analyzing && (
-            <div className="py-2 px-3 rounded-md bg-red-500/10 mb-2">
-              <p className="text-[10px] text-red-400">{analyzeError}</p>
-            </div>
-          )}
-
-          {!analyzing && aiResult ? (
-            <div className="space-y-3">
-
-              {/* Tout accepter */}
-              <button
-                type="button"
-                onClick={acceptAll}
-                className="w-full text-[9px] text-[var(--accent,#a78bfa)] border border-dashed border-[var(--accent,#a78bfa)]/40 hover:border-[var(--accent,#a78bfa)] rounded px-2 py-1.5 transition-colors"
-              >
-                ✦ Tout accepter
-              </button>
-
-              {/* Titre suggéré */}
-              {aiResult.suggestedTitle && aiResult.suggestedTitle !== data.title && (
-                <div className="flex items-center gap-2 p-2 rounded bg-[var(--bg-elevated)]">
-                  <span className="text-[10px] text-[var(--text-tertiary)] flex-1 truncate">
-                    Titre : <em className="text-[var(--text-secondary)]">{aiResult.suggestedTitle}</em>
-                  </span>
-                  <button type="button" onClick={applySuggestedTitle} className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 flex-shrink-0">
-                    Appliquer
-                  </button>
-                </div>
-              )}
-
-              {/* Ambiance → description */}
-              {aiResult.moodDescriptor && (
-                <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
-                  <p className="text-[11px] text-[var(--text-secondary)] italic leading-relaxed">
-                    &ldquo;{aiResult.moodDescriptor}&rdquo;
-                  </p>
-                  <button type="button" onClick={applyMoodAsDescription}
-                    className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
-                    → Appliquer comme description
-                  </button>
-                </div>
-              )}
-
-              {/* Notes techniques → notes */}
-              {aiResult.technicalNotes && (
-                <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
-                  <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
-                    {aiResult.technicalNotes}
-                  </p>
-                  <button type="button" onClick={applyTechnicalAsNotes}
-                    className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
-                    → Appliquer comme notes
-                  </button>
-                </div>
-              )}
-
-              {/* Mots-clés stylistiques → tags au clic */}
-              {aiResult.styleKeywords.length > 0 && (
-                <div>
-                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Style — cliquer pour ajouter</p>
-                  <div className="flex flex-wrap gap-1">
-                    {aiResult.styleKeywords.map((kw) => {
-                      const already = tags.includes(kw);
-                      return (
-                        <button key={kw} type="button" onClick={() => acceptKeywordAsTag(kw)} disabled={already}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors ${
-                            already
-                              ? "bg-[var(--bg-overlay)] text-[var(--text-tertiary)] cursor-default"
-                              : "border border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)] hover:border-[var(--accent,#a78bfa)]"
-                          }`}>
-                          {already ? "✓" : "+"} {kw}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Catégories suggérées par Gemini */}
-              {pendingCategories.length > 0 && (
-                <div>
-                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Catégories suggérées</p>
-                  <div className="flex flex-wrap gap-1">
-                    {pendingCategories.map((cat) => (
-                      <button key={cat.id} type="button" onClick={() => acceptCategory(cat.id)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)] hover:border-[var(--accent,#a78bfa)] transition-colors">
-                        + {cat.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Tags suggérés */}
-              {pendingTags.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest">Tags suggérés</p>
-                    <button type="button" onClick={acceptAllTags}
-                      className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
-                      Tout accepter
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {pendingTags.map((tag) => (
-                      <button key={tag} type="button" onClick={() => acceptTag(tag)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">
-                        + {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : !analyzing && !analyzeError ? (
-            <p className="text-[10px] text-[var(--text-tertiary)]">
-              Laisse Gemini analyser l&apos;image pour obtenir des tags, un descripteur d&apos;ambiance et des mots-clés stylistiques.
-            </p>
-          ) : null}
-        </div>
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        {aiFirst ? (
+          <>
+            {aiSection}
+            <hr className="border-[var(--border-subtle)]" />
+            {formFields}
+          </>
+        ) : (
+          <>
+            {formFields}
+            {aiSection}
+          </>
+        )}
       </div>
 
       <div className="flex-shrink-0 px-6 py-4 border-t border-[var(--border-subtle)]">

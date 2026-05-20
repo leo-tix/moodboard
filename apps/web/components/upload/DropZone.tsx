@@ -383,15 +383,15 @@ export function DropZone() {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", bounce: 0, duration: 0.32 }}
-              className="fixed top-0 right-0 bottom-0 w-80 bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-50 flex flex-col"
+              className="fixed top-0 right-0 bottom-0 w-[480px] bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-50 flex flex-col"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] flex-shrink-0">
-                <p className="text-xs text-[var(--text-secondary)] truncate max-w-[200px]">
+                <p className="text-xs text-[var(--text-secondary)] truncate max-w-[320px]">
                   {editingFile.file.name}
                 </p>
                 <button onClick={() => setEditingId(null)} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2">✕</button>
               </div>
-              <div className="h-36 bg-[var(--bg-surface)] flex-shrink-0 overflow-hidden">
+              <div className="h-48 bg-[var(--bg-surface)] flex-shrink-0 overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={editingFile.preview} alt="" className="w-full h-full object-contain" />
               </div>
@@ -407,6 +407,8 @@ export function DropZone() {
                     notes: "",
                     sourceUrl: "",
                   }}
+                  autoAnalyze
+                  aiFirst
                 />
               </div>
             </motion.div>
