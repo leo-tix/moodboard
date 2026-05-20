@@ -40,12 +40,49 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // AI analysis state
+  const [aiResult, setAiResult] = useState<{
+    moodDescriptor?: string;
+    styleKeywords: string[];
+    technicalNotes?: string;
+    suggestedTitle?: string;
+  } | null>(aiAnalysis ? { moodDescriptor: aiAnalysis.moodDescriptor ?? undefined, styleKeywords: aiAnalysis.styleKeywords, technicalNotes: undefined } : null);
+  const [pendingTags, setPendingTags] = useState<string[]>([]);
+  const [analyzing, setAnalyzing] = useState(false);
+
   useEffect(() => {
     fetch("/api/categories")
       .then((r) => r.json())
       .then(setAllCategories)
       .catch(console.error);
   }, []);
+
+  const analyze = async () => {
+    setAnalyzing(true);
+    try {
+      const res = await fetch(`/api/inspirations/${id}/analyze`, { method: "POST" });
+      if (!res.ok) throw new Error();
+      const { analysis, suggestedTags } = await res.json();
+      setAiResult(analysis);
+      setPendingTags(suggestedTags.filter((t: string) => !tags.includes(t)));
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const acceptTag = (tag: string) => {
+    setTags((prev) => [...prev, tag]);
+    setPendingTags((prev) => prev.filter((t) => t !== tag));
+  };
+
+  const acceptAllTags = () => {
+    setTags((prev) => [...prev, ...pendingTags]);
+    setPendingTags([]);
+  };
+
+  const applySuggestedTitle = () => {
+    if (aiResult?.suggestedTitle) update("title", aiResult.suggestedTitle);
+  };
 
   const update = (field: string, value: string | number) =>
     setData((p) => ({ ...p, [field]: value }));
@@ -186,19 +223,91 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
         )}
 
         {/* Analyse IA */}
-        {aiAnalysis && (aiAnalysis.moodDescriptor || aiAnalysis.styleKeywords.length > 0) && (
-          <div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
             <p className={lbl}>Analyse IA</p>
-            {aiAnalysis.moodDescriptor && (
-              <p className="text-[11px] text-[var(--text-secondary)] italic mb-2">&ldquo;{aiAnalysis.moodDescriptor}&rdquo;</p>
-            )}
-            {aiAnalysis.styleKeywords.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {aiAnalysis.styleKeywords.map((kw) => <Badge key={kw} variant="ai">{kw}</Badge>)}
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={analyze}
+              disabled={analyzing}
+              className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40 flex items-center gap-1"
+            >
+              {analyzing ? (
+                <span className="animate-pulse">Analyse en cours…</span>
+              ) : (
+                <span>{aiResult ? "↺ Re-analyser" : "✦ Analyser avec l'IA"}</span>
+              )}
+            </button>
           </div>
-        )}
+
+          {aiResult ? (
+            <div className="space-y-3">
+              {aiResult.moodDescriptor && (
+                <p className="text-[11px] text-[var(--text-secondary)] italic leading-relaxed">
+                  &ldquo;{aiResult.moodDescriptor}&rdquo;
+                </p>
+              )}
+              {aiResult.technicalNotes && (
+                <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+                  {aiResult.technicalNotes}
+                </p>
+              )}
+              {aiResult.styleKeywords.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {aiResult.styleKeywords.map((kw) => (
+                    <Badge key={kw} variant="ai">{kw}</Badge>
+                  ))}
+                </div>
+              )}
+              {aiResult.suggestedTitle && aiResult.suggestedTitle !== data.title && (
+                <div className="flex items-center gap-2 p-2 rounded bg-[var(--bg-elevated)]">
+                  <span className="text-[10px] text-[var(--text-tertiary)] flex-1 truncate">
+                    Titre suggéré : <em className="text-[var(--text-secondary)]">{aiResult.suggestedTitle}</em>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={applySuggestedTitle}
+                    className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0"
+                  >
+                    Appliquer
+                  </button>
+                </div>
+              )}
+              {pendingTags.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest">
+                      Tags suggérés
+                    </p>
+                    <button
+                      type="button"
+                      onClick={acceptAllTags}
+                      className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+                    >
+                      Tout accepter
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {pendingTags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => acceptTag(tag)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] transition-colors"
+                      >
+                        <span>+</span> {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[10px] text-[var(--text-tertiary)]">
+              Laisse Gemini analyser l&apos;image pour obtenir des tags, un descripteur d&apos;ambiance et des mots-clés stylistiques.
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="flex-shrink-0 px-6 py-4 border-t border-[var(--border-subtle)]">
