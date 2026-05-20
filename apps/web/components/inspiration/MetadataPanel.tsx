@@ -49,6 +49,7 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
   } | null>(aiAnalysis ? { moodDescriptor: aiAnalysis.moodDescriptor ?? undefined, styleKeywords: aiAnalysis.styleKeywords, technicalNotes: undefined } : null);
   const [pendingTags, setPendingTags] = useState<string[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/categories")
@@ -59,12 +60,15 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
 
   const analyze = async () => {
     setAnalyzing(true);
+    setAnalyzeError(null);
     try {
       const res = await fetch(`/api/inspirations/${id}/analyze`, { method: "POST" });
-      if (!res.ok) throw new Error();
-      const { analysis, suggestedTags } = await res.json();
-      setAiResult(analysis);
-      setPendingTags(suggestedTags.filter((t: string) => !tags.includes(t)));
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Erreur inconnue");
+      setAiResult(json.analysis);
+      setPendingTags(json.suggestedTags.filter((t: string) => !tags.includes(t)));
+    } catch (e) {
+      setAnalyzeError(e instanceof Error ? e.message : "Erreur d'analyse");
     } finally {
       setAnalyzing(false);
     }
@@ -230,17 +234,26 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
               type="button"
               onClick={analyze}
               disabled={analyzing}
-              className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40 flex items-center gap-1"
+              className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 font-medium"
             >
-              {analyzing ? (
-                <span className="animate-pulse">Analyse en cours…</span>
-              ) : (
-                <span>{aiResult ? "↺ Re-analyser" : "✦ Analyser avec l'IA"}</span>
-              )}
+              {aiResult ? "↺ Re-analyser" : "✦ Analyser avec l'IA"}
             </button>
           </div>
 
-          {aiResult ? (
+          {analyzing && (
+            <div className="flex items-center gap-2 py-3 px-3 rounded-md bg-[var(--bg-elevated)] mb-2">
+              <div className="w-3 h-3 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin flex-shrink-0" />
+              <span className="text-[10px] text-[var(--text-secondary)]">Gemini analyse l&apos;image…</span>
+            </div>
+          )}
+
+          {analyzeError && !analyzing && (
+            <div className="py-2 px-3 rounded-md bg-red-500/10 mb-2">
+              <p className="text-[10px] text-red-400">{analyzeError}</p>
+            </div>
+          )}
+
+          {!analyzing && aiResult ? (
             <div className="space-y-3">
               {aiResult.moodDescriptor && (
                 <p className="text-[11px] text-[var(--text-secondary)] italic leading-relaxed">
@@ -302,11 +315,11 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
                 </div>
               )}
             </div>
-          ) : (
+          ) : !analyzing && !analyzeError ? (
             <p className="text-[10px] text-[var(--text-tertiary)]">
               Laisse Gemini analyser l&apos;image pour obtenir des tags, un descripteur d&apos;ambiance et des mots-clés stylistiques.
             </p>
-          )}
+          ) : null}
         </div>
       </div>
 

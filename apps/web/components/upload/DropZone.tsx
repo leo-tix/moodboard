@@ -51,6 +51,8 @@ export function DropZone() {
   const [batchTitle, setBatchTitle] = useState("");
   const [applyingBatch, setApplyingBatch] = useState(false);
   const [batchApplied, setBatchApplied] = useState(false);
+  const [analyzingBatch, setAnalyzingBatch] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
 
   const doneFiles = files.filter((f) => f.status === "done");
   const doneIds = doneFiles.map((f) => f.inspirationId).filter(Boolean) as string[];
@@ -155,6 +157,17 @@ export function DropZone() {
     } finally {
       setApplyingBatch(false);
     }
+  };
+
+  const analyzeBatch = async () => {
+    if (!doneIds.length) return;
+    setAnalyzingBatch(true);
+    setAnalyzeProgress(0);
+    for (let i = 0; i < doneIds.length; i++) {
+      await fetch(`/api/inspirations/${doneIds[i]}/analyze`, { method: "POST" });
+      setAnalyzeProgress(i + 1);
+    }
+    setAnalyzingBatch(false);
   };
 
   const pendingCount = files.filter((f) => f.status === "pending").length;
@@ -325,7 +338,22 @@ export function DropZone() {
               </div>
             </div>
 
-            <div className="px-5 pb-5 flex justify-end">
+            <div className="px-5 pb-5 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={analyzeBatch}
+                disabled={analyzingBatch}
+                className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1.5 font-medium"
+              >
+                {analyzingBatch ? (
+                  <>
+                    <div className="w-2.5 h-2.5 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
+                    {analyzeProgress}/{doneIds.length} analysées…
+                  </>
+                ) : (
+                  <>✦ Analyser avec l&apos;IA</>
+                )}
+              </button>
               <Button
                 size="sm"
                 onClick={applyBatchMetadata}

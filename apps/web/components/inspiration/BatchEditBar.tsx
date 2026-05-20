@@ -32,6 +32,8 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
 
   useEffect(() => {
     fetch("/api/categories")
@@ -41,6 +43,17 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
   }, []);
 
   const hasPatch = title.trim() || category.categoryId || addTags.length > 0;
+
+  const analyzeAll = async () => {
+    setAnalyzing(true);
+    setAnalyzeProgress(0);
+    for (let i = 0; i < selectedIds.length; i++) {
+      await fetch(`/api/inspirations/${selectedIds[i]}/analyze`, { method: "POST" });
+      setAnalyzeProgress(i + 1);
+    }
+    setAnalyzing(false);
+    onSaved();
+  };
 
   const save = async () => {
     if (!hasPatch) return;
@@ -145,6 +158,16 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
             <Button size="sm" onClick={save} loading={saving} disabled={!hasPatch}>
               Appliquer
             </Button>
+            <button
+              type="button"
+              onClick={analyzeAll}
+              disabled={analyzing}
+              className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 justify-end font-medium"
+            >
+              {analyzing
+                ? `✦ ${analyzeProgress}/${selectedIds.length}…`
+                : "✦ Analyser avec l'IA"}
+            </button>
             {confirmDelete ? (
               <div className="flex items-center gap-1.5 justify-end">
                 <span className="text-[10px] text-red-400">Confirmer ?</span>
