@@ -3,6 +3,9 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { analyzeImageWithGemini } from "@/lib/ai/gemini";
 
+// Vercel: allow up to 60s (Gemini + image download can take ~10s)
+export const maxDuration = 60;
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

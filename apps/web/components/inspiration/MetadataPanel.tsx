@@ -63,10 +63,12 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
     setAnalyzeError(null);
     try {
       const res = await fetch(`/api/inspirations/${id}/analyze`, { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Erreur inconnue");
+      const text = await res.text();
+      if (!text) throw new Error("Réponse vide — timeout probable");
+      const json = JSON.parse(text);
+      if (!res.ok) throw new Error(json.error ?? `Erreur ${res.status}`);
       setAiResult(json.analysis);
-      setPendingTags(json.suggestedTags.filter((t: string) => !tags.includes(t)));
+      setPendingTags((json.suggestedTags ?? []).filter((t: string) => !tags.includes(t)));
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : "Erreur d'analyse");
     } finally {
