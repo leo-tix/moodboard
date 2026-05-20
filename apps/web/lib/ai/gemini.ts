@@ -30,7 +30,7 @@ export async function analyzeImageWithGemini(
   mimeType: string = "image/webp"
 ): Promise<ImageAnalysis> {
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash", // Rapide et gratuit
+    model: "gemini-1.5-flash-8b", // Free tier : 15 req/min, 1M tokens/jour
     generationConfig: {
       temperature: 0.3,
       maxOutputTokens: 1024,
