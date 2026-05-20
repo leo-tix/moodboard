@@ -46,27 +46,30 @@ export async function analyzeImageWithGemini(
     ],
     config: {
       temperature: 0.3,
-      maxOutputTokens: 1024,
-      responseMimeType: "application/json",
+      maxOutputTokens: 4096,
     },
   });
 
   const text = response.text ?? "";
 
-  // Extraire le JSON — gère le markdown (```json ... ```) et le JSON brut
-  const jsonMatch =
-    text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ??
-    text.match(/(\{[\s\S]*\})/);
+  if (!text) {
+    throw new Error("Réponse Gemini vide");
+  }
 
-  if (!jsonMatch) {
+  // Extraire le JSON — gère le markdown (```json ... ```) et le JSON brut
+  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  const rawJson = text.match(/\{[\s\S]*\}/);
+  const jsonStr = codeBlock ? codeBlock[1] : rawJson ? rawJson[0] : null;
+
+  if (!jsonStr) {
     console.error("[Gemini] Réponse brute :", text.slice(0, 500));
     throw new Error(`Réponse Gemini invalide: ${text.slice(0, 120)}`);
   }
 
   try {
-    return JSON.parse(jsonMatch[1]) as ImageAnalysis;
+    return JSON.parse(jsonStr) as ImageAnalysis;
   } catch {
-    console.error("[Gemini] JSON invalide :", jsonMatch[1].slice(0, 500));
+    console.error("[Gemini] JSON invalide :", jsonStr.slice(0, 500));
     throw new Error("JSON Gemini non parseable");
   }
 }
