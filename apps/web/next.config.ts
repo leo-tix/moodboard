@@ -20,13 +20,7 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
   },
 
-  // Limite taille des uploads API (10 MB)
   serverExternalPackages: ["sharp"],
-
-  experimental: {
-    // Autorise Sharp côté serveur dans les routes API
-    serverComponentsExternalPackages: ["sharp"],
-  },
 };
 
 export default nextConfig;
