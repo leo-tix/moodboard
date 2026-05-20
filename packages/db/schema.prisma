@@ -1,0 +1,293 @@
+// ============================================================
+// MOODBOARD — Schéma Prisma
+// PostgreSQL via Neon (serverless)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // Neon nécessite 2 URLs
+}
+
+// ============================================================
+// UTILISATEUR (un seul pour le MVP)
+// ============================================================
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("users")
+}
+
+// ============================================================
+// CATÉGORIE
+// ============================================================
+model Category {
+  id            String        @id @default(cuid())
+  name          String        @unique
+  slug          String        @unique
+  icon          String?
+  description   String?
+  order         Int           @default(0)
+  createdAt     DateTime      @default(now())
+
+  subcategories Subcategory[]
+  inspirations  Inspiration[]
+
+  @@map("categories")
+}
+
+model Subcategory {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String
+  categoryId  String
+  order       Int           @default(0)
+
+  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  inspirations Inspiration[]
+
+  @@unique([categoryId, slug])
+  @@map("subcategories")
+}
+
+// ============================================================
+// TAG
+// ============================================================
+model Tag {
+  id           String       @id @default(cuid())
+  name         String       @unique
+  slug         String       @unique
+  source       TagSource    @default(MANUAL)
+  createdAt    DateTime     @default(now())
+
+  inspirations InspirationTag[]
+
+  @@map("tags")
+}
+
+enum TagSource {
+  MANUAL
+  AI
+}
+
+// ============================================================
+// INSPIRATION — Entité principale
+// ============================================================
+model Inspiration {
+  id             String         @id @default(cuid())
+  title          String
+  description    String?
+
+  // Crédits
+  author         String?
+  studio         String?
+  year           Int?
+  country        String?
+
+  // Contexte
+  exposition     String?
+  location       String?       // lieu de capture physique
+  source         String?       // nom de la source (magazine, site...)
+  sourceUrl      String?
+
+  // Classification
+  mediaType      MediaType      @default(IMAGE)
+  categoryId     String?
+  subcategoryId  String?
+
+  // Notes personnelles
+  notes          String?
+
+  // Statut traitement
+  status         InspirationStatus @default(PROCESSING)
+
+  // Timestamps
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Recherche full-text (générée automatiquement)
+  searchVector   Unsupported("tsvector")?
+
+  // Relations
+  category       Category?      @relation(fields: [categoryId], references: [id])
+  subcategory    Subcategory?   @relation(fields: [subcategoryId], references: [id])
+  images         Image[]
+  tags           InspirationTag[]
+  collections    CollectionItem[]
+  aiAnalysis     AIAnalysis?
+  colorPalette   InspirationColor[]
+  videoImport    VideoImport?
+
+  @@index([categoryId])
+  @@index([year])
+  @@index([status])
+  @@index([createdAt])
+  @@map("inspirations")
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  MIXED
+}
+
+enum InspirationStatus {
+  PROCESSING  // Upload en cours
+  READY       // Prêt
+  ERROR       // Erreur traitement
+}
+
+// ============================================================
+// IMAGE — Fichiers liés à une inspiration
+// ============================================================
+model Image {
+  id             String      @id @default(cuid())
+  inspirationId  String
+  filename       String      // nom généré (uuid.webp)
+  originalName   String      // nom original du fichier
+  mimeType       String
+  size           Int         // bytes
+  width          Int?
+  height         Int?
+  storageKey     String      // chemin dans R2: images/uuid.webp
+  thumbnailKey   String?     // chemin thumb: thumbs/uuid.webp
+  blurHash       String?     // placeholder flou
+  isMain         Boolean     @default(false)
+  order          Int         @default(0)
+  exifData       Json?       // données EXIF brutes
+  createdAt      DateTime    @default(now())
+
+  inspiration    Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+
+  @@index([inspirationId])
+  @@map("images")
+}
+
+// ============================================================
+// TAGS — Table de liaison M:M
+// ============================================================
+model InspirationTag {
+  inspirationId  String
+  tagId          String
+  assignedAt     DateTime    @default(now())
+
+  inspiration    Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+  tag            Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([inspirationId, tagId])
+  @@map("inspiration_tags")
+}
+
+// ============================================================
+// COLLECTION
+// ============================================================
+model Collection {
+  id             String          @id @default(cuid())
+  name           String
+  description    String?
+  coverImageKey  String?
+  isPublic       Boolean         @default(false)
+  order          Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  items          CollectionItem[]
+
+  @@map("collections")
+}
+
+model CollectionItem {
+  collectionId   String
+  inspirationId  String
+  order          Int             @default(0)
+  addedAt        DateTime        @default(now())
+
+  collection     Collection      @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  inspiration    Inspiration     @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, inspirationId])
+  @@map("collection_items")
+}
+
+// ============================================================
+// ANALYSE IA
+// ============================================================
+model AIAnalysis {
+  id              String      @id @default(cuid())
+  inspirationId   String      @unique
+  rawResponse     Json        // réponse brute Gemini
+  styleKeywords   String[]    // mots-clés style
+  moodDescriptor  String?     // ambiance générale
+  technicalNotes  String?     // notes techniques IA
+  processedAt     DateTime    @default(now())
+
+  inspiration     Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_analyses")
+}
+
+// ============================================================
+// COULEURS DOMINANTES
+// ============================================================
+model InspirationColor {
+  id              String      @id @default(cuid())
+  inspirationId   String
+  hex             String      // ex: #FF5733
+  r               Int
+  g               Int
+  b               Int
+  percentage      Float       // part dans l'image (0-1)
+  order           Int         @default(0) // 0 = couleur dominante
+
+  inspiration     Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+
+  @@index([inspirationId])
+  @@index([hex])
+  @@map("inspiration_colors")
+}
+
+// ============================================================
+// IMPORT VIDÉO
+// ============================================================
+model VideoImport {
+  id              String            @id @default(cuid())
+  inspirationId   String?           @unique
+  sourceUrl       String
+  platform        VideoPlatform
+  title           String?
+  duration        Int?              // secondes
+  status          VideoImportStatus @default(PENDING)
+  extractedStills Json?             // URLs stills extraits [{url, timestamp}]
+  selectedStills  String[]          // URLs stills sélectionnés
+  errorMessage    String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  inspiration     Inspiration?      @relation(fields: [inspirationId], references: [id])
+
+  @@map("video_imports")
+}
+
+enum VideoPlatform {
+  YOUTUBE
+  VIMEO
+  OTHER
+}
+
+enum VideoImportStatus {
+  PENDING
+  PROCESSING
+  SELECTING    // stills extraits, attente sélection utilisateur
+  DONE
+  ERROR
+}
