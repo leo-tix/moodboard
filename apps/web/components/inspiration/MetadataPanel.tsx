@@ -86,8 +86,52 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
     setPendingTags([]);
   };
 
+  const acceptKeywordAsTag = (kw: string) => {
+    if (!tags.includes(kw)) setTags((prev) => [...prev, kw]);
+  };
+
   const applySuggestedTitle = () => {
     if (aiResult?.suggestedTitle) update("title", aiResult.suggestedTitle);
+  };
+
+  const applyMoodAsDescription = () => {
+    if (aiResult?.moodDescriptor) update("description", aiResult.moodDescriptor);
+  };
+
+  const applyTechnicalAsNotes = () => {
+    if (aiResult?.technicalNotes) update("notes", aiResult.technicalNotes);
+  };
+
+  // Catégories existantes dont le nom correspond à un keyword ou tag IA
+  const suggestedCategories = aiResult
+    ? allCategories.filter((cat) => {
+        const catName = cat.name.toLowerCase();
+        const allAiTerms = [
+          ...(aiResult.styleKeywords ?? []),
+          ...pendingTags,
+        ].map((t) => t.toLowerCase());
+        return allAiTerms.some(
+          (term) => catName.includes(term) || term.includes(catName)
+        );
+      }).filter((cat) => !categories.some((c) => c.categoryId === cat.id))
+    : [];
+
+  const acceptCategory = (catId: string) => {
+    setCategories((prev) => [...prev, { categoryId: catId, subcategoryId: null }]);
+  };
+
+  const acceptAll = () => {
+    if (aiResult?.suggestedTitle && aiResult.suggestedTitle !== data.title) {
+      update("title", aiResult.suggestedTitle);
+    }
+    if (aiResult?.moodDescriptor && !data.description) {
+      update("description", aiResult.moodDescriptor);
+    }
+    if (aiResult?.technicalNotes && !data.notes) {
+      update("notes", aiResult.technicalNotes);
+    }
+    acceptAllTags();
+    suggestedCategories.forEach((cat) => acceptCategory(cat.id));
   };
 
   const update = (field: string, value: string | number) =>
@@ -257,60 +301,106 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
 
           {!analyzing && aiResult ? (
             <div className="space-y-3">
-              {aiResult.moodDescriptor && (
-                <p className="text-[11px] text-[var(--text-secondary)] italic leading-relaxed">
-                  &ldquo;{aiResult.moodDescriptor}&rdquo;
-                </p>
-              )}
-              {aiResult.technicalNotes && (
-                <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
-                  {aiResult.technicalNotes}
-                </p>
-              )}
-              {aiResult.styleKeywords.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {aiResult.styleKeywords.map((kw) => (
-                    <Badge key={kw} variant="ai">{kw}</Badge>
-                  ))}
-                </div>
-              )}
+
+              {/* Tout accepter */}
+              <button
+                type="button"
+                onClick={acceptAll}
+                className="w-full text-[9px] text-[var(--accent,#a78bfa)] border border-dashed border-[var(--accent,#a78bfa)]/40 hover:border-[var(--accent,#a78bfa)] rounded px-2 py-1.5 transition-colors"
+              >
+                ✦ Tout accepter
+              </button>
+
+              {/* Titre suggéré */}
               {aiResult.suggestedTitle && aiResult.suggestedTitle !== data.title && (
                 <div className="flex items-center gap-2 p-2 rounded bg-[var(--bg-elevated)]">
                   <span className="text-[10px] text-[var(--text-tertiary)] flex-1 truncate">
-                    Titre suggéré : <em className="text-[var(--text-secondary)]">{aiResult.suggestedTitle}</em>
+                    Titre : <em className="text-[var(--text-secondary)]">{aiResult.suggestedTitle}</em>
                   </span>
-                  <button
-                    type="button"
-                    onClick={applySuggestedTitle}
-                    className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0"
-                  >
+                  <button type="button" onClick={applySuggestedTitle} className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 flex-shrink-0">
                     Appliquer
                   </button>
                 </div>
               )}
+
+              {/* Ambiance → description */}
+              {aiResult.moodDescriptor && (
+                <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
+                  <p className="text-[11px] text-[var(--text-secondary)] italic leading-relaxed">
+                    &ldquo;{aiResult.moodDescriptor}&rdquo;
+                  </p>
+                  <button type="button" onClick={applyMoodAsDescription}
+                    className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
+                    → Appliquer comme description
+                  </button>
+                </div>
+              )}
+
+              {/* Notes techniques → notes */}
+              {aiResult.technicalNotes && (
+                <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
+                  <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+                    {aiResult.technicalNotes}
+                  </p>
+                  <button type="button" onClick={applyTechnicalAsNotes}
+                    className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
+                    → Appliquer comme notes
+                  </button>
+                </div>
+              )}
+
+              {/* Mots-clés stylistiques → tags au clic */}
+              {aiResult.styleKeywords.length > 0 && (
+                <div>
+                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Style — cliquer pour ajouter</p>
+                  <div className="flex flex-wrap gap-1">
+                    {aiResult.styleKeywords.map((kw) => {
+                      const already = tags.includes(kw);
+                      return (
+                        <button key={kw} type="button" onClick={() => acceptKeywordAsTag(kw)} disabled={already}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors ${
+                            already
+                              ? "bg-[var(--bg-overlay)] text-[var(--text-tertiary)] cursor-default"
+                              : "border border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)] hover:border-[var(--accent,#a78bfa)]"
+                          }`}>
+                          {already ? "✓" : "+"} {kw}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Catégories suggérées */}
+              {suggestedCategories.length > 0 && (
+                <div>
+                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Catégories correspondantes</p>
+                  <div className="flex flex-wrap gap-1">
+                    {suggestedCategories.map((cat) => (
+                      <button key={cat.id} type="button" onClick={() => acceptCategory(cat.id)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] transition-colors">
+                        {cat.icon && <span className="opacity-60">{cat.icon}</span>} + {cat.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tags suggérés */}
               {pendingTags.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest">
-                      Tags suggérés
-                    </p>
-                    <button
-                      type="button"
-                      onClick={acceptAllTags}
-                      className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-                    >
+                    <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest">Tags suggérés</p>
+                    <button type="button" onClick={acceptAllTags}
+                      className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
                       Tout accepter
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {pendingTags.map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => acceptTag(tag)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] transition-colors"
-                      >
-                        <span>+</span> {tag}
+                      <button key={tag} type="button" onClick={() => acceptTag(tag)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">
+                        + {tag}
                       </button>
                     ))}
                   </div>
