@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { analyzeImageWithGemini } from "@/lib/ai/gemini";
+import { analyzeImageWithGemini, type CategoryHint } from "@/lib/ai/gemini";
 import sharp from "sharp";
 
 export const maxDuration = 60;
@@ -15,13 +15,17 @@ export async function POST(
 
   const { id } = await params;
 
-  const inspiration = await db.inspiration.findUnique({
-    where: { id },
-    include: {
-      images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1 },
-      tags: { include: { tag: true } },
-    },
-  });
+  const [inspiration, allCategories] = await Promise.all([
+    db.inspiration.findUnique({
+      where: { id },
+      include: {
+        images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1 },
+        tags: { include: { tag: true } },
+        categories: true,
+      },
+    }),
+    db.category.findMany({ select: { id: true, name: true }, orderBy: { order: "asc" } }),
+  ]);
 
   if (!inspiration) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
@@ -42,8 +46,9 @@ export async function POST(
     .jpeg({ quality: 75 })
     .toBuffer();
 
-  // Analyze with Gemini
-  const analysis = await analyzeImageWithGemini(smallBuffer, "image/jpeg");
+  // Analyze with Gemini — pass categories for smart matching
+  const categoryHints: CategoryHint[] = allCategories.map((c) => ({ id: c.id, name: c.name }));
+  const analysis = await analyzeImageWithGemini(smallBuffer, "image/jpeg", categoryHints);
 
   // Upsert AIAnalysis
   await db.aIAnalysis.upsert({
@@ -68,6 +73,14 @@ export async function POST(
   const existingNames = new Set(inspiration.tags.map((t) => t.tag.name.toLowerCase()));
   const suggestedTags = analysis.tags.filter((t) => !existingNames.has(t.toLowerCase()));
 
+  // Filter out categories already assigned + validate ids exist
+  const existingCatIds = new Set(inspiration.categories.map((c) => c.categoryId));
+  const validCatIds = new Set(allCategories.map((c) => c.id));
+  const suggestedCategories = (analysis.suggestedCategoryIds ?? [])
+    .filter((cid) => validCatIds.has(cid) && !existingCatIds.has(cid))
+    .map((cid) => allCategories.find((c) => c.id === cid)!)
+    .filter(Boolean);
+
   return NextResponse.json({
     analysis: {
       moodDescriptor: analysis.moodDescriptor,
@@ -76,5 +89,6 @@ export async function POST(
       suggestedTitle: analysis.suggestedTitle,
     },
     suggestedTags,
+    suggestedCategories,
   });
 }

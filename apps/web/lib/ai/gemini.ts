@@ -8,33 +8,47 @@ export interface ImageAnalysis {
   moodDescriptor: string;
   technicalNotes: string;
   suggestedTitle?: string;
+  suggestedCategoryIds?: string[];
 }
 
-const ANALYSIS_PROMPT = `Tu es un expert en direction artistique et histoire de l'art.
+export interface CategoryHint {
+  id: string;
+  name: string;
+}
+
+function buildPrompt(categories: CategoryHint[]): string {
+  const catList = categories.map((c) => `- id: "${c.id}", nom: "${c.name}"`).join("\n");
+  return `Tu es un expert en direction artistique et histoire de l'art.
 Analyse cette image et réponds UNIQUEMENT en JSON valide avec cette structure exacte:
 {
   "tags": ["tag1", "tag2", ...],
   "styleKeywords": ["mot1", "mot2", ...],
   "moodDescriptor": "une phrase courte décrivant l'ambiance",
   "technicalNotes": "notes sur la technique, composition, lumière",
-  "suggestedTitle": "titre suggéré si pertinent"
+  "suggestedTitle": "titre suggéré si pertinent",
+  "suggestedCategoryIds": ["id1", "id2"]
 }
 
 Pour les tags (max 15): couleurs dominantes, style artistique, technique, époque, thème, émotion, composition.
 Pour styleKeywords (max 8): mouvement artistique, influences, esthétique.
+Pour suggestedCategoryIds: choisis parmi ces catégories disponibles celles qui correspondent le mieux à l'image (0 à 3 maximum, utilise exactement les ids fournis):
+${catList}
 Réponds en français.`;
+}
 
 // Analyse une image encodée en base64 avec Gemini Vision
 export async function analyzeImageWithGemini(
   imageBuffer: Buffer,
-  mimeType: string = "image/jpeg"
+  mimeType: string = "image/jpeg",
+  categories: CategoryHint[] = []
 ): Promise<ImageAnalysis> {
+  const prompt = buildPrompt(categories);
   const response = await ai.models.generateContent({
     model: "gemini-3.5-flash",
     contents: [
       {
         parts: [
-          { text: ANALYSIS_PROMPT },
+          { text: prompt },
           {
             inlineData: {
               data: imageBuffer.toString("base64"),

@@ -48,6 +48,7 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
     suggestedTitle?: string;
   } | null>(aiAnalysis ? { moodDescriptor: aiAnalysis.moodDescriptor ?? undefined, styleKeywords: aiAnalysis.styleKeywords, technicalNotes: undefined } : null);
   const [pendingTags, setPendingTags] = useState<string[]>([]);
+  const [pendingCategories, setPendingCategories] = useState<{ id: string; name: string; icon?: string | null }[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
@@ -69,6 +70,7 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
       if (!res.ok) throw new Error(json.error ?? `Erreur ${res.status}`);
       setAiResult(json.analysis);
       setPendingTags((json.suggestedTags ?? []).filter((t: string) => !tags.includes(t)));
+      setPendingCategories(json.suggestedCategories ?? []);
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : "Erreur d'analyse");
     } finally {
@@ -102,22 +104,9 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
     if (aiResult?.technicalNotes) update("notes", aiResult.technicalNotes);
   };
 
-  // Catégories existantes dont le nom correspond à un keyword ou tag IA
-  const suggestedCategories = aiResult
-    ? allCategories.filter((cat) => {
-        const catName = cat.name.toLowerCase();
-        const allAiTerms = [
-          ...(aiResult.styleKeywords ?? []),
-          ...pendingTags,
-        ].map((t) => t.toLowerCase());
-        return allAiTerms.some(
-          (term) => catName.includes(term) || term.includes(catName)
-        );
-      }).filter((cat) => !categories.some((c) => c.categoryId === cat.id))
-    : [];
-
   const acceptCategory = (catId: string) => {
     setCategories((prev) => [...prev, { categoryId: catId, subcategoryId: null }]);
+    setPendingCategories((prev) => prev.filter((c) => c.id !== catId));
   };
 
   const acceptAll = () => {
@@ -131,7 +120,7 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
       update("notes", aiResult.technicalNotes);
     }
     acceptAllTags();
-    suggestedCategories.forEach((cat) => acceptCategory(cat.id));
+    pendingCategories.forEach((cat) => acceptCategory(cat.id));
   };
 
   const update = (field: string, value: string | number) =>
@@ -371,15 +360,15 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis }: Met
                 </div>
               )}
 
-              {/* Catégories suggérées */}
-              {suggestedCategories.length > 0 && (
+              {/* Catégories suggérées par Gemini */}
+              {pendingCategories.length > 0 && (
                 <div>
-                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Catégories correspondantes</p>
+                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5">Catégories suggérées</p>
                   <div className="flex flex-wrap gap-1">
-                    {suggestedCategories.map((cat) => (
+                    {pendingCategories.map((cat) => (
                       <button key={cat.id} type="button" onClick={() => acceptCategory(cat.id)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] transition-colors">
-                        {cat.icon && <span className="opacity-60">{cat.icon}</span>} + {cat.name}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-dashed border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)] hover:border-[var(--accent,#a78bfa)] transition-colors">
+                        + {cat.name}
                       </button>
                     ))}
                   </div>
