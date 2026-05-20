@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -10,11 +11,18 @@ const NAV_ITEMS = [
   { href: "/library", label: "Bibliothèque", icon: "◻" },
   { href: "/collections", label: "Collections", icon: "◈" },
   { href: "/upload", label: "Ajouter", icon: "+" },
-  { href: "/search", label: "Recherche", icon: "◎" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchRef.current?.value.trim();
+    router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+  };
 
   return (
     <aside className="w-56 flex-shrink-0 flex flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]">
@@ -59,6 +67,21 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Recherche rapide */}
+      <div className="px-3 pb-2">
+        <form onSubmit={handleSearchSubmit}>
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] text-[10px] pointer-events-none">◎</span>
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Rechercher…"
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] rounded-md pl-7 pr-3 py-1.5 text-xs focus:outline-none focus:border-[var(--border-default)] transition-colors"
+            />
+          </div>
+        </form>
+      </div>
 
       {/* Settings bas */}
       <div className="px-3 py-4 border-t border-[var(--border-subtle)]">

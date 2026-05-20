@@ -41,8 +41,10 @@ export async function processImage(inputBuffer: Buffer): Promise<ProcessedImage>
     .toBuffer();
 
   // BlurHash depuis une version très petite (perf)
+  // .ensureAlpha() force 4 canaux RGBA — requis par blurhash
   const { data: pixelData, info } = await sharp(inputBuffer)
     .resize(32, 32, { fit: "inside" })
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
