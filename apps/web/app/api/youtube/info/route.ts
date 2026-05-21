@@ -120,7 +120,12 @@ async function fetchPlayerData(videoId: string): Promise<Record<string, any> | n
         data?.storyboards?.playerLiveStoryboardSpecRenderer?.spec;
       const duration = data?.videoDetails?.lengthSeconds;
 
-      console.log(`[YouTube info] ${client.label} → spec: ${spec ? "✓" : "null"}, duration: ${duration ?? "null"}`);
+      console.log(
+        `[YouTube info] ${client.label} → keys: [${Object.keys(data).join(", ")}]` +
+        ` | playability: ${data?.playabilityStatus?.status}` +
+        ` | reason: ${data?.playabilityStatus?.reason ?? data?.playabilityStatus?.messages?.[0] ?? "—"}` +
+        ` | spec: ${spec ? "✓" : "null"}, duration: ${duration ?? "null"}`
+      );
 
       // Accept this client's response if it has at least duration
       if (duration || spec) return data;
