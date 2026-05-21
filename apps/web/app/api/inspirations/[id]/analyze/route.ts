@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { analyzeImageWithGemini, type CategoryHint } from "@/lib/ai/gemini";
+import { analyzeImageWithGemini, GeminiRateLimitError, type CategoryHint } from "@/lib/ai/gemini";
 import sharp from "sharp";
 
 export const maxDuration = 60;
@@ -37,20 +37,39 @@ export async function POST(
   // Download thumbnail from R2 public URL
   const imageUrl = `${process.env.R2_PUBLIC_URL}/${mainImage.thumbnailKey}`;
   const imageRes = await fetch(imageUrl);
-  if (!imageRes.ok) return NextResponse.json({ error: "Impossible de récupérer l'image" }, { status: 500 });
+  if (!imageRes.ok) {
+    return NextResponse.json({ error: "Impossible de récupérer l'image" }, { status: 500 });
+  }
   const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
 
-  // Resize to 256px max — keeps Gemini payload small (~10-20KB vs ~150KB)
+  // Resize to 256px max — keeps Gemini payload small (~10–20 KB vs ~150 KB)
   const smallBuffer = await sharp(rawBuffer)
     .resize(256, 256, { fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 75 })
     .toBuffer();
 
-  // Analyze with Gemini — pass categories for smart matching
+  // Analyze with Gemini — with automatic retry on rate-limit/503
   const categoryHints: CategoryHint[] = allCategories.map((c) => ({ id: c.id, name: c.name }));
-  const analysis = await analyzeImageWithGemini(smallBuffer, "image/jpeg", categoryHints);
 
-  // Upsert AIAnalysis
+  let analysis;
+  try {
+    analysis = await analyzeImageWithGemini(smallBuffer, "image/jpeg", categoryHints);
+  } catch (error) {
+    if (error instanceof GeminiRateLimitError) {
+      return NextResponse.json(
+        {
+          error: "rate_limit",
+          message: "Quota Gemini dépassé. Réessayez dans quelques instants.",
+          retryAfter: error.retryAfter,
+        },
+        { status: 429 }
+      );
+    }
+    // Unexpected error — let Next.js 500 handler take over
+    throw error;
+  }
+
+  // Upsert AIAnalysis record
   await db.aIAnalysis.upsert({
     where: { inspirationId: id },
     create: {
@@ -69,11 +88,11 @@ export async function POST(
     },
   });
 
-  // Filter out tags that already exist on this inspiration
+  // Filter out tags already present
   const existingNames = new Set(inspiration.tags.map((t) => t.tag.name.toLowerCase()));
   const suggestedTags = analysis.tags.filter((t) => !existingNames.has(t.toLowerCase()));
 
-  // Filter out categories already assigned + validate ids exist
+  // Filter out categories already assigned + validate ids
   const existingCatIds = new Set(inspiration.categories.map((c) => c.categoryId));
   const validCatIds = new Set(allCategories.map((c) => c.id));
   const suggestedCategories = (analysis.suggestedCategoryIds ?? [])

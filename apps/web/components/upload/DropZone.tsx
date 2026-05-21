@@ -17,8 +17,9 @@ interface UploadFile {
   status: "pending" | "uploading" | "done" | "error";
   inspirationId?: string;
   error?: string;
-  // Résultat de l'analyse automatique (si IA activée)
-  aiStatus?: "analyzing" | "done" | "error";
+  /** "quota" = rate-limit hit (distinct from generic "error") */
+  aiStatus?: "analyzing" | "done" | "error" | "quota";
+  retryAfter?: number;
   aiData?: {
     title?: string;
     description?: string;
@@ -26,6 +27,14 @@ interface UploadFile {
     tags?: string[];
     categories?: { categoryId: string; subcategoryId: null }[];
   };
+}
+
+/** Minimum gap between consecutive Gemini calls.
+ *  Free tier = 15 RPM → 1 req / 4 s.  5 s for safety. */
+const ANALYSIS_THROTTLE_MS = 5_000;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 interface Category {
@@ -117,6 +126,20 @@ export function DropZone() {
     );
     try {
       const res = await fetch(`/api/inspirations/${inspirationId}/analyze`, { method: "POST" });
+
+      // Rate-limit: distinct visual state, not a generic error
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, aiStatus: "quota", retryAfter: data.retryAfter ?? 60 }
+              : f
+          )
+        );
+        return;
+      }
+
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
 
@@ -177,7 +200,8 @@ export function DropZone() {
     // Capture aiEnabled au moment du clic pour cohérence pendant la boucle
     const shouldAnalyze = aiEnabled;
 
-    for (const item of pending) {
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i];
       setFiles((prev) =>
         prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
       );
@@ -205,6 +229,10 @@ export function DropZone() {
         // Analyse + auto-application si IA activée
         if (shouldAnalyze) {
           await analyzeAndApply(inspirationId, item.id);
+          // Throttle: enforce a minimum gap between Gemini calls (15 RPM = 1 req/4 s)
+          if (i < pending.length - 1) {
+            await sleep(ANALYSIS_THROTTLE_MS);
+          }
         }
       } catch {
         setFiles((prev) =>
@@ -255,7 +283,17 @@ export function DropZone() {
   const errorCount = files.filter((f) => f.status === "error").length;
   const analyzingCount = files.filter((f) => f.aiStatus === "analyzing").length;
   const aiDoneCount = files.filter((f) => f.aiStatus === "done").length;
+  const quotaCount = files.filter((f) => f.aiStatus === "quota").length;
   const editingFile = editingId ? files.find((f) => f.inspirationId === editingId) : null;
+
+  const retryQuotaFiles = async () => {
+    const quotaFiles = files.filter((f) => f.aiStatus === "quota" && f.inspirationId);
+    for (let i = 0; i < quotaFiles.length; i++) {
+      const f = quotaFiles[i];
+      await analyzeAndApply(f.inspirationId!, f.id);
+      if (i < quotaFiles.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -435,7 +473,7 @@ export function DropZone() {
                 {/* Done — indicateurs */}
                 {item.status === "done" && item.inspirationId && (
                   <>
-                    {/* Pastille upload vert */}
+                    {/* Pastille statut */}
                     {item.aiStatus !== "analyzing" && (
                       <div
                         className={cn(
@@ -444,11 +482,24 @@ export function DropZone() {
                             ? "bg-[var(--accent,#a78bfa)]/80"
                             : item.aiStatus === "error"
                             ? "bg-orange-500/80"
+                            : item.aiStatus === "quota"
+                            ? "bg-yellow-500/80"
                             : "bg-green-500/80"
                         )}
+                        title={
+                          item.aiStatus === "quota"
+                            ? "Quota Gemini dépassé — utiliser Réanalyser ci-dessous"
+                            : undefined
+                        }
                       >
                         <span className="text-white text-[8px]">
-                          {item.aiStatus === "done" ? "✦" : item.aiStatus === "error" ? "!" : "✓"}
+                          {item.aiStatus === "done"
+                            ? "✦"
+                            : item.aiStatus === "error"
+                            ? "!"
+                            : item.aiStatus === "quota"
+                            ? "⏳"
+                            : "✓"}
                         </span>
                       </div>
                     )}
@@ -486,22 +537,31 @@ export function DropZone() {
 
           {/* Status + upload button */}
           <div className="flex items-center justify-between">
-            <div className="flex gap-3 text-xs text-[var(--text-tertiary)]">
+            <div className="flex gap-3 text-xs text-[var(--text-tertiary)] flex-wrap">
               {pendingCount > 0 && <span>{pendingCount} en attente</span>}
-              {doneFiles.length > 0 && !analyzingCount && !aiDoneCount && (
+              {doneFiles.length > 0 && !analyzingCount && !aiDoneCount && !quotaCount && (
                 <span className="text-green-400">
                   {doneFiles.length} importée{doneFiles.length > 1 ? "s" : ""}
                 </span>
               )}
               {analyzingCount > 0 && (
                 <span className="text-[var(--accent,#a78bfa)]">
-                  ✦ Analyse {aiDoneCount}/{doneFiles.length}…
+                  ✦ Analyse {aiDoneCount + quotaCount}/{doneFiles.length}…
                 </span>
               )}
               {analyzingCount === 0 && aiDoneCount > 0 && (
                 <span className="text-[var(--accent,#a78bfa)]">
                   ✦ {aiDoneCount} analysée{aiDoneCount > 1 ? "s" : ""}
                 </span>
+              )}
+              {quotaCount > 0 && analyzingCount === 0 && (
+                <button
+                  onClick={retryQuotaFiles}
+                  className="text-yellow-400 hover:text-yellow-300 transition-colors underline underline-offset-2"
+                  title="Quota Gemini (15 req/min) dépassé. Cliquer pour réessayer avec throttle automatique."
+                >
+                  ⏳ {quotaCount} quota — Réanalyser
+                </button>
               )}
               {errorCount > 0 && (
                 <span className="text-red-400">{errorCount} erreur(s)</span>

@@ -23,7 +23,9 @@ interface QueuedFile {
   status: "pending" | "uploading" | "done" | "error";
   inspirationId?: string;
   error?: string;
-  aiStatus?: "analyzing" | "done" | "error";
+  /** "quota" = rate-limit hit (distinct from generic "error") */
+  aiStatus?: "analyzing" | "done" | "error" | "quota";
+  retryAfter?: number;
   aiData?: {
     title?: string;
     description?: string;
@@ -33,15 +35,23 @@ interface QueuedFile {
   };
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+/** Minimum gap between consecutive Gemini calls (ms).
+ *  Free tier = 15 RPM → 1 req / 4 s.  We use 5 s for safety. */
+const ANALYSIS_THROTTLE_MS = 5_000;
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const GlobalUploadContext = createContext<Record<string, never>>({});
 export const useGlobalUpload = () => useContext(GlobalUploadContext);
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
 const MAX_SIZE_MB = 10;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
 
 function isValidImage(file: File) {
   return ACCEPTED.includes(file.type) && file.size <= MAX_SIZE_MB * 1024 * 1024;
@@ -162,6 +172,20 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
     );
     try {
       const res = await fetch(`/api/inspirations/${inspirationId}/analyze`, { method: "POST" });
+
+      // Rate-limit: distinct visual state, not a generic error
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, aiStatus: "quota", retryAfter: data.retryAfter ?? 60 }
+              : f
+          )
+        );
+        return;
+      }
+
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
 
@@ -221,7 +245,8 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
     const shouldAnalyze = aiEnabled;
 
-    for (const item of pending) {
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i];
       setFiles((prev) =>
         prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
       );
@@ -251,6 +276,10 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
         if (shouldAnalyze) {
           await analyzeAndApply(inspirationId, item.id);
+          // Throttle: enforce a minimum gap between Gemini calls (15 RPM = 1 req/4s)
+          if (i < pending.length - 1) {
+            await sleep(ANALYSIS_THROTTLE_MS);
+          }
         }
       } catch {
         setFiles((prev) =>
@@ -263,6 +292,19 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
     setUploading(false);
   }, [files, uploading, aiEnabled, analyzeAndApply]);
+
+  // ── Retry quota-failed analyses ───────────────────────────────────────────
+
+  const retryQuotaFiles = useCallback(async () => {
+    const quotaFiles = files.filter(
+      (f) => f.aiStatus === "quota" && f.inspirationId
+    );
+    for (let i = 0; i < quotaFiles.length; i++) {
+      const f = quotaFiles[i];
+      await analyzeAndApply(f.inspirationId!, f.id);
+      if (i < quotaFiles.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
+    }
+  }, [files, analyzeAndApply]);
 
   // ── Dismiss ───────────────────────────────────────────────────────────────
 
@@ -281,7 +323,8 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
   const errorCount = files.filter((f) => f.status === "error").length;
   const analyzingCount = files.filter((f) => f.aiStatus === "analyzing").length;
   const aiDoneCount = files.filter((f) => f.aiStatus === "done").length;
-  const allSettled = files.length > 0 && pendingCount === 0 && !uploading;
+  const quotaCount = files.filter((f) => f.aiStatus === "quota").length;
+  const allSettled = files.length > 0 && pendingCount === 0 && !uploading && analyzingCount === 0;
 
   const editingFile = editingInspirationId
     ? files.find((f) => f.inspirationId === editingInspirationId)
@@ -350,10 +393,17 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       <p className="text-xs font-medium text-[var(--text-primary)]">
                         {uploading
                           ? analyzingCount > 0
-                            ? `✦ Analyse ${aiDoneCount + errorCount}/${doneCount}…`
+                            ? `✦ Analyse ${aiDoneCount + errorCount + quotaCount}/${doneCount}…`
                             : "Import en cours…"
                           : allSettled
-                          ? `${doneCount} importée${doneCount > 1 ? "s" : ""}${aiDoneCount > 0 ? ` · ${aiDoneCount} analysée${aiDoneCount > 1 ? "s" : ""}` : ""}${errorCount > 0 ? ` · ${errorCount} erreur${errorCount > 1 ? "s" : ""}` : ""}`
+                          ? [
+                              doneCount > 0 && `${doneCount} importée${doneCount > 1 ? "s" : ""}`,
+                              aiDoneCount > 0 && `${aiDoneCount} analysée${aiDoneCount > 1 ? "s" : ""}`,
+                              quotaCount > 0 && `${quotaCount} quota`,
+                              errorCount > 0 && `${errorCount} erreur${errorCount > 1 ? "s" : ""}`,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")
                           : `${files.length} image${files.length > 1 ? "s" : ""} prête${files.length > 1 ? "s" : ""}`}
                       </p>
                       <button
@@ -412,10 +462,23 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                                       ? "bg-[var(--accent,#a78bfa)]/80 text-white"
                                       : f.aiStatus === "error"
                                       ? "bg-orange-500/80 text-white"
+                                      : f.aiStatus === "quota"
+                                      ? "bg-yellow-500/80 text-white"
                                       : "bg-green-500/80 text-white"
                                   )}
+                                  title={
+                                    f.aiStatus === "quota"
+                                      ? "Quota Gemini dépassé — cliquer pour réessayer"
+                                      : undefined
+                                  }
                                 >
-                                  {f.aiStatus === "done" ? "✦" : f.aiStatus === "error" ? "!" : "✓"}
+                                  {f.aiStatus === "done"
+                                    ? "✦"
+                                    : f.aiStatus === "error"
+                                    ? "!"
+                                    : f.aiStatus === "quota"
+                                    ? "⏳"
+                                    : "✓"}
                                 </div>
                                 {/* Edit hover */}
                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
@@ -520,12 +583,24 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                     {/* Footer */}
                     <div className="flex items-center justify-end gap-3 px-4 py-3 mt-1">
                       {allSettled ? (
-                        <a
-                          href="/library"
-                          className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
-                        >
-                          Voir la bibliothèque →
-                        </a>
+                        <>
+                          {/* Retry quota-failed analyses */}
+                          {quotaCount > 0 && (
+                            <button
+                              onClick={retryQuotaFiles}
+                              className="text-xs px-3 py-1.5 border border-yellow-500/40 text-yellow-400 rounded-lg hover:bg-yellow-500/10 transition-colors"
+                              title="Les analyses ont été stoppées par le quota Gemini (15 req/min). Cliquer pour réessayer."
+                            >
+                              ⏳ Réanalyser {quotaCount > 1 ? `${quotaCount} images` : "1 image"}
+                            </button>
+                          )}
+                          <a
+                            href="/library"
+                            className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
+                          >
+                            Voir la bibliothèque →
+                          </a>
+                        </>
                       ) : (
                         <>
                           {pendingCount > 0 && !uploading && (
@@ -542,7 +617,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                             <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-2">
                               <span className="w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin inline-block" />
                               {analyzingCount > 0
-                                ? `Analyse ${aiDoneCount + errorCount}/${doneCount}…`
+                                ? `Analyse ${aiDoneCount + errorCount + quotaCount}/${doneCount}…`
                                 : "Import en cours…"}
                             </span>
                           )}
