@@ -506,7 +506,7 @@ export function YouTubeImportClient() {
             <div className="bg-[var(--bg-surface)] rounded-xl border border-[var(--border-subtle)] overflow-hidden">
               <button
                 onClick={() => setCreateCollection(!createCollection)}
-                className="w-full flex items-center justify-between px-4 pr-5 py-3 hover:bg-[var(--bg-elevated)] transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <div className="text-left">
                   <p className="text-xs font-medium text-[var(--text-primary)]">
@@ -516,19 +516,19 @@ export function YouTubeImportClient() {
                     Regroupe ces images dans une collection dédiée
                   </p>
                 </div>
-                {/* Toggle */}
+                {/* Toggle — inline-block knob, same pattern as AI toggle */}
                 <div
+                  role="switch"
+                  aria-checked={createCollection}
                   className={cn(
-                    "w-9 h-5 rounded-full flex-shrink-0 relative transition-colors",
-                    createCollection
-                      ? "bg-[var(--text-primary)]"
-                      : "bg-[var(--bg-elevated)] border border-[var(--border-default)]"
+                    "relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                    createCollection ? "bg-[var(--text-primary)]" : "bg-[var(--bg-overlay)]"
                   )}
                 >
                   <span
                     className={cn(
-                      "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-                      createCollection ? "translate-x-4" : "translate-x-0.5"
+                      "inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
+                      createCollection ? "translate-x-3" : "translate-x-0"
                     )}
                   />
                 </div>
