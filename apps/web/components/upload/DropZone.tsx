@@ -197,53 +197,64 @@ export function DropZone() {
     if (!pending.length) return;
     setUploading(true);
 
-    // Capture aiEnabled au moment du clic pour cohérence pendant la boucle
     const shouldAnalyze = aiEnabled;
 
-    for (let i = 0; i < pending.length; i++) {
-      const item = pending[i];
-      setFiles((prev) =>
-        prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
-      );
+    // ── Phase 1 : uploads en parallèle ───────────────────────────────────
+    const results = await Promise.allSettled(
+      pending.map(async (item) => {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
+        );
+        try {
+          const formData = new FormData();
+          formData.append("file", item.file);
+          const res = await fetch("/api/upload/image", { method: "POST", body: formData });
+          const data = await res.json();
 
-      try {
-        const formData = new FormData();
-        formData.append("file", item.file);
-        const res = await fetch("/api/upload/image", { method: "POST", body: formData });
-        const data = await res.json();
+          if (!res.ok) {
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === item.id ? { ...f, status: "error", error: data.error ?? "Erreur" } : f
+              )
+            );
+            return null;
+          }
 
-        if (!res.ok) {
+          const inspirationId: string = data.inspirationId;
+          setFiles((prev) =>
+            prev.map((f) => (f.id === item.id ? { ...f, status: "done", inspirationId } : f))
+          );
+          return { fileId: item.id, inspirationId };
+        } catch {
           setFiles((prev) =>
             prev.map((f) =>
-              f.id === item.id ? { ...f, status: "error", error: data.error ?? "Erreur" } : f
+              f.id === item.id ? { ...f, status: "error", error: "Erreur réseau" } : f
             )
           );
-          continue;
+          return null;
         }
-
-        const inspirationId: string = data.inspirationId;
-        setFiles((prev) =>
-          prev.map((f) => (f.id === item.id ? { ...f, status: "done", inspirationId } : f))
-        );
-
-        // Analyse + auto-application si IA activée
-        if (shouldAnalyze) {
-          await analyzeAndApply(inspirationId, item.id);
-          // Throttle: enforce a minimum gap between Gemini calls (15 RPM = 1 req/4 s)
-          if (i < pending.length - 1) {
-            await sleep(ANALYSIS_THROTTLE_MS);
-          }
-        }
-      } catch {
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === item.id ? { ...f, status: "error", error: "Erreur réseau" } : f
-          )
-        );
-      }
-    }
+      })
+    );
 
     setUploading(false);
+
+    // ── Phase 2 : analyses séquentielles en tâche de fond ────────────────
+    if (shouldAnalyze) {
+      const uploaded = results
+        .filter(
+          (r): r is PromiseFulfilledResult<{ fileId: string; inspirationId: string } | null> =>
+            r.status === "fulfilled"
+        )
+        .map((r) => r.value)
+        .filter((v): v is { fileId: string; inspirationId: string } => v !== null);
+
+      void (async () => {
+        for (let i = 0; i < uploaded.length; i++) {
+          await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+          if (i < uploaded.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
+        }
+      })();
+    }
   };
 
   const applyBatchMetadata = async () => {

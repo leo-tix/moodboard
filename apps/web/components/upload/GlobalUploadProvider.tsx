@@ -245,52 +245,68 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
     const shouldAnalyze = aiEnabled;
 
-    for (let i = 0; i < pending.length; i++) {
-      const item = pending[i];
-      setFiles((prev) =>
-        prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
-      );
-      try {
-        const formData = new FormData();
-        formData.append("file", item.file);
-        const res = await fetch("/api/upload/image", { method: "POST", body: formData });
-        const data = await res.json();
+    // ── Phase 1 : uploads en parallèle ───────────────────────────────────
+    const results = await Promise.allSettled(
+      pending.map(async (item) => {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
+        );
+        try {
+          const formData = new FormData();
+          formData.append("file", item.file);
+          const res = await fetch("/api/upload/image", { method: "POST", body: formData });
+          const data = await res.json();
 
-        if (!res.ok) {
+          if (!res.ok) {
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === item.id
+                  ? { ...f, status: "error", error: data.error ?? "Erreur" }
+                  : f
+              )
+            );
+            return null;
+          }
+
+          const inspirationId: string = data.inspirationId;
           setFiles((prev) =>
             prev.map((f) =>
-              f.id === item.id
-                ? { ...f, status: "error", error: data.error ?? "Erreur" }
-                : f
+              f.id === item.id ? { ...f, status: "done", inspirationId } : f
             )
           );
-          continue;
+          return { fileId: item.id, inspirationId };
+        } catch {
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === item.id ? { ...f, status: "error", error: "Erreur réseau" } : f
+            )
+          );
+          return null;
         }
+      })
+    );
 
-        const inspirationId: string = data.inspirationId;
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === item.id ? { ...f, status: "done", inspirationId } : f
-          )
-        );
-
-        if (shouldAnalyze) {
-          await analyzeAndApply(inspirationId, item.id);
-          // Throttle: enforce a minimum gap between Gemini calls (15 RPM = 1 req/4s)
-          if (i < pending.length - 1) {
-            await sleep(ANALYSIS_THROTTLE_MS);
-          }
-        }
-      } catch {
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === item.id ? { ...f, status: "error", error: "Erreur réseau" } : f
-          )
-        );
-      }
-    }
-
+    // Les uploads sont terminés — l'UI peut afficher "Bibliothèque →" dès maintenant
     setUploading(false);
+
+    // ── Phase 2 : analyses séquentielles en tâche de fond ────────────────
+    if (shouldAnalyze) {
+      const uploaded = results
+        .filter(
+          (r): r is PromiseFulfilledResult<{ fileId: string; inspirationId: string } | null> =>
+            r.status === "fulfilled"
+        )
+        .map((r) => r.value)
+        .filter((v): v is { fileId: string; inspirationId: string } => v !== null);
+
+      // void : on ne bloque pas — les mises à jour d'état arrivent au fil de l'eau
+      void (async () => {
+        for (let i = 0; i < uploaded.length; i++) {
+          await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+          if (i < uploaded.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
+        }
+      })();
+    }
   }, [files, uploading, aiEnabled, analyzeAndApply]);
 
   // ── Retry quota-failed analyses ───────────────────────────────────────────
@@ -318,13 +334,17 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const pendingCount = files.filter((f) => f.status === "pending").length;
-  const doneCount = files.filter((f) => f.status === "done").length;
-  const errorCount = files.filter((f) => f.status === "error").length;
+  const pendingCount   = files.filter((f) => f.status === "pending").length;
+  const doneCount      = files.filter((f) => f.status === "done").length;
+  const errorCount     = files.filter((f) => f.status === "error").length;
   const analyzingCount = files.filter((f) => f.aiStatus === "analyzing").length;
-  const aiDoneCount = files.filter((f) => f.aiStatus === "done").length;
-  const quotaCount = files.filter((f) => f.aiStatus === "quota").length;
-  const allSettled = files.length > 0 && pendingCount === 0 && !uploading && analyzingCount === 0;
+  const aiDoneCount    = files.filter((f) => f.aiStatus === "done").length;
+  const quotaCount     = files.filter((f) => f.aiStatus === "quota").length;
+
+  /** Tous les uploads sont terminés (analyses éventuellement encore en cours) */
+  const uploadsComplete = files.length > 0 && pendingCount === 0 && !uploading;
+  /** Tout est terminé, y compris les analyses */
+  const allSettled = uploadsComplete && analyzingCount === 0;
 
   const editingFile = editingInspirationId
     ? files.find((f) => f.inspirationId === editingInspirationId)
@@ -392,9 +412,9 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                     <div className="flex items-center justify-between px-4 pt-4 pb-3">
                       <p className="text-xs font-medium text-[var(--text-primary)]">
                         {uploading
-                          ? analyzingCount > 0
-                            ? `✦ Analyse ${aiDoneCount + errorCount + quotaCount}/${doneCount}…`
-                            : "Import en cours…"
+                          ? `Import en cours… (${doneCount + errorCount}/${files.length})`
+                          : uploadsComplete && analyzingCount > 0
+                          ? `✦ Analyse ${aiDoneCount + quotaCount + files.filter(f => f.aiStatus === "error").length}/${doneCount}…`
                           : allSettled
                           ? [
                               doneCount > 0 && `${doneCount} importée${doneCount > 1 ? "s" : ""}`,
@@ -582,46 +602,45 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
                     {/* Footer */}
                     <div className="flex items-center justify-end gap-3 px-4 py-3 mt-1">
-                      {allSettled ? (
-                        <>
-                          {/* Retry quota-failed analyses */}
-                          {quotaCount > 0 && (
-                            <button
-                              onClick={retryQuotaFiles}
-                              className="text-xs px-3 py-1.5 border border-yellow-500/40 text-yellow-400 rounded-lg hover:bg-yellow-500/10 transition-colors"
-                              title="Les analyses ont été stoppées par le quota Gemini (15 req/min). Cliquer pour réessayer."
-                            >
-                              ⏳ Réanalyser {quotaCount > 1 ? `${quotaCount} images` : "1 image"}
-                            </button>
-                          )}
-                          <a
-                            href="/library"
-                            className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
-                          >
-                            Voir la bibliothèque →
-                          </a>
-                        </>
-                      ) : (
-                        <>
-                          {pendingCount > 0 && !uploading && (
-                            <button
-                              onClick={uploadAll}
-                              className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
-                            >
-                              {aiEnabled
-                                ? `Importer + analyser ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`
-                                : `Importer ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`}
-                            </button>
-                          )}
-                          {uploading && (
-                            <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-2">
-                              <span className="w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin inline-block" />
-                              {analyzingCount > 0
-                                ? `Analyse ${aiDoneCount + errorCount + quotaCount}/${doneCount}…`
-                                : "Import en cours…"}
-                            </span>
-                          )}
-                        </>
+                      {/* Bouton Réanalyser — visible seulement quand tout est terminé */}
+                      {allSettled && quotaCount > 0 && (
+                        <button
+                          onClick={retryQuotaFiles}
+                          className="text-xs px-3 py-1.5 border border-yellow-500/40 text-yellow-400 rounded-lg hover:bg-yellow-500/10 transition-colors"
+                          title="Quota Gemini (15 req/min) dépassé. Cliquer pour réessayer."
+                        >
+                          ⏳ Réanalyser {quotaCount > 1 ? `${quotaCount} images` : "1 image"}
+                        </button>
+                      )}
+
+                      {/* Bibliothèque → dès que les uploads sont finis */}
+                      {uploadsComplete && (
+                        <a
+                          href="/library"
+                          className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
+                        >
+                          {analyzingCount > 0 ? "Bibliothèque (analyse en cours…)" : "Voir la bibliothèque →"}
+                        </a>
+                      )}
+
+                      {/* Bouton Importer — quand des fichiers attendent */}
+                      {!uploadsComplete && pendingCount > 0 && !uploading && (
+                        <button
+                          onClick={uploadAll}
+                          className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
+                        >
+                          {aiEnabled
+                            ? `Importer + analyser ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`
+                            : `Importer ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`}
+                        </button>
+                      )}
+
+                      {/* Spinner upload */}
+                      {uploading && (
+                        <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin inline-block" />
+                          Import en cours…
+                        </span>
                       )}
                     </div>
 
