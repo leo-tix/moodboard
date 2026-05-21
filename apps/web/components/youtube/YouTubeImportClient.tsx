@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -13,13 +13,12 @@ interface VideoInfo {
   author: string;
   duration: number; // seconds
   thumbnailUrl: string | null;
-  streamUrl: string;
+  storyboardSpec: string | null;
 }
 
 interface CapturedFrame {
-  blob: Blob;
-  objectUrl: string;
-  timestamp: number; // seconds
+  dataUrl: string;
+  timestamp: number;
 }
 
 type Mode = "stills" | "mosaic";
@@ -36,7 +35,6 @@ function formatDuration(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-/** Distribute N timestamps between 5 % and 92 % of duration (avoid intro/outro). */
 function getTimestamps(duration: number, count: number): number[] {
   const start = Math.round(duration * 0.05);
   const end = Math.round(duration * 0.92);
@@ -45,45 +43,29 @@ function getTimestamps(duration: number, count: number): number[] {
   return Array.from({ length: count }, (_, i) => Math.round(start + i * step));
 }
 
-/** Seek the video to `timestamp` and return a JPEG blob via Canvas. */
-async function captureFrameAtTime(
-  video: HTMLVideoElement,
-  timestamp: number
-): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const onSeeked = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(video, 0, 0);
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))),
-        "image/jpeg",
-        0.85
-      );
-    };
-    video.addEventListener("seeked", onSeeked, { once: true });
-    video.currentTime = timestamp;
-  });
+/** Convert a base64 data URL to a File for upload. */
+function dataUrlToFile(dataUrl: string, filename: string): File {
+  const [header, data] = dataUrl.split(",");
+  const mimeType = header.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  return new File([bytes], filename, { type: mimeType });
 }
 
-/** Stitch 9 frames into a 3×3 grid with timestamp labels. */
-async function composeMosaic(frames: CapturedFrame[]): Promise<Blob> {
+/** Compose N frames into a 3×3 mosaic with timestamp badges. */
+async function composeMosaic(frames: CapturedFrame[]): Promise<File> {
   const images = await Promise.all(
     frames.map(
       (f) =>
         new Promise<HTMLImageElement>((resolve) => {
           const img = new window.Image();
           img.onload = () => resolve(img);
-          img.src = f.objectUrl;
+          img.src = f.dataUrl;
         })
     )
   );
 
   const fw = images[0].naturalWidth;
   const fh = images[0].naturalHeight;
-
   const canvas = document.createElement("canvas");
   canvas.width = fw * 3;
   canvas.height = fh * 3;
@@ -92,27 +74,28 @@ async function composeMosaic(frames: CapturedFrame[]): Promise<Blob> {
   ctx.fillStyle = "#0a0a0a";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const labelH = Math.max(16, Math.round(fh * 0.08));
-  const fontSize = Math.max(10, Math.round(labelH * 0.65));
+  const labelH = Math.max(14, Math.round(fh * 0.1));
+  const fontSize = Math.max(9, Math.round(labelH * 0.65));
 
   images.forEach((img, i) => {
     const col = i % 3;
     const row = Math.floor(i / 3);
     ctx.drawImage(img, col * fw, row * fh, fw, fh);
 
-    // Timestamp badge
     const ts = formatDuration(frames[i].timestamp);
-    const labelY = (row + 1) * fh - labelH;
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillRect(col * fw, labelY, fw, labelH);
-    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(col * fw, (row + 1) * fh - labelH, fw, labelH);
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
     ctx.font = `${fontSize}px monospace`;
-    ctx.fillText(ts, col * fw + 6, labelY + labelH - 4);
+    ctx.fillText(ts, col * fw + 4, (row + 1) * fh - 4);
   });
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Mosaic toBlob failed"))),
+      (blob) =>
+        blob
+          ? resolve(new File([blob], "mosaic.jpg", { type: "image/jpeg" }))
+          : reject(new Error("Mosaic toBlob failed")),
       "image/jpeg",
       0.92
     );
@@ -122,22 +105,20 @@ async function composeMosaic(frames: CapturedFrame[]): Promise<Blob> {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function YouTubeImportClient() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
   const [url, setUrl] = useState("");
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [info, setInfo] = useState<VideoInfo | null>(null);
   const [mode, setMode] = useState<Mode>("stills");
   const [step, setStep] = useState<Step>("input");
   const [frames, setFrames] = useState<CapturedFrame[]>([]);
-  const [captureProgress, setCaptureProgress] = useState(0);
+  const [frameResolution, setFrameResolution] = useState<{ width: number; height: number } | null>(null);
   const [importProgress, setImportProgress] = useState(0);
   const [collectionId, setCollectionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const frameCount = mode === "stills" ? 5 : 9;
 
-  // ── Load video metadata ───────────────────────────────────────────────────
+  // ── Load video info via oEmbed + page parse (no auth required) ────────────
 
   const loadInfo = async () => {
     if (!url.trim()) return;
@@ -163,56 +144,44 @@ export function YouTubeImportClient() {
     }
   };
 
-  // ── Capture frames via hidden <video> + Canvas ────────────────────────────
+  // ── Fetch storyboard frames from the server ───────────────────────────────
 
   const captureFrames = async () => {
-    if (!info || !videoRef.current) return;
+    if (!info?.storyboardSpec) return;
     setStep("capturing");
-    setCaptureProgress(0);
-
-    // Revoke previous object URLs
-    frames.forEach((f) => URL.revokeObjectURL(f.objectUrl));
     setFrames([]);
+    setFrameResolution(null);
 
-    const video = videoRef.current;
     const timestamps = getTimestamps(info.duration, frameCount);
 
-    // Wait for video metadata to be available (needed for seeking)
-    if (video.readyState < 1) {
-      await new Promise<void>((resolve, reject) => {
-        const onMeta = () => { cleanup(); resolve(); };
-        const onError = () => { cleanup(); reject(new Error("Erreur de chargement vidéo")); };
-        const cleanup = () => {
-          video.removeEventListener("loadedmetadata", onMeta);
-          video.removeEventListener("error", onError);
-        };
-        video.addEventListener("loadedmetadata", onMeta, { once: true });
-        video.addEventListener("error", onError, { once: true });
+    try {
+      const res = await fetch("/api/youtube/frames", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storyboardSpec: info.storyboardSpec,
+          duration: info.duration,
+          timestamps,
+        }),
       });
-    }
+      const data = await res.json();
 
-    const captured: CapturedFrame[] = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      try {
-        const blob = await captureFrameAtTime(video, timestamps[i]);
-        const objectUrl = URL.createObjectURL(blob);
-        captured.push({ blob, objectUrl, timestamp: timestamps[i] });
-        setCaptureProgress(i + 1);
-        setFrames([...captured]);
-      } catch (err) {
-        console.error(`[YouTube] Capture failed at ${timestamps[i]}s`, err);
+      if (!res.ok || !data.frames?.length) {
+        setError(data.error ?? "Impossible d'extraire les frames");
+        setStep("ready");
+        return;
       }
-    }
 
-    if (captured.length === 0) {
-      setError("Aucune frame capturée. La vidéo est peut-être protégée.");
-      setStep("ready");
-    } else {
+      setFrames(data.frames as CapturedFrame[]);
+      setFrameResolution(data.resolution ?? null);
       setStep("preview");
+    } catch {
+      setError("Erreur réseau lors de l'extraction");
+      setStep("ready");
     }
   };
 
-  // ── Upload frames + create collection ────────────────────────────────────
+  // ── Upload frames + auto-create collection ────────────────────────────────
 
   const importFrames = async () => {
     if (!info || !frames.length) return;
@@ -221,17 +190,17 @@ export function YouTubeImportClient() {
 
     const inspirationIds: string[] = [];
 
-    const uploadBlob = async (blob: Blob, filename: string): Promise<string | null> => {
+    const uploadFile = async (file: File): Promise<string | null> => {
       const formData = new FormData();
-      formData.append("file", blob, filename);
+      formData.append("file", file);
       const res = await fetch("/api/upload/image", { method: "POST", body: formData });
       const data = await res.json();
       return data.inspirationId ?? null;
     };
 
     if (mode === "mosaic") {
-      const mosaicBlob = await composeMosaic(frames);
-      const id = await uploadBlob(mosaicBlob, "mosaic.jpg");
+      const mosaicFile = await composeMosaic(frames);
+      const id = await uploadFile(mosaicFile);
       if (id) {
         await fetch(`/api/inspirations/${id}`, {
           method: "PATCH",
@@ -248,11 +217,11 @@ export function YouTubeImportClient() {
       }
       setImportProgress(1);
     } else {
-      // 5 stills
       for (let i = 0; i < frames.length; i++) {
         const frame = frames[i];
         const ts = formatDuration(frame.timestamp).replace(":", "m") + "s";
-        const id = await uploadBlob(frame.blob, `still-${ts}.jpg`);
+        const file = dataUrlToFile(frame.dataUrl, `still-${ts}.jpg`);
+        const id = await uploadFile(file);
         if (id) {
           await fetch(`/api/inspirations/${id}`, {
             method: "PATCH",
@@ -268,7 +237,6 @@ export function YouTubeImportClient() {
       }
     }
 
-    // Auto-create a collection named after the video
     if (inspirationIds.length > 0) {
       const colRes = await fetch("/api/collections", {
         method: "POST",
@@ -290,43 +258,21 @@ export function YouTubeImportClient() {
     setStep("done");
   };
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
-
   const reset = () => {
-    frames.forEach((f) => URL.revokeObjectURL(f.objectUrl));
     setFrames([]);
     setInfo(null);
     setStep("input");
     setUrl("");
     setCollectionId(null);
     setError(null);
-    setCaptureProgress(0);
     setImportProgress(0);
+    setFrameResolution(null);
   };
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-
-  const proxyUrl = info
-    ? `/api/youtube/proxy?url=${encodeURIComponent(info.streamUrl)}`
-    : "";
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-2xl">
-      {/* Hidden video element — loaded once info is available */}
-      {info && (
-        <video
-          ref={videoRef}
-          src={proxyUrl}
-          preload="metadata"
-          muted
-          playsInline
-          className="sr-only"
-          aria-hidden
-        />
-      )}
-
       <AnimatePresence mode="wait">
 
         {/* ── Step 1: URL input ── */}
@@ -363,29 +309,9 @@ export function YouTubeImportClient() {
                 </button>
               </div>
             </div>
-
-            {error && (
-              <div className="space-y-1.5">
-                <p className="text-xs text-red-400">{error}</p>
-                {error.toLowerCase().includes("bot") ||
-                  error.toLowerCase().includes("sign in") ? (
-                  <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
-                    YouTube bloque les requêtes serveur sans session.{" "}
-                    <a
-                      href="https://github.com/distubejs/ytdl-core#cookies-support"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:text-[var(--text-secondary)] transition-colors"
-                    >
-                      Ajouter <code className="font-mono">YOUTUBE_COOKIE</code> dans les variables d&apos;environnement Vercel →
-                    </a>
-                  </p>
-                ) : null}
-              </div>
-            )}
-
+            {error && <p className="text-xs text-red-400">{error}</p>}
             <p className="text-[10px] text-[var(--text-tertiary)]">
-              Supporte youtube.com/watch, youtu.be et les Shorts.
+              Gratuit · Sans clé API · Fonctionne pour toutes les vidéos publiques.
             </p>
           </motion.div>
         )}
@@ -416,104 +342,87 @@ export function YouTubeImportClient() {
                 </p>
                 <p className="text-xs text-[var(--text-tertiary)] mt-1">{info.author}</p>
                 <p className="text-xs text-[var(--text-tertiary)]">{formatDuration(info.duration)}</p>
+                {!info.storyboardSpec && (
+                  <p className="text-[10px] text-yellow-500 mt-1.5">
+                    ⚠ Storyboard non disponible pour cette vidéo (trop courte ou restriction).
+                  </p>
+                )}
               </div>
               <button
                 onClick={reset}
                 className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] self-start flex-shrink-0 text-xs transition-colors"
-                title="Changer de vidéo"
               >
                 ✕
               </button>
             </div>
 
             {/* Mode selector */}
-            <div>
-              <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">
-                Mode d&apos;import
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {(["stills", "mosaic"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setMode(m)}
-                    className={cn(
-                      "p-4 rounded-xl border text-left transition-colors",
-                      mode === m
-                        ? "border-[var(--text-primary)] bg-[var(--bg-elevated)]"
-                        : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-default)]"
-                    )}
-                  >
-                    <div className="text-2xl mb-2 opacity-40 font-mono">
-                      {m === "stills" ? "□□□□□" : "⊞"}
-                    </div>
-                    <p className="text-xs font-medium text-[var(--text-primary)]">
-                      {m === "stills" ? "5 images séparées" : "Mosaïque 3×3"}
-                    </p>
-                    <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-relaxed">
-                      {m === "stills"
-                        ? "5 stills dans la bibliothèque, chacun lié au timestamp YouTube"
-                        : "1 image composite — vue d'ensemble avec horodatages"}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {info.storyboardSpec && (
+              <>
+                <div>
+                  <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-3">
+                    Mode d&apos;import
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {(["stills", "mosaic"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setMode(m)}
+                        className={cn(
+                          "p-4 rounded-xl border text-left transition-colors",
+                          mode === m
+                            ? "border-[var(--text-primary)] bg-[var(--bg-elevated)]"
+                            : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-default)]"
+                        )}
+                      >
+                        <div className="text-base mb-2 opacity-40 font-mono tracking-widest">
+                          {m === "stills" ? "□ □ □ □ □" : "⊞"}
+                        </div>
+                        <p className="text-xs font-medium text-[var(--text-primary)]">
+                          {m === "stills" ? "5 images séparées" : "Mosaïque 3×3"}
+                        </p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-relaxed">
+                          {m === "stills"
+                            ? "5 stills dans la bibliothèque, liés au timestamp YouTube"
+                            : "1 image composite — vue d'ensemble avec horodatages"}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {error && <p className="text-xs text-red-400">{error}</p>}
+                {error && <p className="text-xs text-red-400">{error}</p>}
 
-            <button
-              onClick={captureFrames}
-              className="w-full py-2.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-            >
-              Capturer {frameCount} frames →
-            </button>
+                <button
+                  onClick={captureFrames}
+                  className="w-full py-2.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                >
+                  Extraire {frameCount} frames →
+                </button>
+              </>
+            )}
           </motion.div>
         )}
 
-        {/* ── Step 3: Capturing in progress ── */}
-        {step === "capturing" && info && (
+        {/* ── Step 3: Extracting ── */}
+        {step === "capturing" && (
           <motion.div
             key="capturing"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="space-y-5"
+            className="py-20 flex flex-col items-center gap-4 text-center"
           >
-            <div className="flex items-center gap-3">
-              <span className="w-4 h-4 rounded-full border-2 border-[var(--text-primary)] border-t-transparent animate-spin flex-shrink-0" />
-              <p className="text-sm text-[var(--text-primary)]">
-                Capture {captureProgress}/{frameCount}…
-              </p>
-            </div>
-
-            {/* Live preview as frames arrive */}
-            {frames.length > 0 && (
-              <div
-                className={cn(
-                  "grid gap-2",
-                  mode === "mosaic" ? "grid-cols-3" : "grid-cols-5"
-                )}
-              >
-                {frames.map((f, i) => (
-                  <div
-                    key={i}
-                    className="relative rounded-md overflow-hidden bg-[var(--bg-surface)]"
-                    style={{ aspectRatio: "16/9" }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={f.objectUrl} alt="" className="w-full h-full object-cover" />
-                    <div className="absolute bottom-1 left-1 text-[8px] bg-black/55 text-white/90 px-1 py-0.5 rounded font-mono">
-                      {formatDuration(f.timestamp)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <span className="w-6 h-6 rounded-full border-2 border-[var(--text-primary)] border-t-transparent animate-spin" />
+            <p className="text-sm text-[var(--text-primary)]">Extraction des frames…</p>
+            <p className="text-xs text-[var(--text-tertiary)]">
+              Téléchargement des sprites YouTube en cours
+            </p>
           </motion.div>
         )}
 
         {/* ── Step 4: Preview + confirm ── */}
-        {step === "preview" && info && frames.length > 0 && (
+        {step === "preview" && frames.length > 0 && (
           <motion.div
             key="preview"
             initial={{ opacity: 0, y: 8 }}
@@ -521,15 +430,23 @@ export function YouTubeImportClient() {
             exit={{ opacity: 0, y: -4 }}
             className="space-y-5"
           >
-            <div>
-              <p className="text-sm font-medium text-[var(--text-primary)]">
-                {frames.length} frame{frames.length > 1 ? "s" : ""} capturée{frames.length > 1 ? "s" : ""}
-              </p>
-              <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-                {mode === "mosaic"
-                  ? "Ces 9 frames seront assemblées en une seule image 3×3."
-                  : "Ces 5 images seront importées séparément, chacune liée à son timestamp."}
-              </p>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-[var(--text-primary)]">
+                  {frames.length} frame{frames.length > 1 ? "s" : ""} extraite{frames.length > 1 ? "s" : ""}
+                </p>
+                <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
+                  {mode === "mosaic"
+                    ? "Assemblées en une mosaïque 3×3 à l'import."
+                    : "Importées séparément, liées à leur timestamp."}
+                </p>
+              </div>
+              {/* Resolution badge */}
+              {frameResolution && (
+                <span className="text-[9px] px-2 py-1 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-tertiary)] flex-shrink-0">
+                  {frameResolution.width}×{frameResolution.height} px
+                </span>
+              )}
             </div>
 
             <div
@@ -545,7 +462,7 @@ export function YouTubeImportClient() {
                   style={{ aspectRatio: "16/9" }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={f.objectUrl} alt="" className="w-full h-full object-cover" />
+                  <img src={f.dataUrl} alt="" className="w-full h-full object-cover" />
                   <div className="absolute bottom-1 left-1 text-[8px] bg-black/55 text-white/90 px-1 py-0.5 rounded font-mono">
                     {formatDuration(f.timestamp)}
                   </div>
@@ -558,7 +475,7 @@ export function YouTubeImportClient() {
                 onClick={captureFrames}
                 className="px-4 py-2 text-xs text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-md hover:border-[var(--border-default)] hover:text-[var(--text-primary)] transition-colors"
               >
-                ↺ Recapturer
+                ↺ Ré-extraire
               </button>
               <button
                 onClick={importFrames}
