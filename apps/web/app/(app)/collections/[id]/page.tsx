@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { CollectionDetailClient } from "@/components/collections/CollectionDetailClient";
+import { getSuggestedAdditions } from "@/lib/collections/suggestions";
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -17,28 +18,31 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function CollectionDetailPage({ params }: Props) {
   const { id } = await params;
 
-  const collection = await db.collection.findUnique({
-    where: { id },
-    include: {
-      items: {
-        include: {
-          inspiration: {
-            include: {
-              images: {
-                orderBy: [{ isMain: "desc" }, { order: "asc" }],
-                take: 1,
-                select: { thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
+  const [collection, suggestions] = await Promise.all([
+    db.collection.findUnique({
+      where: { id },
+      include: {
+        items: {
+          include: {
+            inspiration: {
+              include: {
+                images: {
+                  orderBy: [{ isMain: "desc" }, { order: "asc" }],
+                  take: 1,
+                  select: { thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
+                },
+                categories: { include: { category: { select: { name: true } } }, take: 3 },
+                tags: { include: { tag: { select: { name: true } } }, take: 5 },
               },
-              categories: { include: { category: { select: { name: true } } }, take: 3 },
-              tags: { include: { tag: { select: { name: true } } }, take: 5 },
             },
           },
+          orderBy: { order: "asc" },
         },
-        orderBy: { order: "asc" },
+        _count: { select: { items: true } },
       },
-      _count: { select: { items: true } },
-    },
-  });
+    }),
+    getSuggestedAdditions(id),
+  ]);
 
   if (!collection) notFound();
 
@@ -76,6 +80,7 @@ export default async function CollectionDetailPage({ params }: Props) {
       <CollectionDetailClient
         collectionId={collection.id}
         initialItems={collection.items}
+        suggestions={suggestions}
       />
     </div>
   );

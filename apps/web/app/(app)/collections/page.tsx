@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { CollectionsClient } from "@/components/collections/CollectionsClient";
+import { getSuggestedCollections } from "@/lib/collections/suggestions";
 
 export const metadata: Metadata = { title: "Collections" };
 export const revalidate = 0;
@@ -28,6 +29,8 @@ export default async function CollectionsPage() {
     orderBy: { order: "asc" },
   });
 
+  const suggestions = await getSuggestedCollections(collections.map((c) => c.name));
+
   return (
     <div className="p-6">
       <header className="mb-6 flex items-center justify-between">
@@ -44,10 +47,9 @@ export default async function CollectionsPage() {
             )}
           </h1>
         </div>
-        {/* Le bouton Créer est géré côté client dans CollectionsClient */}
       </header>
 
-      <CollectionsClient initialCollections={collections} />
+      <CollectionsClient initialCollections={collections} suggestions={suggestions} />
     </div>
   );
 }

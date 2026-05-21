@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+import type { CollectionSuggestion } from "@/lib/collections/suggestions";
 
 interface CollectionWithCover {
   id: string;
@@ -20,9 +21,70 @@ interface CollectionWithCover {
 
 interface CollectionsClientProps {
   initialCollections: CollectionWithCover[];
+  suggestions: CollectionSuggestion[];
 }
 
-export function CollectionsClient({ initialCollections }: CollectionsClientProps) {
+// ─── Cover mosaic helper ───────────────────────────────────────────────────────
+
+function CoverMosaic({
+  thumbs,
+  name,
+  empty,
+}: {
+  thumbs: string[];
+  name: string;
+  empty?: boolean;
+}) {
+  if (empty || thumbs.length === 0) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-[var(--text-tertiary)] text-xs">Vide</span>
+      </div>
+    );
+  }
+  if (thumbs.length === 1) {
+    return (
+      <Image
+        src={getThumbnailUrl(thumbs[0])}
+        alt={name}
+        fill
+        className="object-cover"
+        sizes="(max-width: 768px) 50vw, 25vw"
+      />
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 grid-rows-2 h-full gap-px">
+      {thumbs.slice(0, 4).map((key, i) => (
+        <div key={i} className="relative overflow-hidden bg-[var(--bg-elevated)]">
+          <Image
+            src={getThumbnailUrl(key)}
+            alt=""
+            fill
+            className="object-cover"
+            sizes="15vw"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Type badge ────────────────────────────────────────────────────────────────
+
+const TYPE_LABELS: Record<CollectionSuggestion["type"], string> = {
+  category: "Catégorie",
+  tag: "Tag",
+  year: "Année",
+  author: "Auteur",
+};
+
+// ─── Main component ────────────────────────────────────────────────────────────
+
+export function CollectionsClient({
+  initialCollections,
+  suggestions,
+}: CollectionsClientProps) {
   const [collections, setCollections] = useState(initialCollections);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -30,6 +92,8 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
   const [creating, setCreating] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [creatingFromSuggestion, setCreatingFromSuggestion] = useState<string | null>(null);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
 
   const create = async () => {
     if (!newName.trim() || creating) return;
@@ -41,15 +105,47 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
         body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() || null }),
       });
       const col = await res.json();
-      setCollections((prev) => [
-        ...prev,
-        { ...col, items: [] },
-      ]);
+      setCollections((prev) => [...prev, { ...col, items: [] }]);
       setNewName("");
       setNewDesc("");
       setShowCreate(false);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const createFromSuggestion = async (suggestion: CollectionSuggestion) => {
+    setCreatingFromSuggestion(suggestion.label);
+    try {
+      // 1. Créer la collection
+      const res = await fetch("/api/collections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: suggestion.label }),
+      });
+      const col = await res.json();
+
+      // 2. Ajouter les images
+      await fetch(`/api/collections/${col.id}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inspirationIds: suggestion.inspirationIds }),
+      });
+
+      // 3. Mettre à jour l'état local
+      setCollections((prev) => [
+        ...prev,
+        {
+          ...col,
+          _count: { items: suggestion.inspirationIds.length },
+          items: suggestion.previewThumbs.slice(0, 4).map((thumbnailKey) => ({
+            inspiration: { images: [{ thumbnailKey }] },
+          })),
+        },
+      ]);
+      setDismissedSuggestions((prev) => new Set([...prev, suggestion.label]));
+    } finally {
+      setCreatingFromSuggestion(null);
     }
   };
 
@@ -64,107 +160,156 @@ export function CollectionsClient({ initialCollections }: CollectionsClientProps
     }
   };
 
+  // Filtre les suggestions dont le label existe déjà dans les collections ou a été créé/ignoré
+  const existingNames = new Set(collections.map((c) => c.name.toLowerCase()));
+  const visibleSuggestions = suggestions.filter(
+    (s) => !existingNames.has(s.label.toLowerCase()) && !dismissedSuggestions.has(s.label)
+  );
+
   return (
-    <div>
-      {/* Collections grid */}
-      {collections.length === 0 && !showCreate ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <p className="text-[var(--text-tertiary)] text-sm mb-4">
-            Aucune collection pour le moment.
-          </p>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="px-4 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors"
-          >
-            + Créer une collection
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {collections.map((col) => {
-            const thumbs = col.items
-              .map((item) => item.inspiration.images[0]?.thumbnailKey)
-              .filter(Boolean) as string[];
+    <div className="space-y-10">
+      {/* ── Collections existantes ── */}
+      <div>
+        {collections.length === 0 && !showCreate ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-[var(--text-tertiary)] text-sm mb-4">
+              Aucune collection pour le moment.
+            </p>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="px-4 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors"
+            >
+              + Créer une collection
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {/* Bouton créer */}
+            <button
+              onClick={() => setShowCreate(true)}
+              className="aspect-square rounded-md border border-dashed border-[var(--border-default)] hover:border-[var(--border-strong)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors flex flex-col items-center justify-center gap-1.5"
+            >
+              <span className="text-xl opacity-40">+</span>
+              <span className="text-[10px]">Nouvelle</span>
+            </button>
 
-            return (
-              <div key={col.id} className="group relative">
-                <Link href={`/collections/${col.id}`} className="block">
-                  {/* Cover mosaic */}
-                  <div className="aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] mb-2 relative">
-                    {thumbs.length === 0 ? (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-[var(--text-tertiary)] text-xs">Vide</span>
-                      </div>
-                    ) : thumbs.length === 1 ? (
-                      <Image
-                        src={getThumbnailUrl(thumbs[0])}
-                        alt={col.name}
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 768px) 50vw, 25vw"
-                      />
-                    ) : (
-                      <div className="grid grid-cols-2 grid-rows-2 h-full gap-px">
-                        {thumbs.slice(0, 4).map((key, i) => (
-                          <div key={i} className="relative overflow-hidden bg-[var(--bg-elevated)]">
-                            <Image
-                              src={getThumbnailUrl(key)}
-                              alt=""
-                              fill
-                              className="object-cover"
-                              sizes="15vw"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
+            {collections.map((col) => {
+              const thumbs = col.items
+                .map((item) => item.inspiration.images[0]?.thumbnailKey)
+                .filter((t): t is string => !!t);
 
-                    {/* Hover overlay */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+              return (
+                <div key={col.id} className="group relative">
+                  <Link href={`/collections/${col.id}`} className="block">
+                    <div className="aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] mb-2 relative">
+                      <CoverMosaic thumbs={thumbs} name={col.name} empty={thumbs.length === 0} />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                    </div>
+                    <p className="text-xs font-medium text-[var(--text-primary)] leading-tight truncate">
+                      {col.name}
+                    </p>
+                    <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                      {col._count.items} image{col._count.items !== 1 ? "s" : ""}
+                    </p>
+                  </Link>
+
+                  {deleteId === col.id ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-[9px] text-red-400">Supprimer ?</span>
+                      <button
+                        onClick={() => deleteCollection(col.id)}
+                        disabled={deleting}
+                        className="text-[9px] text-red-400 hover:text-red-300"
+                      >
+                        {deleting ? "…" : "Oui"}
+                      </button>
+                      <button
+                        onClick={() => setDeleteId(null)}
+                        className="text-[9px] text-[var(--text-tertiary)]"
+                      >
+                        Non
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteId(col.id)}
+                      className="text-[9px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors mt-0.5 opacity-0 group-hover:opacity-100"
+                    >
+                      Supprimer
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Suggestions ── */}
+      {visibleSuggestions.length > 0 && (
+        <div>
+          <div className="flex items-baseline gap-3 mb-4">
+            <h2 className="text-sm font-medium text-[var(--text-primary)]">
+              Collections suggérées
+            </h2>
+            <p className="text-[10px] text-[var(--text-tertiary)]">
+              Générées à partir de tes métadonnées
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {visibleSuggestions.map((s) => {
+              const isCreating = creatingFromSuggestion === s.label;
+              return (
+                <div
+                  key={`${s.type}-${s.label}`}
+                  className="group relative"
+                >
+                  {/* Cover */}
+                  <div className="aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] mb-2 relative border border-dashed border-[var(--border-subtle)]">
+                    <CoverMosaic thumbs={s.previewThumbs} name={s.label} />
+                    {/* Overlay avec badge type */}
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
+                    <div className="absolute top-1.5 left-1.5">
+                      <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-black/50 text-white/70 backdrop-blur-sm">
+                        {TYPE_LABELS[s.type]}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Name + count */}
                   <p className="text-xs font-medium text-[var(--text-primary)] leading-tight truncate">
-                    {col.name}
+                    {s.label}
                   </p>
-                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-                    {col._count.items} image{col._count.items !== 1 ? "s" : ""}
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 mb-1.5">
+                    {s.sublabel}
                   </p>
-                </Link>
 
-                {/* Delete button */}
-                {deleteId === col.id ? (
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className="text-[9px] text-red-400">Supprimer ?</span>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => deleteCollection(col.id)}
-                      disabled={deleting}
-                      className="text-[9px] text-red-400 hover:text-red-300"
+                      onClick={() => createFromSuggestion(s)}
+                      disabled={isCreating}
+                      className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40"
                     >
-                      {deleting ? "…" : "Oui"}
+                      {isCreating ? "Création…" : "+ Créer cette collection"}
                     </button>
                     <button
-                      onClick={() => setDeleteId(null)}
-                      className="text-[9px] text-[var(--text-tertiary)]"
+                      onClick={() =>
+                        setDismissedSuggestions((prev) => new Set([...prev, s.label]))
+                      }
+                      className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-auto"
+                      title="Ignorer cette suggestion"
                     >
-                      Non
+                      ✕
                     </button>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => setDeleteId(col.id)}
-                    className="text-[9px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors mt-0.5 opacity-0 group-hover:opacity-100"
-                  >
-                    Supprimer
-                  </button>
-                )}
-              </div>
-            );
-          })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* Create modal */}
+      {/* ── Modal création manuelle ── */}
       <AnimatePresence>
         {showCreate && (
           <>
