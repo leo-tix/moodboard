@@ -11,6 +11,8 @@ import {
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
+import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,9 +23,17 @@ interface QueuedFile {
   status: "pending" | "uploading" | "done" | "error";
   inspirationId?: string;
   error?: string;
+  aiStatus?: "analyzing" | "done" | "error";
+  aiData?: {
+    title?: string;
+    description?: string;
+    notes?: string;
+    tags?: string[];
+    categories?: { categoryId: string; subcategoryId: null }[];
+  };
 }
 
-// ─── Context (kept minimal — nothing needs to be consumed externally yet) ─────
+// ─── Context ──────────────────────────────────────────────────────────────────
 
 const GlobalUploadContext = createContext<Record<string, never>>({});
 export const useGlobalUpload = () => useContext(GlobalUploadContext);
@@ -41,36 +51,43 @@ function isValidImage(file: File) {
 
 export function GlobalUploadProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // On the /upload page, the DropZone already handles everything — skip global listeners
   const isUploadPage = pathname === "/upload";
 
-  const [isDragActive, setIsDragActive] = useState(false);
+  // ── File queue ──
   const [files, setFiles] = useState<QueuedFile[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [mounted, setMounted] = useState(false);
+
+  // ── Drag detection ──
+  const [isDragActive, setIsDragActive] = useState(false);
   const dragCounter = useRef(0);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // ── AI toggle ──
+  const [aiEnabled, setAiEnabled] = useState(false);
 
-  // ── Add files helper ──────────────────────────────────────────────────────
+  // ── Per-file slide-over ──
+  const [editingInspirationId, setEditingInspirationId] = useState<string | null>(null);
+
+  // ── Portal mount guard ──
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  // ── Enqueue helper ────────────────────────────────────────────────────────
 
   const enqueue = useCallback((rawFiles: File[]) => {
     const valid = rawFiles.filter(isValidImage);
     if (!valid.length) return;
-
-    const queued: QueuedFile[] = valid.map((f) => ({
-      id: crypto.randomUUID(),
-      file: f,
-      // Pasted images have a generic name — give them a readable one
-      preview: URL.createObjectURL(f),
-      status: "pending",
-    }));
-    setFiles((prev) => [...prev, ...queued]);
+    setFiles((prev) => [
+      ...prev,
+      ...valid.map((f) => ({
+        id: crypto.randomUUID(),
+        file: f,
+        preview: URL.createObjectURL(f),
+        status: "pending" as const,
+      })),
+    ]);
   }, []);
 
-  // ── Window / document event listeners ────────────────────────────────────
+  // ── Document / window event listeners ────────────────────────────────────
 
   useEffect(() => {
     if (isUploadPage) return;
@@ -84,16 +101,13 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
     const onDragLeave = (e: DragEvent) => {
       dragCounter.current--;
-      // relatedTarget === null means we left the browser window entirely
       if (dragCounter.current <= 0 || e.relatedTarget === null) {
         dragCounter.current = 0;
         setIsDragActive(false);
       }
     };
 
-    const onDragOver = (e: DragEvent) => {
-      e.preventDefault(); // required to allow drop
-    };
+    const onDragOver = (e: DragEvent) => { e.preventDefault(); };
 
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
@@ -106,12 +120,12 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
     const onPaste = (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
-
-      // Don't intercept paste inside text fields
       const target = e.target as HTMLElement;
-      const tag = target.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
-
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) return;
       const imageFiles: File[] = [];
       for (const item of Array.from(e.clipboardData.items)) {
         if (item.type.startsWith("image/")) {
@@ -140,18 +154,77 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
     };
   }, [isUploadPage, enqueue]);
 
-  // ── Upload logic ──────────────────────────────────────────────────────────
+  // ── AI: analyze + auto-apply ──────────────────────────────────────────────
+
+  const analyzeAndApply = useCallback(async (inspirationId: string, fileId: string) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, aiStatus: "analyzing" } : f))
+    );
+    try {
+      const res = await fetch(`/api/inspirations/${inspirationId}/analyze`, { method: "POST" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+
+      const patch: Record<string, unknown> = {};
+      if (data.analysis?.suggestedTitle) patch.title = data.analysis.suggestedTitle;
+      if (data.analysis?.moodDescriptor) patch.description = data.analysis.moodDescriptor;
+      if (data.analysis?.technicalNotes) patch.notes = data.analysis.technicalNotes;
+      if (data.suggestedTags?.length) patch.tags = data.suggestedTags;
+      if (data.suggestedCategories?.length) {
+        patch.categories = data.suggestedCategories.map((c: { id: string }) => ({
+          categoryId: c.id,
+          subcategoryId: null,
+        }));
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await fetch(`/api/inspirations/${inspirationId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+      }
+
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId
+            ? {
+                ...f,
+                aiStatus: "done",
+                aiData: {
+                  title: data.analysis?.suggestedTitle,
+                  description: data.analysis?.moodDescriptor,
+                  notes: data.analysis?.technicalNotes,
+                  tags: data.suggestedTags ?? [],
+                  categories: (data.suggestedCategories ?? []).map((c: { id: string }) => ({
+                    categoryId: c.id,
+                    subcategoryId: null as null,
+                  })),
+                },
+              }
+            : f
+        )
+      );
+    } catch {
+      setFiles((prev) =>
+        prev.map((f) => (f.id === fileId ? { ...f, aiStatus: "error" } : f))
+      );
+    }
+  }, []);
+
+  // ── Upload ────────────────────────────────────────────────────────────────
 
   const uploadAll = useCallback(async () => {
     const pending = files.filter((f) => f.status === "pending");
     if (!pending.length || uploading) return;
     setUploading(true);
 
+    const shouldAnalyze = aiEnabled;
+
     for (const item of pending) {
       setFiles((prev) =>
         prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
       );
-
       try {
         const formData = new FormData();
         formData.append("file", item.file);
@@ -166,14 +239,18 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                 : f
             )
           );
-        } else {
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.id === item.id
-                ? { ...f, status: "done", inspirationId: data.inspirationId }
-                : f
-            )
-          );
+          continue;
+        }
+
+        const inspirationId: string = data.inspirationId;
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === item.id ? { ...f, status: "done", inspirationId } : f
+          )
+        );
+
+        if (shouldAnalyze) {
+          await analyzeAndApply(inspirationId, item.id);
         }
       } catch {
         setFiles((prev) =>
@@ -185,21 +262,30 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
     }
 
     setUploading(false);
-  }, [files, uploading]);
+  }, [files, uploading, aiEnabled, analyzeAndApply]);
+
+  // ── Dismiss ───────────────────────────────────────────────────────────────
 
   const dismiss = useCallback(() => {
     setFiles((prev) => {
       prev.forEach((f) => URL.revokeObjectURL(f.preview));
       return [];
     });
+    setEditingInspirationId(null);
   }, []);
 
-  // ── Derived state ─────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
 
   const pendingCount = files.filter((f) => f.status === "pending").length;
   const doneCount = files.filter((f) => f.status === "done").length;
   const errorCount = files.filter((f) => f.status === "error").length;
+  const analyzingCount = files.filter((f) => f.aiStatus === "analyzing").length;
+  const aiDoneCount = files.filter((f) => f.aiStatus === "done").length;
   const allSettled = files.length > 0 && pendingCount === 0 && !uploading;
+
+  const editingFile = editingInspirationId
+    ? files.find((f) => f.inspirationId === editingInspirationId)
+    : null;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -210,7 +296,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
       {mounted &&
         createPortal(
           <>
-            {/* ── Full-screen drag overlay ── */}
+            {/* ── Full-screen drag overlay ───────────────────────────────── */}
             <AnimatePresence>
               {isDragActive && (
                 <motion.div
@@ -218,25 +304,22 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
+                  transition={{ duration: 0.12 }}
                   className="fixed inset-0 z-[9998] pointer-events-none"
                 >
-                  {/* Frosted background */}
                   <div className="absolute inset-0 bg-[var(--bg-base)]/85 backdrop-blur-md" />
-                  {/* Animated dashed border */}
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
+                    initial={{ scale: 0.97, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
                     className="absolute inset-5 rounded-3xl border-2 border-dashed border-[var(--accent,#a78bfa)]/50"
                   />
-                  {/* Label */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
                     <motion.div
-                      initial={{ y: 6, opacity: 0 }}
+                      initial={{ y: 8, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
-                      transition={{ delay: 0.05 }}
+                      transition={{ delay: 0.06 }}
                     >
-                      <div className="text-5xl mb-4 opacity-25">↑</div>
+                      <div className="text-5xl mb-4 opacity-20">↑</div>
                       <p className="text-[var(--text-primary)] text-2xl font-light tracking-tight">
                         Déposez pour importer
                       </p>
@@ -249,122 +332,312 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
               )}
             </AnimatePresence>
 
-            {/* ── Bottom upload tray ── */}
+            {/* ── Floating upload panel ──────────────────────────────────── */}
             <AnimatePresence>
               {files.length > 0 && (
                 <motion.div
-                  key="upload-tray"
-                  initial={{ y: 80, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 80, opacity: 0 }}
-                  transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
-                  className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9997] w-full max-w-xl px-4"
+                  key="upload-panel"
+                  initial={{ y: 24, opacity: 0, scale: 0.97 }}
+                  animate={{ y: 0, opacity: 1, scale: 1 }}
+                  exit={{ y: 24, opacity: 0, scale: 0.97 }}
+                  transition={{ type: "spring", bounce: 0.18, duration: 0.4 }}
+                  className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9997] w-full max-w-[440px] px-4"
                 >
-                  <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/40 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {/* Thumbnails strip */}
-                      <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
-                        {files.slice(0, 7).map((f) => (
+                  <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
+
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 pt-4 pb-3">
+                      <p className="text-xs font-medium text-[var(--text-primary)]">
+                        {uploading
+                          ? analyzingCount > 0
+                            ? `✦ Analyse ${aiDoneCount + errorCount}/${doneCount}…`
+                            : "Import en cours…"
+                          : allSettled
+                          ? `${doneCount} importée${doneCount > 1 ? "s" : ""}${aiDoneCount > 0 ? ` · ${aiDoneCount} analysée${aiDoneCount > 1 ? "s" : ""}` : ""}${errorCount > 0 ? ` · ${errorCount} erreur${errorCount > 1 ? "s" : ""}` : ""}`
+                          : `${files.length} image${files.length > 1 ? "s" : ""} prête${files.length > 1 ? "s" : ""}`}
+                      </p>
+                      <button
+                        onClick={dismiss}
+                        className="w-6 h-6 rounded-full bg-[var(--bg-surface)] hover:bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] flex items-center justify-center text-[10px] transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Thumbnail grid */}
+                    <div className="px-4">
+                      <div className="flex flex-wrap gap-1.5">
+                        {files.map((f) => (
                           <div
                             key={f.id}
-                            className="relative w-9 h-9 rounded-lg overflow-hidden bg-[var(--bg-surface)] flex-shrink-0"
+                            className={cn(
+                              "relative w-12 h-12 rounded-lg overflow-hidden bg-[var(--bg-surface)] flex-shrink-0 group",
+                              f.status === "done" && f.inspirationId && "cursor-pointer"
+                            )}
+                            onClick={() => {
+                              if (f.status === "done" && f.inspirationId) {
+                                setEditingInspirationId(f.inspirationId);
+                              }
+                            }}
+                            title={f.status === "done" ? "Cliquer pour éditer les métadonnées" : undefined}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={f.preview}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                            {/* Status overlays */}
+                            <img src={f.preview} alt="" className="w-full h-full object-cover" />
+
+                            {/* Uploading */}
                             {f.status === "uploading" && (
                               <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                                <div className="w-3 h-3 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
+                                <div className="w-4 h-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin" />
                               </div>
                             )}
-                            {f.status === "done" && (
-                              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                                <span className="text-green-400 text-[11px] font-bold">✓</span>
+
+                            {/* AI analyzing */}
+                            {f.aiStatus === "analyzing" && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className="w-3 h-3 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
+                                  <span className="text-[7px] text-[var(--accent,#a78bfa)]">✦</span>
+                                </div>
                               </div>
                             )}
+
+                            {/* Done */}
+                            {f.status === "done" && f.aiStatus !== "analyzing" && (
+                              <>
+                                {/* Status badge */}
+                                <div
+                                  className={cn(
+                                    "absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px]",
+                                    f.aiStatus === "done"
+                                      ? "bg-[var(--accent,#a78bfa)]/80 text-white"
+                                      : f.aiStatus === "error"
+                                      ? "bg-orange-500/80 text-white"
+                                      : "bg-green-500/80 text-white"
+                                  )}
+                                >
+                                  {f.aiStatus === "done" ? "✦" : f.aiStatus === "error" ? "!" : "✓"}
+                                </div>
+                                {/* Edit hover */}
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
+                                  <span className="text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
+                                    ✎
+                                  </span>
+                                </div>
+                              </>
+                            )}
+
+                            {/* Error */}
                             {f.status === "error" && (
                               <div className="absolute inset-0 bg-red-900/70 flex items-center justify-center">
-                                <span className="text-red-300 text-[11px] font-bold">!</span>
+                                <span className="text-red-300 text-[10px] font-bold">!</span>
                               </div>
                             )}
                           </div>
                         ))}
-                        {files.length > 7 && (
-                          <div className="w-9 h-9 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center flex-shrink-0">
-                            <span className="text-[10px] text-[var(--text-tertiary)]">
-                              +{files.length - 7}
-                            </span>
-                          </div>
-                        )}
                       </div>
 
-                      {/* Status label */}
-                      <div className="flex-shrink-0 text-xs text-[var(--text-tertiary)] whitespace-nowrap">
-                        {uploading && (
-                          <span>Import en cours…</span>
-                        )}
-                        {!uploading && pendingCount > 0 && (
-                          <span>
-                            {files.length} image{files.length > 1 ? "s" : ""}
-                          </span>
-                        )}
-                        {allSettled && (
-                          <span>
-                            {doneCount > 0 && (
-                              <span className="text-green-400">
-                                {doneCount} importée{doneCount > 1 ? "s" : ""}
-                              </span>
-                            )}
-                            {errorCount > 0 && (
-                              <span className="text-red-400 ml-1.5">
-                                {errorCount} erreur{errorCount > 1 ? "s" : ""}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {allSettled && doneCount > 0 ? (
-                          <a
-                            href="/library"
-                            className="text-xs px-3 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
-                          >
-                            Bibliothèque →
-                          </a>
-                        ) : !uploading && pendingCount > 0 ? (
-                          <button
-                            onClick={uploadAll}
-                            className="text-xs px-3 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
-                          >
-                            Importer {pendingCount > 1 ? `${pendingCount} images` : "1 image"}
-                          </button>
-                        ) : null}
-
-                        {/* Dismiss */}
-                        <button
-                          onClick={dismiss}
-                          title="Fermer"
-                          className="w-6 h-6 rounded-full bg-[var(--bg-surface)] hover:bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] flex items-center justify-center text-[10px] transition-colors"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      {/* Edit hint when done */}
+                      {allSettled && doneCount > 0 && (
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-2">
+                          Clique sur une image pour éditer ses métadonnées
+                        </p>
+                      )}
                     </div>
 
-                    {/* Ctrl+V hint — only when tray first appears and nothing uploaded yet */}
-                    {pendingCount === files.length && !uploading && files.length === 1 && (
-                      <p className="text-[9px] text-[var(--text-tertiary)] mt-2 text-center opacity-60">
-                        Ctrl+V pour coller d&apos;autres images depuis le presse-papier
-                      </p>
+                    {/* ── AI toggle (only shown when files are pending) ── */}
+                    {!uploading && !allSettled && (
+                      <div className="px-4 pt-3">
+                        <div
+                          className={cn(
+                            "flex items-start gap-2.5 px-3 py-2.5 rounded-xl border transition-colors",
+                            aiEnabled
+                              ? "border-[var(--accent,#a78bfa)]/30 bg-[var(--accent,#a78bfa)]/5"
+                              : "border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+                          )}
+                        >
+                          {/* Toggle */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={aiEnabled}
+                            onClick={() => setAiEnabled((v) => !v)}
+                            className={cn(
+                              "relative mt-0.5 inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+                              aiEnabled ? "bg-[var(--accent,#a78bfa)]" : "bg-[var(--bg-overlay)]"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
+                                aiEnabled ? "translate-x-3" : "translate-x-0"
+                              )}
+                            />
+                          </button>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={cn(
+                                  "text-[10px] font-medium",
+                                  aiEnabled
+                                    ? "text-[var(--accent,#a78bfa)]"
+                                    : "text-[var(--text-secondary)]"
+                                )}
+                              >
+                                ✦ Analyse IA automatique
+                              </span>
+                              <span
+                                className={cn(
+                                  "text-[8px] px-1 py-0.5 rounded-full",
+                                  aiEnabled
+                                    ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                                    : "bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
+                                )}
+                              >
+                                {aiEnabled ? "ON" : "OFF"}
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-[var(--text-tertiary)] leading-relaxed mt-0.5">
+                              {aiEnabled ? (
+                                <>
+                                  <span className="text-[var(--accent,#a78bfa)]/80">
+                                    Titre, description, tags et catégories appliqués automatiquement.{" "}
+                                  </span>
+                                  Vignette 256 px envoyée à Google Gemini (hors UE).
+                                </>
+                              ) : (
+                                <>
+                                  Activer pour que Gemini remplisse titre, tags et catégories
+                                  automatiquement. Données transmises à Google (hors UE).
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     )}
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-end gap-3 px-4 py-3 mt-1">
+                      {allSettled ? (
+                        <a
+                          href="/library"
+                          className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
+                        >
+                          Voir la bibliothèque →
+                        </a>
+                      ) : (
+                        <>
+                          {pendingCount > 0 && !uploading && (
+                            <button
+                              onClick={uploadAll}
+                              className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
+                            >
+                              {aiEnabled
+                                ? `Importer + analyser ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`
+                                : `Importer ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`}
+                            </button>
+                          )}
+                          {uploading && (
+                            <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin inline-block" />
+                              {analyzingCount > 0
+                                ? `Analyse ${aiDoneCount + errorCount}/${doneCount}…`
+                                : "Import en cours…"}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+
                   </div>
                 </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ── Per-file metadata slide-over ────────────────────────── */}
+            <AnimatePresence>
+              {editingInspirationId && editingFile && (
+                <>
+                  {/* Backdrop */}
+                  <motion.div
+                    key="backdrop"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/50 z-[9998]"
+                    onClick={() => setEditingInspirationId(null)}
+                  />
+
+                  {/* Slide-over panel */}
+                  <motion.div
+                    key="slideover"
+                    initial={{ x: "100%" }}
+                    animate={{ x: 0 }}
+                    exit={{ x: "100%" }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.32 }}
+                    className="fixed top-0 right-0 bottom-0 w-[480px] bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-[9999] flex flex-col"
+                  >
+                    {/* Slide-over header */}
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] flex-shrink-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-xs text-[var(--text-secondary)] truncate max-w-[280px]">
+                          {editingFile.file.name}
+                        </p>
+                        {editingFile.aiStatus === "done" && (
+                          <span className="text-[9px] text-[var(--accent,#a78bfa)] flex-shrink-0">
+                            ✦ Analysée
+                          </span>
+                        )}
+                        {editingFile.aiStatus === "error" && (
+                          <span className="text-[9px] text-orange-400 flex-shrink-0">
+                            ⚠ Analyse échouée
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setEditingInspirationId(null)}
+                        className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Preview */}
+                    <div className="h-48 bg-[var(--bg-surface)] flex-shrink-0 overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={editingFile.preview}
+                        alt=""
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+
+                    {/* MetadataPanel */}
+                    <div className="flex-1 overflow-hidden">
+                      <MetadataPanel
+                        id={editingInspirationId}
+                        initialData={{
+                          title:
+                            editingFile.aiData?.title ??
+                            editingFile.file.name.replace(/\.[^/.]+$/, ""),
+                          description: editingFile.aiData?.description ?? "",
+                          author: "",
+                          studio: "",
+                          country: "",
+                          notes: editingFile.aiData?.notes ?? "",
+                          sourceUrl: "",
+                          tags: editingFile.aiData?.tags ?? [],
+                          categories: editingFile.aiData?.categories ?? [],
+                        }}
+                        aiFirst={
+                          editingFile.aiStatus === "done" ||
+                          editingFile.aiStatus === "error"
+                        }
+                      />
+                    </div>
+                  </motion.div>
+                </>
               )}
             </AnimatePresence>
           </>,
