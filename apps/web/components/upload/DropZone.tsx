@@ -53,6 +53,8 @@ export function DropZone() {
   const [batchApplied, setBatchApplied] = useState(false);
   const [analyzingBatch, setAnalyzingBatch] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  // Analyse IA — désactivée par défaut (les images partent chez Google)
+  const [aiEnabled, setAiEnabled] = useState(false);
 
   const doneFiles = files.filter((f) => f.status === "done");
   const doneIds = doneFiles.map((f) => f.inspirationId).filter(Boolean) as string[];
@@ -338,22 +340,61 @@ export function DropZone() {
               </div>
             </div>
 
-            <div className="px-5 pb-5 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={analyzeBatch}
-                disabled={analyzingBatch}
-                className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1.5 font-medium"
-              >
-                {analyzingBatch ? (
-                  <>
-                    <div className="w-2.5 h-2.5 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
-                    {analyzeProgress}/{doneIds.length} analysées…
-                  </>
-                ) : (
-                  <>✦ Analyser avec l&apos;IA</>
-                )}
-              </button>
+            {/* ── Toggle analyse IA ── */}
+            <div className="px-5 py-4 border-t border-[var(--border-subtle)] flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-widest">
+                    ✦ Analyse IA (Gemini)
+                  </span>
+                  {/* Toggle */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={aiEnabled}
+                    onClick={() => setAiEnabled((v) => !v)}
+                    className={`relative inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 focus:outline-none ${
+                      aiEnabled ? "bg-[var(--accent,#a78bfa)]" : "bg-[var(--bg-overlay)]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3 w-3 mt-px rounded-full bg-white shadow transition-transform duration-200 ${
+                        aiEnabled ? "translate-x-3.5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                  <span className={`text-[9px] ${aiEnabled ? "text-[var(--accent,#a78bfa)]" : "text-[var(--text-tertiary)]"}`}>
+                    {aiEnabled ? "Activée" : "Désactivée"}
+                  </span>
+                </div>
+                <p className="text-[9px] text-[var(--text-tertiary)] leading-relaxed max-w-lg">
+                  Quand activée, une vignette 256 px de chaque image est envoyée à l&apos;API Google Gemini
+                  (serveurs hors UE). Google peut utiliser ces données pour améliorer ses modèles.
+                  Désactivée par défaut — activez uniquement si vous acceptez ces conditions.
+                </p>
+              </div>
+
+              {/* Bouton batch — visible seulement si IA activée */}
+              {aiEnabled && (
+                <button
+                  type="button"
+                  onClick={analyzeBatch}
+                  disabled={analyzingBatch}
+                  className="flex-shrink-0 text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1.5 font-medium mt-0.5"
+                >
+                  {analyzingBatch ? (
+                    <>
+                      <div className="w-2.5 h-2.5 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
+                      {analyzeProgress}/{doneIds.length}…
+                    </>
+                  ) : (
+                    <>Analyser tout</>
+                  )}
+                </button>
+              )}
+            </div>
+
+            <div className="px-5 pb-5 flex justify-end">
               <Button
                 size="sm"
                 onClick={applyBatchMetadata}
@@ -407,7 +448,7 @@ export function DropZone() {
                     notes: "",
                     sourceUrl: "",
                   }}
-                  autoAnalyze
+                  autoAnalyze={aiEnabled}
                   aiFirst
                 />
               </div>
