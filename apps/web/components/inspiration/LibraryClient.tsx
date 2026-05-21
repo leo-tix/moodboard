@@ -4,6 +4,9 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { InspirationGrid, type InspirationGridItem } from "./InspirationGrid";
 import { BatchEditBar } from "./BatchEditBar";
+import { Lightbox, type LightboxItem } from "@/components/library/Lightbox";
+
+const PAGE_SIZE = 48;
 
 type SortKey = "newest" | "oldest" | "year_desc" | "year_asc" | "title_asc";
 
@@ -183,6 +186,13 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // ── Lightbox ──
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // ── Infinite scroll ──
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -272,6 +282,43 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
     setActiveYear(null);
     setActiveTag(null);
   };
+
+  // Reset display count when filters change
+  useEffect(() => { setDisplayCount(PAGE_SIZE); }, [activeCategory, activeYear, activeTag, sortBy]);
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setDisplayCount((c) => c + PAGE_SIZE);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // ── Lightbox helpers ──
+  const lightboxItems = useMemo((): LightboxItem[] =>
+    filtered.map((item) => ({
+      id: item.id,
+      title: item.title,
+      storageKey: item.images[0]?.storageKey ?? null,
+      year: item.year,
+      category: item.categories[0]?.category.name ?? null,
+    })),
+  [filtered]);
+
+  const openLightbox = useCallback((id: string) => {
+    const idx = filtered.findIndex((item) => item.id === id);
+    if (idx !== -1) setLightboxIndex(idx);
+  }, [filtered]);
+
+  const displayed = filtered.slice(0, displayCount);
 
   return (
     <>
@@ -390,17 +437,27 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
 
       {/* ── Grid ── */}
       <InspirationGrid
-        inspirations={filtered}
+        inspirations={displayed}
         columns={4}
         selectable={selectMode}
         selectedIds={selectedIds}
         onSelect={toggleSelect}
+        onOpen={!selectMode ? openLightbox : undefined}
         emptyMessage={
           hasActiveFilter
             ? "Aucune image ne correspond à ces filtres."
             : undefined
         }
       />
+
+      {/* ── Infinite scroll sentinel ── */}
+      {displayCount < filtered.length && (
+        <div ref={sentinelRef} className="flex items-center justify-center py-8">
+          <span className="text-[11px] text-[var(--text-tertiary)]">
+            {displayed.length} / {filtered.length}
+          </span>
+        </div>
+      )}
 
       {/* ── Batch bar ── */}
       <AnimatePresence>
@@ -415,6 +472,16 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Lightbox ── */}
+      {lightboxIndex !== null && (
+        <Lightbox
+          items={lightboxItems}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+        />
+      )}
     </>
   );
 }

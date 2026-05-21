@@ -10,7 +10,7 @@ export default async function LibraryPage() {
     where: { status: "READY" },
     include: {
       images: {
-        select: { thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
+        select: { storageKey: true, thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
         orderBy: [{ isMain: "desc" }, { order: "asc" }],
         take: 1,
       },

@@ -9,6 +9,7 @@ export interface InspirationGridItem {
   year: number | null;
   categories: { category: { name: string } }[];
   images: {
+    storageKey?: string | null;
     thumbnailKey: string | null;
     blurHash: string | null;
     width: number | null;
@@ -24,6 +25,7 @@ interface InspirationGridProps {
   selectable?: boolean;
   selectedIds?: Set<string>;
   onSelect?: (id: string) => void;
+  onOpen?: (id: string) => void;
   emptyMessage?: string;
 }
 
@@ -33,6 +35,7 @@ export function InspirationGrid({
   selectable,
   selectedIds,
   onSelect,
+  onOpen,
   emptyMessage,
 }: InspirationGridProps) {
   if (inspirations.length === 0) {
@@ -85,6 +88,7 @@ export function InspirationGrid({
               selectable={selectable}
               selected={selectedIds?.has(item.id)}
               onSelect={onSelect}
+              onOpen={!selectable ? onOpen : undefined}
             />
           </motion.div>
         );
