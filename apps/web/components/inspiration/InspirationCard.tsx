@@ -22,8 +22,7 @@ interface InspirationCardProps {
   selectable?: boolean;
   selected?: boolean;
   onSelect?: (id: string) => void;
-  // Lightbox
-  onOpen?: (id: string) => void;
+  onBeforeNavigate?: () => void;
 }
 
 export function InspirationCard({
@@ -40,7 +39,7 @@ export function InspirationCard({
   selectable,
   selected,
   onSelect,
-  onOpen,
+  onBeforeNavigate,
 }: InspirationCardProps) {
   const [loaded, setLoaded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -149,22 +148,12 @@ export function InspirationCard({
     );
   }
 
-  if (onOpen) {
-    return (
-      <div
-        className={cn("block group", className)}
-        onClick={() => onOpen(id)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === "Enter" && onOpen(id)}
-      >
-        {cardContent}
-      </div>
-    );
-  }
-
   return (
-    <Link href={`/library/${id}`} className={cn("block group", className)}>
+    <Link
+      href={`/library/${id}`}
+      className={cn("block group", className)}
+      onClick={onBeforeNavigate}
+    >
       {cardContent}
     </Link>
   );

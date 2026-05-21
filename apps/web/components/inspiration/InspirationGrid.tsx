@@ -25,7 +25,7 @@ interface InspirationGridProps {
   selectable?: boolean;
   selectedIds?: Set<string>;
   onSelect?: (id: string) => void;
-  onOpen?: (id: string) => void;
+  onBeforeNavigate?: () => void;
   emptyMessage?: string;
 }
 
@@ -35,7 +35,7 @@ export function InspirationGrid({
   selectable,
   selectedIds,
   onSelect,
-  onOpen,
+  onBeforeNavigate,
   emptyMessage,
 }: InspirationGridProps) {
   if (inspirations.length === 0) {
@@ -88,7 +88,7 @@ export function InspirationGrid({
               selectable={selectable}
               selected={selectedIds?.has(item.id)}
               onSelect={onSelect}
-              onOpen={!selectable ? onOpen : undefined}
+              onBeforeNavigate={!selectable ? onBeforeNavigate : undefined}
             />
           </motion.div>
         );

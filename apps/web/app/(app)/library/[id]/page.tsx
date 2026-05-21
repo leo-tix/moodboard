@@ -1,15 +1,13 @@
 import { notFound } from "next/navigation";
-import Image from "next/image";
-import Link from "next/link";
+import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { getImageUrl } from "@/lib/storage/urls";
-import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
+import { DetailPageClient, type DetailPageData } from "@/components/library/DetailPageClient";
 
 export const revalidate = 0;
 
 interface Props { params: Promise<{ id: string }> }
 
-export async function generateMetadata({ params }: Props) {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const inspiration = await db.inspiration.findUnique({ where: { id }, select: { title: true } });
   return { title: inspiration?.title ?? "Inspiration" };
@@ -20,78 +18,79 @@ export default async function InspirationDetailPage({ params }: Props) {
 
   const inspiration = await db.inspiration.findUnique({
     where: { id },
-    include: {
-      images: { orderBy: [{ isMain: "desc" }, { order: "asc" }] },
-      categories: { include: { category: true, subcategory: true } },
-      tags: { include: { tag: true } },
-      colorPalette: { orderBy: { order: "asc" } },
-      aiAnalysis: true,
-      collections: { include: { collection: { select: { id: true, name: true } } } },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      author: true,
+      studio: true,
+      year: true,
+      country: true,
+      exposition: true,
+      location: true,
+      source: true,
+      notes: true,
+      sourceUrl: true,
+      images: {
+        orderBy: [{ isMain: "desc" }, { order: "asc" }],
+        take: 1,
+        select: { storageKey: true },
+      },
+      categories: {
+        select: { categoryId: true, subcategoryId: true },
+      },
+      tags: {
+        select: { tag: { select: { name: true } } },
+      },
+      colorPalette: {
+        orderBy: { order: "asc" },
+        select: { id: true, hex: true, percentage: true, order: true },
+      },
+      aiAnalysis: {
+        select: { moodDescriptor: true, styleKeywords: true },
+      },
+      collections: {
+        select: { collection: { select: { id: true, name: true } } },
+      },
     },
   });
 
   if (!inspiration) notFound();
 
-  const mainImage = inspiration.images[0];
-  const mainImageUrl = mainImage ? getImageUrl(mainImage.storageKey) : null;
+  const data: DetailPageData = {
+    id: inspiration.id,
+    title: inspiration.title,
+    mainImageStorageKey: inspiration.images[0]?.storageKey ?? null,
+    initialData: {
+      title: inspiration.title,
+      description: inspiration.description ?? "",
+      author: inspiration.author ?? "",
+      studio: inspiration.studio ?? "",
+      year: inspiration.year ?? undefined,
+      country: inspiration.country ?? "",
+      exposition: inspiration.exposition ?? "",
+      location: inspiration.location ?? "",
+      source: inspiration.source ?? "",
+      notes: inspiration.notes ?? "",
+      sourceUrl: inspiration.sourceUrl ?? "",
+      categories: inspiration.categories.map((c) => ({
+        categoryId: c.categoryId,
+        subcategoryId: c.subcategoryId ?? null,
+      })),
+      tags: inspiration.tags.map((t) => t.tag.name),
+    },
+    colorPalette: inspiration.colorPalette,
+    aiAnalysis: inspiration.aiAnalysis
+      ? {
+          moodDescriptor: inspiration.aiAnalysis.moodDescriptor,
+          styleKeywords: inspiration.aiAnalysis.styleKeywords,
+        }
+      : null,
+    initialCollections: inspiration.collections.map((c) => ({
+      id: c.collection.id,
+      name: c.collection.name,
+    })),
+  };
 
-  return (
-    <div className="flex flex-col md:h-screen">
-      {/* Breadcrumb */}
-      <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-subtle)] flex items-center gap-2">
-        <Link href="/library" className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
-          ← Bibliothèque
-        </Link>
-        <span className="text-[var(--border-default)] text-xs">/</span>
-        <span className="text-xs text-[var(--text-secondary)] truncate max-w-xs">{inspiration.title}</span>
-      </div>
-
-      {/* Body — stacked on mobile, side-by-side on desktop */}
-      <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
-        {/* Image */}
-        <div className="relative w-full aspect-video md:aspect-auto md:flex-1 bg-[var(--bg-surface)] flex items-center justify-center overflow-hidden">
-          {mainImageUrl ? (
-            <Image src={mainImageUrl} alt={inspiration.title} fill className="object-contain" priority sizes="(max-width: 768px) 100vw, (max-width: 1280px) 70vw, 60vw" />
-          ) : (
-            <div className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</div>
-          )}
-        </div>
-
-        {/* Metadata panel */}
-        <div className="w-full md:w-80 md:flex-shrink-0 border-t md:border-t-0 md:border-l border-[var(--border-subtle)] overflow-y-auto flex flex-col">
-          <MetadataPanel
-            id={inspiration.id}
-            initialData={{
-              title: inspiration.title,
-              description: inspiration.description ?? "",
-              author: inspiration.author ?? "",
-              studio: inspiration.studio ?? "",
-              year: inspiration.year ?? undefined,
-              country: inspiration.country ?? "",
-              exposition: inspiration.exposition ?? "",
-              location: inspiration.location ?? "",
-              source: inspiration.source ?? "",
-              notes: inspiration.notes ?? "",
-              sourceUrl: inspiration.sourceUrl ?? "",
-              categories: inspiration.categories.map((c) => ({
-                categoryId: c.categoryId,
-                subcategoryId: c.subcategoryId ?? null,
-              })),
-              tags: inspiration.tags.map((t) => t.tag.name),
-            }}
-            colorPalette={inspiration.colorPalette}
-            aiAnalysis={
-              inspiration.aiAnalysis
-                ? { moodDescriptor: inspiration.aiAnalysis.moodDescriptor, styleKeywords: inspiration.aiAnalysis.styleKeywords }
-                : null
-            }
-            initialCollections={inspiration.collections.map((c) => ({
-              id: c.collection.id,
-              name: c.collection.name,
-            }))}
-          />
-        </div>
-      </div>
-    </div>
-  );
+  return <DetailPageClient data={data} />;
 }

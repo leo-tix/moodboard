@@ -4,7 +4,6 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { InspirationGrid, type InspirationGridItem } from "./InspirationGrid";
 import { BatchEditBar } from "./BatchEditBar";
-import { Lightbox, type LightboxItem } from "@/components/library/Lightbox";
 
 const PAGE_SIZE = 48;
 
@@ -186,9 +185,6 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // ── Lightbox ──
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-
   // ── Infinite scroll ──
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -292,9 +288,7 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
-          setDisplayCount((c) => c + PAGE_SIZE);
-        }
+        if (entries[0].isIntersecting) setDisplayCount((c) => c + PAGE_SIZE);
       },
       { rootMargin: "200px" }
     );
@@ -302,20 +296,20 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
     return () => observer.disconnect();
   }, []);
 
-  // ── Lightbox helpers ──
-  const lightboxItems = useMemo((): LightboxItem[] =>
-    filtered.map((item) => ({
-      id: item.id,
-      title: item.title,
-      storageKey: item.images[0]?.storageKey ?? null,
-      year: item.year,
-      category: item.categories[0]?.category.name ?? null,
-    })),
-  [filtered]);
-
-  const openLightbox = useCallback((id: string) => {
-    const idx = filtered.findIndex((item) => item.id === id);
-    if (idx !== -1) setLightboxIndex(idx);
+  // ── Store nav context before navigating to a detail page ──
+  const handleBeforeNavigate = useCallback(() => {
+    try {
+      const context = {
+        items: filtered.map((item) => ({
+          id: item.id,
+          title: item.title,
+          thumbnailKey: item.images[0]?.thumbnailKey ?? null,
+        })),
+      };
+      sessionStorage.setItem("moodboard:libraryNav", JSON.stringify(context));
+    } catch {
+      // sessionStorage unavailable
+    }
   }, [filtered]);
 
   const displayed = filtered.slice(0, displayCount);
@@ -442,7 +436,7 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
         selectable={selectMode}
         selectedIds={selectedIds}
         onSelect={toggleSelect}
-        onOpen={!selectMode ? openLightbox : undefined}
+        onBeforeNavigate={!selectMode ? handleBeforeNavigate : undefined}
         emptyMessage={
           hasActiveFilter
             ? "Aucune image ne correspond à ces filtres."
@@ -473,15 +467,6 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
         )}
       </AnimatePresence>
 
-      {/* ── Lightbox ── */}
-      {lightboxIndex !== null && (
-        <Lightbox
-          items={lightboxItems}
-          currentIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
-        />
-      )}
     </>
   );
 }
