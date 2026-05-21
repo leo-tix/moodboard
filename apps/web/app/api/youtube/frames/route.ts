@@ -9,57 +9,67 @@ export const maxDuration = 60;
 // YouTube embeds a "storyboard spec" in every page — it's the source of the
 // frame previews you see when hovering the seek bar.
 //
-// Spec format (pipe-separated, levels separated by #):
-//   URL_TEMPLATE|w|h|count|cols|rows|sheetCount|extra#w2|h2|count2|cols2|rows2|...
+// Spec format (pipe-separated):
+//   URL_TEMPLATE|w#h#totalFrames#cols#rows#intervalMs#sheetTemplate#sig|w2#h2#...
 //
 // URL_TEMPLATE contains:
 //   $L → level index (0, 1, 2 …)
-//   $M → sprite sheet index (0, 1, 2 …)
+//   $N → sheet name (e.g. "default", "M0", "M1" …)
+//
+// Each level's params are separated by "#":
+//   [0] width   [1] height   [2] totalFrames   [3] cols   [4] rows
+//   [5] intervalMs (ms between frames)   [6] sheetTemplate (e.g. "M$M")
+//   [7] signature (rs$TOKEN)
 //
 // Each sprite sheet is a cols×rows grid of w×h pixel frames.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface StoryboardLevel {
-  urlTemplate: string;
+  urlTemplate: string;   // URL with $N replaced ready for sheet substitution
   width: number;
   height: number;
   cols: number;
   rows: number;
-  sheetCount: number;
-  framesPerSheet: number;
   totalFrames: number;
+  framesPerSheet: number;
+  sheetCount: number;
+  intervalMs: number;
+  sheetTemplate: string; // e.g. "M$M" or "default"
 }
 
 function parseStoryboardSpec(spec: string): StoryboardLevel[] {
-  const hashParts = spec.split("#");
+  // Levels are separated by "|"; first token is the URL template
+  const pipeParts = spec.split("|");
+  const urlTemplate = pipeParts[0]; // contains $L and $N
   const levels: StoryboardLevel[] = [];
 
-  // First hash-part holds the URL template + level-0 params
-  const pipeParts = hashParts[0].split("|");
-  const urlTemplate = pipeParts[0]; // contains $L and $M
+  for (let i = 1; i < pipeParts.length; i++) {
+    const params = pipeParts[i].split("#");
 
-  for (let level = 0; level < hashParts.length; level++) {
-    const params = level === 0 ? pipeParts.slice(1) : hashParts[level].split("|");
-
-    const width = parseInt(params[0]);
-    const height = parseInt(params[1]);
-    // params[2] = count per sheet (== cols*rows, redundant but included)
-    const cols = parseInt(params[3]);
-    const rows = parseInt(params[4]);
-    const sheetCount = parseInt(params[5]) || 1;
+    const width        = parseInt(params[0]);
+    const height       = parseInt(params[1]);
+    const totalFrames  = parseInt(params[2]);
+    const cols         = parseInt(params[3]);
+    const rows         = parseInt(params[4]);
+    const intervalMs   = parseInt(params[5]) || 5000;
+    const sheetTemplate = params[6] ?? "M$M";
 
     if (!width || !height || !cols || !rows) continue;
 
+    const levelIndex   = i - 1;
     const framesPerSheet = cols * rows;
+
     levels.push({
-      urlTemplate: urlTemplate.replace("$L", String(level)),
+      urlTemplate: urlTemplate.replace("$L", String(levelIndex)),
       width,
       height,
+      totalFrames,
       cols,
       rows,
-      sheetCount,
+      intervalMs,
+      sheetTemplate,
       framesPerSheet,
-      totalFrames: framesPerSheet * sheetCount,
+      sheetCount: Math.ceil(totalFrames / framesPerSheet),
     });
   }
 
@@ -67,23 +77,22 @@ function parseStoryboardSpec(spec: string): StoryboardLevel[] {
   return levels.sort((a, b) => b.width - a.width);
 }
 
-function getFrameCoords(
-  level: StoryboardLevel,
-  timestamp: number,
-  duration: number
-) {
-  const frameInterval = duration / level.totalFrames;
+function getFrameCoords(level: StoryboardLevel, timestamp: number) {
+  // timestamp is in seconds; intervalMs is ms per frame
   const frameIndex = Math.min(
-    Math.floor(timestamp / frameInterval),
+    Math.floor((timestamp * 1000) / level.intervalMs),
     level.totalFrames - 1
   );
-  const sheetIndex = Math.floor(frameIndex / level.framesPerSheet);
-  const indexInSheet = frameIndex % level.framesPerSheet;
-  const col = indexInSheet % level.cols;
-  const row = Math.floor(indexInSheet / level.cols);
+  const sheetIndex    = Math.floor(frameIndex / level.framesPerSheet);
+  const indexInSheet  = frameIndex % level.framesPerSheet;
+  const col           = indexInSheet % level.cols;
+  const row           = Math.floor(indexInSheet / level.cols);
+
+  // "M$M" → "M0", "M1", …; "default" stays "default"
+  const sheetName = level.sheetTemplate.replace("$M", String(sheetIndex));
 
   return {
-    spriteUrl: level.urlTemplate.replace("$M", String(sheetIndex)),
+    spriteUrl: level.urlTemplate.replace("$N", sheetName),
     cropX: col * level.width,
     cropY: row * level.height,
     width: level.width,
@@ -124,7 +133,7 @@ export async function POST(req: NextRequest) {
   >();
 
   for (const ts of timestamps) {
-    const coords = getFrameCoords(level, ts, duration);
+    const coords = getFrameCoords(level, ts);
     if (!sheetGroups.has(coords.spriteUrl)) {
       sheetGroups.set(coords.spriteUrl, { url: coords.spriteUrl, items: [] });
     }
