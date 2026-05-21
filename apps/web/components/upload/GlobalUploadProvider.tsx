@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
@@ -202,11 +203,15 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
       }
 
       if (Object.keys(patch).length > 0) {
-        await fetch(`/api/inspirations/${inspirationId}`, {
+        const patchRes = await fetch(`/api/inspirations/${inspirationId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
         });
+        if (!patchRes.ok) {
+          const errBody = await patchRes.json().catch(() => ({}));
+          console.error("[GlobalUpload] PATCH inspiration échoué :", patchRes.status, errBody);
+        }
       }
 
       setFiles((prev) =>
@@ -300,9 +305,14 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
         .filter((v): v is { fileId: string; inspirationId: string } => v !== null);
 
       // void : on ne bloque pas — les mises à jour d'état arrivent au fil de l'eau
+      // Try/catch individuel : une erreur sur un fichier ne bloque pas les suivants
       void (async () => {
         for (let i = 0; i < uploaded.length; i++) {
-          await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+          try {
+            await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+          } catch (err) {
+            console.error("[GlobalUpload] analyzeAndApply inattendu :", err);
+          }
           if (i < uploaded.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
         }
       })();
@@ -615,12 +625,12 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
                       {/* Bibliothèque → dès que les uploads sont finis */}
                       {uploadsComplete && (
-                        <a
+                        <Link
                           href="/library"
                           className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
                         >
                           {analyzingCount > 0 ? "Bibliothèque (analyse en cours…)" : "Voir la bibliothèque →"}
-                        </a>
+                        </Link>
                       )}
 
                       {/* Bouton Importer — quand des fichiers attendent */}

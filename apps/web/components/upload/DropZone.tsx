@@ -157,11 +157,15 @@ export function DropZone() {
       }
 
       if (Object.keys(patch).length > 0) {
-        await fetch(`/api/inspirations/${inspirationId}`, {
+        const patchRes = await fetch(`/api/inspirations/${inspirationId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
         });
+        if (!patchRes.ok) {
+          const errBody = await patchRes.json().catch(() => ({}));
+          console.error("[DropZone] PATCH inspiration échoué :", patchRes.status, errBody);
+        }
       }
 
       // Stocker les données appliquées pour pré-remplir le slide-over si ouvert
@@ -250,7 +254,11 @@ export function DropZone() {
 
       void (async () => {
         for (let i = 0; i < uploaded.length; i++) {
-          await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+          try {
+            await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+          } catch (err) {
+            console.error("[DropZone] analyzeAndApply inattendu :", err);
+          }
           if (i < uploaded.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
         }
       })();
