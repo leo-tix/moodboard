@@ -26,17 +26,9 @@ const BROWSER_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 };
 
-// Extract ytInitialPlayerResponse JSON blob from page HTML
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractPlayerResponse(html: string): Record<string, any> | null {
-  const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{[\s\S]+?\});\s*(?:var |const |let |\w+\.push)/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[1]);
-  } catch {
-    return null;
-  }
-}
+// YouTube's own internal player API — this key is embedded in every YouTube
+// page and is not secret; it authenticates web client calls.
+const YT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
@@ -64,54 +56,51 @@ export async function POST(req: NextRequest) {
     }
     const oembed = await oembedRes.json() as { title: string; author_name: string };
 
-    // ── 2. Storyboard spec + duration from the page HTML ──────────────────────
-    const pageRes = await fetch(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      { headers: BROWSER_HEADERS }
+    // ── 2. Player data via YouTube's internal InnerTube API ───────────────────
+    // This returns clean JSON with storyboard spec + video details — no HTML
+    // parsing required. The API key is YouTube's own public web client key.
+    const playerRes = await fetch(
+      `https://www.youtube.com/youtubei/v1/player?key=${YT_INNERTUBE_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": BROWSER_HEADERS["User-Agent"],
+          "Accept-Language": BROWSER_HEADERS["Accept-Language"],
+          "X-YouTube-Client-Name": "1",
+          "X-YouTube-Client-Version": "2.20240101.00.00",
+        },
+        body: JSON.stringify({
+          videoId,
+          context: {
+            client: {
+              clientName: "WEB",
+              clientVersion: "2.20240101.00.00",
+              hl: "en",
+              gl: "US",
+            },
+          },
+        }),
+      }
     );
-    const html = await pageRes.text();
 
-    // Primary: parse the full ytInitialPlayerResponse JSON blob
-    const playerResponse = extractPlayerResponse(html);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const playerData = playerRes.ok ? (await playerRes.json() as Record<string, any>) : null;
 
-    let storyboardSpec: string | null = null;
-    let duration = 0;
+    // Duration
+    const duration = playerData?.videoDetails?.lengthSeconds
+      ? parseInt(playerData.videoDetails.lengthSeconds, 10)
+      : 0;
 
-    if (playerResponse) {
-      // Duration
-      const lengthSeconds = playerResponse?.videoDetails?.lengthSeconds;
-      if (lengthSeconds) duration = parseInt(lengthSeconds, 10);
+    // Storyboard spec
+    const rawSpec: string | undefined =
+      playerData?.storyboards?.playerStoryboardSpecRenderer?.spec ??
+      playerData?.storyboards?.playerLiveStoryboardSpecRenderer?.spec;
 
-      // Storyboard spec — nested in storyboards.playerStoryboardSpecRenderer.spec
-      const spec =
-        playerResponse?.storyboards?.playerStoryboardSpecRenderer?.spec ??
-        playerResponse?.storyboards?.playerLiveStoryboardSpecRenderer?.spec;
-
-      if (typeof spec === "string" && spec.includes("i.ytimg.com")) {
-        storyboardSpec = spec;
-      }
-    }
-
-    // Fallback regex patterns if JSON parsing failed or was incomplete
-    if (!duration) {
-      const m = html.match(/"lengthSeconds"\s*:\s*"(\d+)"/);
-      if (m) duration = parseInt(m[1], 10);
-    }
-    if (!duration) {
-      // approxDurationMs fallback
-      const m = html.match(/"approxDurationMs"\s*:\s*"(\d+)"/);
-      if (m) duration = Math.round(parseInt(m[1], 10) / 1000);
-    }
-
-    if (!storyboardSpec) {
-      const specMatch = html.match(/"spec"\s*:\s*"(https:\\?\/\\?\/i\.ytimg\.com\\?\/sb[^"]+)"/);
-      if (specMatch) {
-        storyboardSpec = specMatch[1]
-          .replace(/\\u0026/g, "&")
-          .replace(/\\\//g, "/")
-          .replace(/\\"/g, '"');
-      }
-    }
+    const storyboardSpec =
+      typeof rawSpec === "string" && rawSpec.includes("i.ytimg.com")
+        ? rawSpec
+        : null;
 
     // maxresdefault is 1280×720 — best available thumbnail (may 404 on older videos)
     const thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
@@ -122,7 +111,7 @@ export async function POST(req: NextRequest) {
       author: oembed.author_name,
       duration,
       thumbnailUrl,
-      storyboardSpec, // null if video has no storyboard (rare, very short videos)
+      storyboardSpec,
     });
   } catch (error) {
     console.error("[YouTube info]", error);
