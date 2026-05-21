@@ -4,6 +4,25 @@ import ytdl from "@distube/ytdl-core";
 
 export const maxDuration = 30;
 
+/**
+ * Build a ytdl agent with browser cookies if YOUTUBE_COOKIE is set.
+ * Expected format: JSON array of { name, value } objects exported from the browser.
+ * See /import/youtube for setup instructions.
+ */
+function buildAgent() {
+  const raw = process.env.YOUTUBE_COOKIE;
+  if (!raw) return undefined;
+  try {
+    const cookies = JSON.parse(raw) as { name: string; value: string }[];
+    return ytdl.createAgent(cookies);
+  } catch {
+    console.warn("[YouTube] YOUTUBE_COOKIE is set but could not be parsed as JSON");
+    return undefined;
+  }
+}
+
+const AGENT = buildAgent();
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -15,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const info = await ytdl.getInfo(url);
+    const info = await ytdl.getInfo(url, AGENT ? { agent: AGENT } : {});
     const { videoDetails } = info;
 
     // Prefer lowest-quality combined (audio+video) mp4 — broadest browser compatibility

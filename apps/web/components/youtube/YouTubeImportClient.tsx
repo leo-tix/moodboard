@@ -364,7 +364,25 @@ export function YouTubeImportClient() {
               </div>
             </div>
 
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-red-400">{error}</p>
+                {error.toLowerCase().includes("bot") ||
+                  error.toLowerCase().includes("sign in") ? (
+                  <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+                    YouTube bloque les requêtes serveur sans session.{" "}
+                    <a
+                      href="https://github.com/distubejs/ytdl-core#cookies-support"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-[var(--text-secondary)] transition-colors"
+                    >
+                      Ajouter <code className="font-mono">YOUTUBE_COOKIE</code> dans les variables d&apos;environnement Vercel →
+                    </a>
+                  </p>
+                ) : null}
+              </div>
+            )}
 
             <p className="text-[10px] text-[var(--text-tertiary)]">
               Supporte youtube.com/watch, youtu.be et les Shorts.
