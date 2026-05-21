@@ -401,7 +401,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                   animate={{ y: 0, opacity: 1, scale: 1 }}
                   exit={{ y: 24, opacity: 0, scale: 0.97 }}
                   transition={{ type: "spring", bounce: 0.18, duration: 0.4 }}
-                  className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9997] w-full max-w-[440px] px-4"
+                  className="fixed bottom-[72px] md:bottom-5 left-1/2 -translate-x-1/2 z-[9997] w-full max-w-[440px] px-4"
                 >
                   <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden">
 
