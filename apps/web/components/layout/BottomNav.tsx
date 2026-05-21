@@ -5,11 +5,11 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/",            label: "Accueil",     icon: "○" },
-  { href: "/library",     label: "Biblio",      icon: "◻" },
-  { href: "/upload",      label: "Ajouter",     icon: "+" , primary: true },
+  { href: "/",            label: "Accueil",  icon: "○" },
+  { href: "/library",     label: "Biblio",   icon: "◻" },
+  { href: "/upload",      label: "Ajouter",  icon: "+" , primary: true },
+  { href: "/moodboards",  label: "Planches", icon: "⬚" },
   { href: "/collections", label: "Collections", icon: "▣" },
-  { href: "/settings",    label: "Réglages",    icon: "⚙" },
 ];
 
 export function BottomNav() {

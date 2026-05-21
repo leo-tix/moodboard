@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const limit = limitParam ? Math.min(parseInt(limitParam, 10) || 200, 500) : 200;
 
   const rows = await db.inspiration.findMany({
     where: { status: "READY" },
@@ -13,11 +16,12 @@ export async function GET() {
       title: true,
       images: {
         where: { isMain: true },
-        select: { thumbnailKey: true },
+        select: { thumbnailKey: true, storageKey: true },
         take: 1,
       },
     },
     orderBy: { createdAt: "desc" },
+    take: limit,
   });
 
   return NextResponse.json({
@@ -25,6 +29,7 @@ export async function GET() {
       id: r.id,
       title: r.title,
       thumbnailKey: r.images[0]?.thumbnailKey ?? null,
+      storageKey: r.images[0]?.storageKey ?? null,
     })),
   });
 }

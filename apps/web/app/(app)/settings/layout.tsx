@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 const SETTINGS_NAV = [
+  { href: "/settings/general", label: "Général" },
   { href: "/settings/categories", label: "Catégories" },
 ];
 

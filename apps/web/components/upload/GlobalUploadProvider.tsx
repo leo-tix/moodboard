@@ -53,6 +53,7 @@ function isValidImage(file: File) {
 export function GlobalUploadProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isUploadPage = pathname === "/upload";
+  const isMoodboardEditor = pathname.startsWith("/moodboards/") && pathname.includes("/edit");
 
   // ── File queue ──
   const [files, setFiles] = useState<QueuedFile[]>([]);
@@ -91,10 +92,11 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
   // ── Document / window event listeners ────────────────────────────────────
 
   useEffect(() => {
-    if (isUploadPage) return;
+    if (isUploadPage || isMoodboardEditor) return;
 
     const onDragEnter = (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("Files")) return;
+      if (e.dataTransfer?.types.includes("application/moodboard-item")) return;
       e.preventDefault();
       dragCounter.current++;
       setIsDragActive(true);
@@ -114,6 +116,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
       e.preventDefault();
       dragCounter.current = 0;
       setIsDragActive(false);
+      if (e.dataTransfer?.types.includes("application/moodboard-item")) return;
       if (e.dataTransfer?.files.length) {
         enqueue(Array.from(e.dataTransfer.files));
       }
