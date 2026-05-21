@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { GlobalUploadProvider } from "@/components/upload/GlobalUploadProvider";
 
 export default async function AppLayout({
   children,
@@ -14,7 +15,9 @@ export default async function AppLayout({
     <div className="flex h-screen bg-[var(--bg-base)] overflow-hidden">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
-        {children}
+        <GlobalUploadProvider>
+          {children}
+        </GlobalUploadProvider>
       </main>
     </div>
   );
