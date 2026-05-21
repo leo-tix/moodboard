@@ -48,37 +48,23 @@ export default async function CollectionDetailPage({ params }: Props) {
 
   return (
     <div className="p-6">
-      <header className="mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Link
-            href="/collections"
-            className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-          >
-            ← Collections
-          </Link>
-        </div>
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">
-              Collection
-            </p>
-            <h1 className="text-2xl font-light text-[var(--text-primary)]">
-              {collection.name}
-              <span className="ml-3 text-sm font-normal text-[var(--text-tertiary)]">
-                {collection._count.items}
-              </span>
-            </h1>
-            {collection.description && (
-              <p className="text-sm text-[var(--text-secondary)] mt-1">
-                {collection.description}
-              </p>
-            )}
-          </div>
-        </div>
-      </header>
+      <div className="flex items-center gap-2 mb-6">
+        <Link
+          href="/collections"
+          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+        >
+          ← Collections
+        </Link>
+        <span className="text-[var(--border-default)] text-xs">/</span>
+        <span className="text-xs text-[var(--text-tertiary)]">
+          {collection._count.items} image{collection._count.items !== 1 ? "s" : ""}
+        </span>
+      </div>
 
       <CollectionDetailClient
         collectionId={collection.id}
+        initialName={collection.name}
+        initialDescription={collection.description}
         initialItems={collection.items}
         suggestions={suggestions}
       />

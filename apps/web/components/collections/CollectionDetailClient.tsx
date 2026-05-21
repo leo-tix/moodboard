@@ -25,12 +25,16 @@ interface InspirationItem {
 
 interface CollectionDetailClientProps {
   collectionId: string;
+  initialName: string;
+  initialDescription: string | null;
   initialItems: InspirationItem[];
   suggestions: SuggestedAddition[];
 }
 
 export function CollectionDetailClient({
   collectionId,
+  initialName,
+  initialDescription,
   initialItems,
   suggestions: initialSuggestions,
 }: CollectionDetailClientProps) {
@@ -40,6 +44,21 @@ export function CollectionDetailClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [suggestions, setSuggestions] = useState(initialSuggestions);
   const [adding, setAdding] = useState<string | null>(null);
+  const [name, setName] = useState(initialName);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(initialName);
+
+  const commitRename = async () => {
+    const trimmed = nameValue.trim();
+    setIsEditingName(false);
+    if (!trimmed || trimmed === name) return;
+    setName(trimmed);
+    await fetch(`/api/collections/${collectionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+  };
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -122,6 +141,38 @@ export function CollectionDetailClient({
 
   return (
     <div className="space-y-10">
+
+      {/* ── Titre éditable ── */}
+      <div className="group/title flex items-center gap-2">
+        {isEditingName ? (
+          <input
+            autoFocus
+            className="text-2xl font-light bg-transparent border-b border-[var(--accent,#a78bfa)] text-[var(--text-primary)] focus:outline-none w-full max-w-md"
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") { setIsEditingName(false); setNameValue(name); }
+            }}
+          />
+        ) : (
+          <>
+            <h1 className="text-2xl font-light text-[var(--text-primary)]">{name}</h1>
+            <button
+              onClick={() => { setNameValue(name); setIsEditingName(true); }}
+              className="opacity-0 group-hover/title:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-sm"
+              title="Renommer"
+            >
+              ✎
+            </button>
+          </>
+        )}
+        {initialDescription && (
+          <p className="text-sm text-[var(--text-secondary)] ml-1">{initialDescription}</p>
+        )}
+      </div>
+
       {/* ── Collection items ── */}
       <div>
         {items.length === 0 ? (

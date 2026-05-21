@@ -94,6 +94,28 @@ export function CollectionsClient({
   const [deleting, setDeleting] = useState(false);
   const [creatingFromSuggestion, setCreatingFromSuggestion] = useState<string | null>(null);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const startRename = (col: CollectionWithCover) => {
+    setRenamingId(col.id);
+    setRenameValue(col.name);
+    setDeleteId(null);
+  };
+
+  const commitRename = async (id: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingId(null); return; }
+    await fetch(`/api/collections/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    setCollections((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, name: trimmed } : c))
+    );
+    setRenamingId(null);
+  };
 
   const create = async () => {
     if (!newName.trim() || creating) return;
@@ -205,13 +227,39 @@ export function CollectionsClient({
                       <CoverMosaic thumbs={thumbs} name={col.name} empty={thumbs.length === 0} />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                     </div>
-                    <p className="text-xs font-medium text-[var(--text-primary)] leading-tight truncate">
-                      {col.name}
-                    </p>
-                    <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-                      {col._count.items} image{col._count.items !== 1 ? "s" : ""}
-                    </p>
                   </Link>
+
+                  {/* Nom — inline rename */}
+                  {renamingId === col.id ? (
+                    <input
+                      autoFocus
+                      className="w-full text-xs font-medium bg-transparent border-b border-[var(--accent,#a78bfa)] text-[var(--text-primary)] focus:outline-none py-0.5"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => commitRename(col.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename(col.id);
+                        if (e.key === "Escape") setRenamingId(null);
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center gap-1 group/name">
+                      <p className="text-xs font-medium text-[var(--text-primary)] leading-tight truncate flex-1">
+                        {col.name}
+                      </p>
+                      <button
+                        onClick={() => startRename(col)}
+                        className="opacity-0 group-hover/name:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-[9px] flex-shrink-0"
+                        title="Renommer"
+                      >
+                        ✎
+                      </button>
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                    {col._count.items} image{col._count.items !== 1 ? "s" : ""}
+                  </p>
 
                   {deleteId === col.id ? (
                     <div className="flex items-center gap-1.5 mt-1">
