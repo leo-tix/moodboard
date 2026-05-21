@@ -41,7 +41,8 @@ export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps
   if (items.length === 0) {
     // Show a subtle loading skeleton while fetching
     return (
-      <div className="flex-shrink-0 h-[72px] border-t border-[var(--border-subtle)] bg-[var(--bg-base)] flex items-center px-3 gap-1.5 overflow-hidden">
+      <div className="flex-shrink-0 h-[72px] border-t border-[var(--border-subtle)] bg-[var(--bg-base)] flex items-center px-3 gap-1.5 overflow-hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         {Array.from({ length: 12 }).map((_, i) => (
           <div key={i} className="flex-shrink-0 w-14 h-14 rounded bg-[var(--bg-surface)] animate-pulse" />
         ))}
@@ -50,7 +51,8 @@ export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps
   }
 
   return (
-    <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)]">
+    <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)]"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       <div ref={scrollRef} className="flex overflow-x-auto scrollbar-none py-2 px-3 gap-1.5 items-center">
         {items.map((item) => {
           const isActive = item.id === currentId;

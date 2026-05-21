@@ -160,6 +160,8 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
   const imageAreaRef = useRef<HTMLDivElement>(null);
   const pinchStartDist = useRef<number | null>(null);
   const lastWheelTime = useRef(0);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
 
   // ── Restore persisted preferences on mount ──
   useEffect(() => {
@@ -224,12 +226,17 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
     return () => el.removeEventListener("wheel", handler);
   }, [zoomIn, zoomOut]);
 
-  // ── Touch pinch zoom ──
+  // ── Touch: swipe (1 doigt) = navigation, pinch (2 doigts) = zoom ──
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length !== 2) return;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    pinchStartDist.current = Math.sqrt(dx * dx + dy * dy);
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchStartDist.current = Math.sqrt(dx * dx + dy * dy);
+      touchStartX.current = null; // annule le swipe si pinch
+    } else if (e.touches.length === 1) {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    }
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
@@ -238,18 +245,30 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
     const dy = e.touches[0].clientY - e.touches[1].clientY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const ratio = dist / pinchStartDist.current;
-
     if (ratio > 1.25) { zoomIn();  pinchStartDist.current = dist; }
     else if (ratio < 0.8) { zoomOut(); pinchStartDist.current = dist; }
   }, [zoomIn, zoomOut]);
 
-  const handleTouchEnd = useCallback(() => { pinchStartDist.current = null; }, []);
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    pinchStartDist.current = null;
+    if (touchStartX.current !== null && e.changedTouches.length > 0) {
+      const dx = e.changedTouches[0].clientX - touchStartX.current;
+      const dy = e.changedTouches[0].clientY - (touchStartY.current ?? 0);
+      // Swipe horizontal : > 50px et plus horizontal que vertical
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        if (dx < 0 && nextItem) router.replace(`/library/${nextItem.id}`);
+        else if (dx > 0 && prevItem) router.replace(`/library/${prevItem.id}`);
+      }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  }, [prevItem, nextItem, router]);
 
   const handleFallback = useCallback((items: StripItem[]) => setStripItems(items), []);
 
   // ── Render ──
   return (
-    <div className={`flex flex-col ${isModal ? "h-full" : "md:h-screen"}`}>
+    <div className={`flex flex-col ${isModal ? "h-full" : "md:h-screen"} overflow-hidden`}>
 
       {/* ── Top bar ── */}
       <div className="flex-shrink-0 px-4 py-2.5 border-b border-[var(--border-subtle)] flex items-center gap-2 min-w-0">
@@ -338,20 +357,33 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         </button>
       </div>
 
-      {/* ── Main content ── */}
-      <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
+      {/* ── Image mobile — swipe pour naviguer, pinch pour zoomer ── */}
+      <div
+        className="md:hidden flex-shrink-0 relative w-full aspect-video bg-[var(--bg-surface)] overflow-hidden"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
+        {isZoomed && (
+          <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
+            {formatZoom(zoom)}
+          </div>
+        )}
+      </div>
 
-        {/* Image area */}
+      {/* ── Main content ── */}
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row md:overflow-hidden">
+
+        {/* Image desktop — molette pour zoomer */}
         <div
           ref={imageAreaRef}
-          className="relative w-full aspect-video md:aspect-auto md:flex-1 bg-[var(--bg-surface)] overflow-hidden flex items-center justify-center"
+          className="hidden md:flex relative flex-1 bg-[var(--bg-surface)] overflow-hidden items-center justify-center"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
           <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
-
-          {/* Zoom level badge — visible when not 100% */}
           {isZoomed && (
             <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
               {formatZoom(zoom)}
@@ -359,8 +391,8 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
           )}
         </div>
 
-        {/* Metadata panel */}
-        <div className={`w-full md:w-80 md:flex-shrink-0 border-t md:border-t-0 md:border-l border-[var(--border-subtle)] overflow-y-auto flex flex-col ${panelHidden ? "md:hidden" : ""}`}>
+        {/* Metadata panel — scrollable sur mobile */}
+        <div className={`flex-1 min-h-0 overflow-y-auto md:flex-none md:w-80 border-t md:border-t-0 md:border-l border-[var(--border-subtle)] flex flex-col ${panelHidden ? "md:hidden" : ""}`}>
           <MetadataPanel
             id={data.id}
             initialData={data.initialData}
