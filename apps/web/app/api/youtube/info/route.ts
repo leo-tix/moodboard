@@ -26,6 +26,18 @@ const BROWSER_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 };
 
+// Extract ytInitialPlayerResponse JSON blob from page HTML
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractPlayerResponse(html: string): Record<string, any> | null {
+  const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var |const |let |\w+\.push)/s);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -59,18 +71,47 @@ export async function POST(req: NextRequest) {
     );
     const html = await pageRes.text();
 
-    // Storyboard spec — the URL template for sprites used by the seek preview bar
-    const specMatch = html.match(/"spec"\s*:\s*"(https:\/\/i\.ytimg\.com\/sb[^"]+)"/);
-    const storyboardSpec = specMatch
-      ? specMatch[1]
+    // Primary: parse the full ytInitialPlayerResponse JSON blob
+    const playerResponse = extractPlayerResponse(html);
+
+    let storyboardSpec: string | null = null;
+    let duration = 0;
+
+    if (playerResponse) {
+      // Duration
+      const lengthSeconds = playerResponse?.videoDetails?.lengthSeconds;
+      if (lengthSeconds) duration = parseInt(lengthSeconds, 10);
+
+      // Storyboard spec — nested in storyboards.playerStoryboardSpecRenderer.spec
+      const spec =
+        playerResponse?.storyboards?.playerStoryboardSpecRenderer?.spec ??
+        playerResponse?.storyboards?.playerLiveStoryboardSpecRenderer?.spec;
+
+      if (typeof spec === "string" && spec.includes("i.ytimg.com")) {
+        storyboardSpec = spec;
+      }
+    }
+
+    // Fallback regex patterns if JSON parsing failed or was incomplete
+    if (!duration) {
+      const m = html.match(/"lengthSeconds"\s*:\s*"(\d+)"/);
+      if (m) duration = parseInt(m[1], 10);
+    }
+    if (!duration) {
+      // approxDurationMs fallback
+      const m = html.match(/"approxDurationMs"\s*:\s*"(\d+)"/);
+      if (m) duration = Math.round(parseInt(m[1], 10) / 1000);
+    }
+
+    if (!storyboardSpec) {
+      const specMatch = html.match(/"spec"\s*:\s*"(https:\\?\/\\?\/i\.ytimg\.com\\?\/sb[^"]+)"/);
+      if (specMatch) {
+        storyboardSpec = specMatch[1]
           .replace(/\\u0026/g, "&")
           .replace(/\\\//g, "/")
-          .replace(/\\"/g, '"')
-      : null;
-
-    // Duration in seconds
-    const durationMatch = html.match(/"lengthSeconds"\s*:\s*"(\d+)"/);
-    const duration = durationMatch ? parseInt(durationMatch[1], 10) : 0;
+          .replace(/\\"/g, '"');
+      }
+    }
 
     // maxresdefault is 1280×720 — best available thumbnail (may 404 on older videos)
     const thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
