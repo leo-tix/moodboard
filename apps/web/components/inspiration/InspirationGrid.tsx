@@ -24,6 +24,7 @@ interface InspirationGridProps {
   selectable?: boolean;
   selectedIds?: Set<string>;
   onSelect?: (id: string) => void;
+  emptyMessage?: string;
 }
 
 export function InspirationGrid({
@@ -32,14 +33,19 @@ export function InspirationGrid({
   selectable,
   selectedIds,
   onSelect,
+  emptyMessage,
 }: InspirationGridProps) {
   if (inspirations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-center">
-        <p className="text-[var(--text-tertiary)] text-sm mb-1">Aucune inspiration pour le moment</p>
-        <a href="/upload" className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors underline underline-offset-4">
-          Ajouter des références →
-        </a>
+        <p className="text-[var(--text-tertiary)] text-sm mb-1">
+          {emptyMessage ?? "Aucune inspiration pour le moment"}
+        </p>
+        {!emptyMessage && (
+          <a href="/upload" className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors underline underline-offset-4">
+            Ajouter des références →
+          </a>
+        )}
       </div>
     );
   }

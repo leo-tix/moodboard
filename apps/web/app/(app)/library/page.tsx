@@ -26,7 +26,7 @@ export default async function LibraryPage() {
 
   return (
     <div className="p-6">
-      <header className="mb-2 flex items-center justify-between">
+      <header className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">Archive</p>
           <h1 className="text-2xl font-light text-[var(--text-primary)]">
