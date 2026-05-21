@@ -29,14 +29,6 @@ interface UploadFile {
   };
 }
 
-/** Minimum gap between consecutive Gemini calls.
- *  Free tier = 5 RPM → 1 req / 12 s.  13 s for safety. */
-const ANALYSIS_THROTTLE_MS = 13_000;
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
 interface Category {
   id: string;
   name: string;
@@ -253,13 +245,12 @@ export function DropZone() {
         .filter((v): v is { fileId: string; inspirationId: string } => v !== null);
 
       void (async () => {
-        for (let i = 0; i < uploaded.length; i++) {
+        for (const item of uploaded) {
           try {
-            await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+            await analyzeAndApply(item.inspirationId, item.fileId);
           } catch (err) {
             console.error("[DropZone] analyzeAndApply inattendu :", err);
           }
-          if (i < uploaded.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
         }
       })();
     }
@@ -307,10 +298,8 @@ export function DropZone() {
 
   const retryQuotaFiles = async () => {
     const quotaFiles = files.filter((f) => f.aiStatus === "quota" && f.inspirationId);
-    for (let i = 0; i < quotaFiles.length; i++) {
-      const f = quotaFiles[i];
+    for (const f of quotaFiles) {
       await analyzeAndApply(f.inspirationId!, f.id);
-      if (i < quotaFiles.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
     }
   };
 
@@ -577,7 +566,7 @@ export function DropZone() {
                 <button
                   onClick={retryQuotaFiles}
                   className="text-yellow-400 hover:text-yellow-300 transition-colors underline underline-offset-2"
-                  title="Quota Gemini (15 req/min) dépassé. Cliquer pour réessayer avec throttle automatique."
+                  title="Quota Gemini dépassé. Cliquer pour réessayer."
                 >
                   ⏳ {quotaCount} quota — Réanalyser
                 </button>

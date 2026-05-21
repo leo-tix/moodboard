@@ -36,12 +36,6 @@ interface QueuedFile {
   };
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-/** Minimum gap between consecutive Gemini calls (ms).
- *  Free tier = 5 RPM → 1 req / 12 s.  We use 13 s for safety. */
-const ANALYSIS_THROTTLE_MS = 13_000;
-
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const GlobalUploadContext = createContext<Record<string, never>>({});
@@ -49,10 +43,6 @@ export const useGlobalUpload = () => useContext(GlobalUploadContext);
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
 const MAX_SIZE_MB = 10;
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
 
 function isValidImage(file: File) {
   return ACCEPTED.includes(file.type) && file.size <= MAX_SIZE_MB * 1024 * 1024;
@@ -307,13 +297,12 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
       // void : on ne bloque pas — les mises à jour d'état arrivent au fil de l'eau
       // Try/catch individuel : une erreur sur un fichier ne bloque pas les suivants
       void (async () => {
-        for (let i = 0; i < uploaded.length; i++) {
+        for (const item of uploaded) {
           try {
-            await analyzeAndApply(uploaded[i].inspirationId, uploaded[i].fileId);
+            await analyzeAndApply(item.inspirationId, item.fileId);
           } catch (err) {
             console.error("[GlobalUpload] analyzeAndApply inattendu :", err);
           }
-          if (i < uploaded.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
         }
       })();
     }
@@ -325,10 +314,8 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
     const quotaFiles = files.filter(
       (f) => f.aiStatus === "quota" && f.inspirationId
     );
-    for (let i = 0; i < quotaFiles.length; i++) {
-      const f = quotaFiles[i];
+    for (const f of quotaFiles) {
       await analyzeAndApply(f.inspirationId!, f.id);
-      if (i < quotaFiles.length - 1) await sleep(ANALYSIS_THROTTLE_MS);
     }
   }, [files, analyzeAndApply]);
 
@@ -617,7 +604,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                         <button
                           onClick={retryQuotaFiles}
                           className="text-xs px-3 py-1.5 border border-yellow-500/40 text-yellow-400 rounded-lg hover:bg-yellow-500/10 transition-colors"
-                          title="Quota Gemini (15 req/min) dépassé. Cliquer pour réessayer."
+                          title="Quota Gemini dépassé. Cliquer pour réessayer."
                         >
                           ⏳ Réanalyser {quotaCount > 1 ? `${quotaCount} images` : "1 image"}
                         </button>
