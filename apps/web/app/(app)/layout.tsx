@@ -6,8 +6,10 @@ import { GlobalUploadProvider } from "@/components/upload/GlobalUploadProvider";
 
 export default async function AppLayout({
   children,
+  modal,
 }: {
   children: React.ReactNode;
+  modal: React.ReactNode;
 }) {
   const session = await auth();
   if (!session) redirect("/login");
@@ -26,6 +28,9 @@ export default async function AppLayout({
 
       {/* Bottom nav — mobile only */}
       <BottomNav />
+
+      {/* Intercepted modal (e.g. /library/[id] opened from library grid) */}
+      {modal}
     </div>
   );
 }

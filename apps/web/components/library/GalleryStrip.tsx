@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { getThumbnailUrl } from "@/lib/storage/urls";
@@ -18,6 +18,8 @@ interface GalleryStripProps {
 }
 
 export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   // Fallback: fetch from API when not coming from library
   useEffect(() => {
     if (items.length > 0) return;
@@ -27,11 +29,13 @@ export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps
       .catch(() => {});
   }, [items.length, onFallback]);
 
-  // Auto-scroll active thumbnail into view
+  // Center active thumbnail instantly in the strip
   useEffect(() => {
-    if (items.length === 0) return;
-    const el = document.querySelector<HTMLElement>(`[data-strip-id="${currentId}"]`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    const container = scrollRef.current;
+    if (!container || items.length === 0) return;
+    const el = container.querySelector<HTMLElement>(`[data-strip-id="${currentId}"]`);
+    if (!el) return;
+    container.scrollLeft = el.offsetLeft - container.clientWidth / 2 + el.offsetWidth / 2;
   }, [currentId, items]);
 
   if (items.length === 0) {
@@ -47,13 +51,14 @@ export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps
 
   return (
     <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-base)]">
-      <div className="flex overflow-x-auto scrollbar-none py-2 px-3 gap-1.5 items-center">
+      <div ref={scrollRef} className="flex overflow-x-auto scrollbar-none py-2 px-3 gap-1.5 items-center">
         {items.map((item) => {
           const isActive = item.id === currentId;
           return (
             <Link
               key={item.id}
               href={`/library/${item.id}`}
+              replace
               data-strip-id={item.id}
               title={item.title}
               className={`
