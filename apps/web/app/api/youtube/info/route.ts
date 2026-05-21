@@ -29,7 +29,7 @@ const BROWSER_HEADERS = {
 // Extract ytInitialPlayerResponse JSON blob from page HTML
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractPlayerResponse(html: string): Record<string, any> | null {
-  const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var |const |let |\w+\.push)/s);
+  const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{[\s\S]+?\});\s*(?:var |const |let |\w+\.push)/);
   if (!match) return null;
   try {
     return JSON.parse(match[1]);
