@@ -36,7 +36,8 @@ export default async function InspirationDetailPage({ params }: Props) {
   const mainImageUrl = mainImage ? getImageUrl(mainImage.storageKey) : null;
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex flex-col md:h-screen">
+      {/* Breadcrumb */}
       <div className="flex-shrink-0 px-6 py-3 border-b border-[var(--border-subtle)] flex items-center gap-2">
         <Link href="/library" className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
           ← Bibliothèque
@@ -45,20 +46,19 @@ export default async function InspirationDetailPage({ params }: Props) {
         <span className="text-xs text-[var(--text-secondary)] truncate max-w-xs">{inspiration.title}</span>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* Body — stacked on mobile, side-by-side on desktop */}
+      <div className="flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
         {/* Image */}
-        <div className="flex-1 bg-[var(--bg-surface)] flex items-center justify-center overflow-hidden">
+        <div className="relative w-full aspect-video md:aspect-auto md:flex-1 bg-[var(--bg-surface)] flex items-center justify-center overflow-hidden">
           {mainImageUrl ? (
-            <div className="relative w-full h-full">
-              <Image src={mainImageUrl} alt={inspiration.title} fill className="object-contain" priority sizes="(max-width: 1280px) 70vw, 60vw" />
-            </div>
+            <Image src={mainImageUrl} alt={inspiration.title} fill className="object-contain" priority sizes="(max-width: 768px) 100vw, (max-width: 1280px) 70vw, 60vw" />
           ) : (
             <div className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</div>
           )}
         </div>
 
         {/* Metadata panel */}
-        <div className="w-80 flex-shrink-0 border-l border-[var(--border-subtle)] overflow-hidden flex flex-col">
+        <div className="w-full md:w-80 md:flex-shrink-0 border-t md:border-t-0 md:border-l border-[var(--border-subtle)] overflow-y-auto flex flex-col">
           <MetadataPanel
             id={inspiration.id}
             initialData={{

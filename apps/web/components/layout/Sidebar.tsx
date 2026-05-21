@@ -11,7 +11,6 @@ const NAV_ITEMS = [
   { href: "/collections", label: "Collections", icon: "▣" },
   { href: "/search", label: "Recherche", icon: "◎" },
   { href: "/upload", label: "Ajouter", icon: "+" },
-  { href: "/import/youtube", label: "YouTube", icon: "▶" },
 ];
 
 export function Sidebar() {

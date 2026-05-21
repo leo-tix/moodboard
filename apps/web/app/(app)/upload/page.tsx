@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DropZone } from "@/components/upload/DropZone";
+import { UploadTabs } from "@/components/upload/UploadTabs";
 
 export const metadata: Metadata = { title: "Ajouter" };
 
@@ -15,7 +15,7 @@ export default function UploadPage() {
         </h1>
       </header>
 
-      <DropZone />
+      <UploadTabs />
     </div>
   );
 }
