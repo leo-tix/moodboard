@@ -26,6 +26,7 @@ export default async function InspirationDetailPage({ params }: Props) {
       tags: { include: { tag: true } },
       colorPalette: { orderBy: { order: "asc" } },
       aiAnalysis: true,
+      collections: { include: { collection: { select: { id: true, name: true } } } },
     },
   });
 
@@ -84,6 +85,10 @@ export default async function InspirationDetailPage({ params }: Props) {
                 ? { moodDescriptor: inspiration.aiAnalysis.moodDescriptor, styleKeywords: inspiration.aiAnalysis.styleKeywords }
                 : null
             }
+            initialCollections={inspiration.collections.map((c) => ({
+              id: c.collection.id,
+              name: c.collection.name,
+            }))}
           />
         </div>
       </div>

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { CategoryMultiSelect, type CategorySelection } from "./CategoryMultiSelect";
 import { TagInput } from "./TagInput";
 import type { Category } from "./CategorySelect";
+import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
 
 interface MetadataPanelProps {
   id: string;
@@ -26,6 +27,8 @@ interface MetadataPanelProps {
   };
   colorPalette?: { id: string; hex: string; order: number }[];
   aiAnalysis?: { moodDescriptor?: string | null; styleKeywords: string[] } | null;
+  /** Collections auxquelles appartient cette inspiration */
+  initialCollections?: { id: string; name: string }[];
   /** If true, trigger AI analysis automatically on mount */
   autoAnalyze?: boolean;
   /** If true, render the AI section before the form fields */
@@ -36,13 +39,19 @@ const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-wid
 const fld =
   "w-full bg-transparent border-b border-[var(--border-subtle)] focus:border-[var(--border-default)] text-[var(--text-primary)] text-xs py-1 focus:outline-none transition-colors placeholder:text-[var(--text-tertiary)]";
 
-export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, autoAnalyze, aiFirst }: MetadataPanelProps) {
+export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initialCollections, autoAnalyze, aiFirst }: MetadataPanelProps) {
   const [data, setData] = useState(initialData);
   const [tags, setTags] = useState<string[]>(initialData.tags ?? []);
   const [categories, setCategories] = useState<CategorySelection[]>(initialData.categories ?? []);
   const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Collections
+  const [myCollections, setMyCollections] = useState<{ id: string; name: string }[]>(
+    initialCollections ?? []
+  );
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
 
   // AI analysis state
   const [aiResult, setAiResult] = useState<{
@@ -137,6 +146,15 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, autoA
 
   const update = (field: string, value: string | number) =>
     setData((p) => ({ ...p, [field]: value }));
+
+  const removeFromCollection = async (collectionId: string) => {
+    await fetch(`/api/collections/${collectionId}/items`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inspirationIds: [id] }),
+    });
+    setMyCollections((prev) => prev.filter((c) => c.id !== collectionId));
+  };
 
   const save = async () => {
     setSaving(true);
@@ -340,6 +358,42 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, autoA
           <TagInput value={tags} onChange={setTags} placeholder="Entrée pour valider…" />
         </div>
 
+        {/* Collections */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className={lbl}>Collections</p>
+            <button
+              type="button"
+              onClick={() => setShowCollectionModal(true)}
+              className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity"
+            >
+              + Ajouter
+            </button>
+          </div>
+          {myCollections.length === 0 ? (
+            <p className="text-[10px] text-[var(--text-tertiary)]">—</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {myCollections.map((col) => (
+                <span
+                  key={col.id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-[var(--bg-elevated)] text-[var(--text-secondary)]"
+                >
+                  {col.name}
+                  <button
+                    type="button"
+                    onClick={() => removeFromCollection(col.id)}
+                    className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity leading-none"
+                    title="Retirer de cette collection"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Description */}
         <div>
           <p className={lbl}>Description</p>
@@ -451,6 +505,20 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, autoA
           {saved ? "Sauvegardé ✓" : "Sauvegarder"}
         </Button>
       </div>
+
+      {showCollectionModal && (
+        <AddToCollectionModal
+          inspirationIds={[id]}
+          onClose={() => setShowCollectionModal(false)}
+          onAdded={(collectionId, collectionName) => {
+            setMyCollections((prev) =>
+              prev.find((c) => c.id === collectionId)
+                ? prev
+                : [...prev, { id: collectionId, name: collectionName }]
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

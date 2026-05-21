@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { CategorySelect } from "./CategorySelect";
 import { TagInput } from "./TagInput";
+import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
 
 interface Category {
   id: string;
@@ -34,6 +35,7 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
   const [deleting, setDeleting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  const [showCollectionModal, setShowCollectionModal] = useState(false);
 
   useEffect(() => {
     fetch("/api/categories")
@@ -94,6 +96,7 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
   };
 
   return (
+    <>
     <motion.div
       initial={{ y: 100, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
@@ -160,6 +163,13 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
             </Button>
             <button
               type="button"
+              onClick={() => setShowCollectionModal(true)}
+              className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-right"
+            >
+              ▣ Collections
+            </button>
+            <button
+              type="button"
               onClick={analyzeAll}
               disabled={analyzing}
               className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 justify-end font-medium"
@@ -197,5 +207,16 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
         </div>
       </div>
     </motion.div>
+
+    <AnimatePresence>
+      {showCollectionModal && (
+        <AddToCollectionModal
+          inspirationIds={selectedIds}
+          onClose={() => setShowCollectionModal(false)}
+          onAdded={() => onSaved()}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
 }
