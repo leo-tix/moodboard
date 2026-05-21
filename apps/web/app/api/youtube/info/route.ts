@@ -21,9 +21,17 @@ function extractVideoId(url: string): string | null {
 
 // ─── InnerTube clients to try in order ───────────────────────────────────────
 
+interface InnerTubeClient {
+  label: string;
+  url: string;
+  headers: Record<string, string>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  body: Record<string, any>;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchPlayerData(videoId: string): Promise<Record<string, any> | null> {
-  const CLIENTS = [
+  const CLIENTS: InnerTubeClient[] = [
     // ANDROID — most permissive from server IPs, no key required
     {
       label: "ANDROID",
