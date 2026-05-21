@@ -19,16 +19,110 @@ function extractVideoId(url: string): string | null {
   return null;
 }
 
-const BROWSER_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept-Language": "en-US,en;q=0.9",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-};
+// ─── InnerTube clients to try in order ───────────────────────────────────────
 
-// YouTube's own internal player API — this key is embedded in every YouTube
-// page and is not secret; it authenticates web client calls.
-const YT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchPlayerData(videoId: string): Promise<Record<string, any> | null> {
+  const CLIENTS = [
+    // ANDROID — most permissive from server IPs, no key required
+    {
+      label: "ANDROID",
+      url: "https://www.youtube.com/youtubei/v1/player",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent":
+          "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+      },
+      body: {
+        videoId,
+        context: {
+          client: {
+            clientName: "ANDROID",
+            clientVersion: "19.09.37",
+            androidSdkVersion: 30,
+            hl: "en",
+            gl: "US",
+          },
+        },
+      },
+    },
+    // TVHTML5 — another server-friendly client
+    {
+      label: "TVHTML5",
+      url: "https://www.youtube.com/youtubei/v1/player",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 TV Safari/538.1",
+      },
+      body: {
+        videoId,
+        context: {
+          client: {
+            clientName: "TVHTML5",
+            clientVersion: "7.20240101.00.00",
+            hl: "en",
+            gl: "US",
+          },
+        },
+      },
+    },
+    // WEB — standard browser client
+    {
+      label: "WEB",
+      url: "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      body: {
+        videoId,
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion: "2.20240101.00.00",
+            hl: "en",
+            gl: "US",
+          },
+        },
+      },
+    },
+  ];
+
+  for (const client of CLIENTS) {
+    try {
+      const res = await fetch(client.url, {
+        method: "POST",
+        headers: client.headers,
+        body: JSON.stringify(client.body),
+      });
+
+      const text = await res.text();
+      console.log(`[YouTube info] ${client.label} → HTTP ${res.status}, body[:200]: ${text.slice(0, 200)}`);
+
+      if (!res.ok) continue;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = JSON.parse(text) as Record<string, any>;
+
+      const spec =
+        data?.storyboards?.playerStoryboardSpecRenderer?.spec ??
+        data?.storyboards?.playerLiveStoryboardSpecRenderer?.spec;
+      const duration = data?.videoDetails?.lengthSeconds;
+
+      console.log(`[YouTube info] ${client.label} → spec: ${spec ? "✓" : "null"}, duration: ${duration ?? "null"}`);
+
+      // Accept this client's response if it has at least duration
+      if (duration || spec) return data;
+    } catch (err) {
+      console.warn(`[YouTube info] ${client.label} failed:`, err);
+    }
+  }
+
+  return null;
+}
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +140,13 @@ export async function POST(req: NextRequest) {
     // ── 1. Basic metadata via oEmbed (no auth, no key, forever free) ──────────
     const oembedRes = await fetch(
       `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
-      { headers: BROWSER_HEADERS }
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      }
     );
     if (!oembedRes.ok) {
       return NextResponse.json(
@@ -54,45 +154,18 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
-    const oembed = await oembedRes.json() as { title: string; author_name: string };
+    const oembed = (await oembedRes.json()) as {
+      title: string;
+      author_name: string;
+    };
 
-    // ── 2. Player data via YouTube's internal InnerTube API ───────────────────
-    // This returns clean JSON with storyboard spec + video details — no HTML
-    // parsing required. The API key is YouTube's own public web client key.
-    const playerRes = await fetch(
-      `https://www.youtube.com/youtubei/v1/player?key=${YT_INNERTUBE_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": BROWSER_HEADERS["User-Agent"],
-          "Accept-Language": BROWSER_HEADERS["Accept-Language"],
-          "X-YouTube-Client-Name": "1",
-          "X-YouTube-Client-Version": "2.20240101.00.00",
-        },
-        body: JSON.stringify({
-          videoId,
-          context: {
-            client: {
-              clientName: "WEB",
-              clientVersion: "2.20240101.00.00",
-              hl: "en",
-              gl: "US",
-            },
-          },
-        }),
-      }
-    );
+    // ── 2. Player data via InnerTube (tries multiple clients) ─────────────────
+    const playerData = await fetchPlayerData(videoId);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const playerData = playerRes.ok ? (await playerRes.json() as Record<string, any>) : null;
-
-    // Duration
     const duration = playerData?.videoDetails?.lengthSeconds
       ? parseInt(playerData.videoDetails.lengthSeconds, 10)
       : 0;
 
-    // Storyboard spec
     const rawSpec: string | undefined =
       playerData?.storyboards?.playerStoryboardSpecRenderer?.spec ??
       playerData?.storyboards?.playerLiveStoryboardSpecRenderer?.spec;
@@ -102,7 +175,6 @@ export async function POST(req: NextRequest) {
         ? rawSpec
         : null;
 
-    // maxresdefault is 1280×720 — best available thumbnail (may 404 on older videos)
     const thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
     return NextResponse.json({
