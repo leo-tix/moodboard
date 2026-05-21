@@ -7,6 +7,7 @@ export type CanvasElementBase = {
   w: number;
   h: number;
   zIndex: number;
+  opacity?: number; // 0–1, default 1
 };
 
 export type ImageElement = CanvasElementBase & {
@@ -14,6 +15,7 @@ export type ImageElement = CanvasElementBase & {
   inspirationId: string;
   storageKey: string;
   title: string;
+  objectFit?: "cover" | "contain"; // default "cover"
 };
 
 export type TextElement = CanvasElementBase & {
@@ -30,7 +32,14 @@ export type ColorElement = CanvasElementBase & {
   color: string;
 };
 
-export type CanvasElement = ImageElement | TextElement | ColorElement;
+export type StickyElement = CanvasElementBase & {
+  type: "sticky";
+  content: string;
+  backgroundColor: string; // fond coloré
+  textColor: string;
+};
+
+export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement;
 
 export interface MoodboardData {
   id: string;
