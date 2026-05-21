@@ -506,7 +506,7 @@ export function YouTubeImportClient() {
             <div className="bg-[var(--bg-surface)] rounded-xl border border-[var(--border-subtle)] overflow-hidden">
               <button
                 onClick={() => setCreateCollection(!createCollection)}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-elevated)] transition-colors"
+                className="w-full flex items-center justify-between px-4 pr-5 py-3 hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <div className="text-left">
                   <p className="text-xs font-medium text-[var(--text-primary)]">
