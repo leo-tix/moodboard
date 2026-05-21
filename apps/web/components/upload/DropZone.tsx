@@ -30,8 +30,8 @@ interface UploadFile {
 }
 
 /** Minimum gap between consecutive Gemini calls.
- *  Free tier = 15 RPM → 1 req / 4 s.  5 s for safety. */
-const ANALYSIS_THROTTLE_MS = 5_000;
+ *  Free tier = 5 RPM → 1 req / 12 s.  13 s for safety. */
+const ANALYSIS_THROTTLE_MS = 13_000;
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));

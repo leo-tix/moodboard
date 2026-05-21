@@ -39,8 +39,8 @@ interface QueuedFile {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Minimum gap between consecutive Gemini calls (ms).
- *  Free tier = 15 RPM → 1 req / 4 s.  We use 5 s for safety. */
-const ANALYSIS_THROTTLE_MS = 5_000;
+ *  Free tier = 5 RPM → 1 req / 12 s.  We use 13 s for safety. */
+const ANALYSIS_THROTTLE_MS = 13_000;
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
