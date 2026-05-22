@@ -50,13 +50,11 @@ const CURSOR_CROSSHAIR_CSS = (() => {
 // ── Navigation guide content ──────────────────────────────────────────────────
 
 const GUIDE_ROWS: [string, string][] = [
-  ["Glisser (n'importe où)", "Déplacer la vue"],
-  ["Molette / Trackpad", "Déplacer la vue"],
-  ["Ctrl + Molette", "Zoom avant / arrière"],
-  ["Pincer (trackpad)", "Zoom avant / arrière"],
+  ["1 doigt · Glisser", "Déplacer la vue"],
+  ["2 doigts · Pincer", "Zoom avant / arrière"],
+  ["2 doigts · Glisser", "Déplacer la vue"],
+  ["Molette / Trackpad", "Déplacer · Ctrl+molette = zoom"],
   ["F", "Tout afficher"],
-  ["↑ ↓ ← →", "Déplacer la vue (pas fin)"],
-  ["Shift + ↑↓←→", "Déplacer la vue (pas large)"],
 ];
 
 // ── Navigation Guide ──────────────────────────────────────────────────────────
@@ -125,6 +123,7 @@ export function MoodboardViewer({ data }: Props) {
   const [zoom, setZoom] = useState(1);
   const [cursor, setCursor] = useState("default");
   const [showGuide, setShowGuide] = useState(true);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   // ── Stable refs (event handlers must not capture stale state) ──
   const panRef  = useRef({ x: 80, y: 60 });
@@ -207,6 +206,11 @@ export function MoodboardViewer({ data }: Props) {
     return () => { if (zoomRafRef.current !== null) cancelAnimationFrame(zoomRafRef.current); };
   }, []);
 
+  // ── Touch device detection ──
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 1);
+  }, []);
+
   // ── Block native HTML5 drag on images (prevents freeze) ──
   useEffect(() => {
     const vp = viewportRef.current;
@@ -260,6 +264,96 @@ export function MoodboardViewer({ data }: Props) {
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
   }, [kickZoomAnimation]);
+
+  // ── Touch gestures (iPad / iPhone) ──
+  // Viewer is read-only: every 1-finger drag pans, 2-finger pinch zooms + translates.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const touchPanRef   = { current: null as { startX: number; startY: number; originX: number; originY: number } | null };
+    const pinchRef      = { current: null as { startDist: number; startZoom: number; startMidViewX: number; startMidViewY: number; originPanX: number; originPanY: number } | null };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchPanRef.current = null;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
+        const rect = viewport.getBoundingClientRect();
+        pinchRef.current = {
+          startDist    : Math.sqrt(dx * dx + dy * dy),
+          startZoom    : zoomRef.current,
+          startMidViewX: (t0.clientX + t1.clientX) / 2 - rect.left,
+          startMidViewY: (t0.clientY + t1.clientY) / 2 - rect.top,
+          originPanX   : panRef.current.x,
+          originPanY   : panRef.current.y,
+        };
+        return;
+      }
+      if (e.touches.length === 1) {
+        e.preventDefault();
+        pinchRef.current = null;
+        const touch = e.touches[0];
+        touchPanRef.current = {
+          startX : touch.clientX,
+          startY : touch.clientY,
+          originX: panRef.current.x,
+          originY: panRef.current.y,
+        };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const p  = pinchRef.current;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const rect = viewport.getBoundingClientRect();
+        const curMidX = (t0.clientX + t1.clientX) / 2 - rect.left;
+        const curMidY = (t0.clientY + t1.clientY) / 2 - rect.top;
+
+        const newZoom  = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, p.startZoom * (dist / p.startDist)));
+        const canvasMidX = (p.startMidViewX - p.originPanX) / p.startZoom;
+        const canvasMidY = (p.startMidViewY - p.originPanY) / p.startZoom;
+        const newPanX = curMidX - canvasMidX * newZoom;
+        const newPanY = curMidY - canvasMidY * newZoom;
+
+        zoomRef.current       = newZoom;
+        panRef.current        = { x: newPanX, y: newPanY };
+        zoomTargetRef.current  = newZoom;
+        panTargetRef.current   = { x: newPanX, y: newPanY };
+        setZoom(newZoom);
+        setPan({ x: newPanX, y: newPanY });
+        return;
+      }
+      if (e.touches.length === 1 && touchPanRef.current) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const p  = touchPanRef.current;
+        const np = { x: p.originX + (touch.clientX - p.startX), y: p.originY + (touch.clientY - p.startY) };
+        setPan(np);
+        panRef.current       = np;
+        panTargetRef.current  = np;
+      }
+    };
+
+    const onTouchEnd = () => { touchPanRef.current = null; pinchRef.current = null; };
+
+    viewport.addEventListener("touchstart",  onTouchStart,  { passive: false });
+    viewport.addEventListener("touchmove",   onTouchMove,   { passive: false });
+    viewport.addEventListener("touchend",    onTouchEnd);
+    viewport.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      viewport.removeEventListener("touchstart",  onTouchStart);
+      viewport.removeEventListener("touchmove",   onTouchMove);
+      viewport.removeEventListener("touchend",    onTouchEnd);
+      viewport.removeEventListener("touchcancel", onTouchEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -407,7 +501,7 @@ export function MoodboardViewer({ data }: Props) {
       <div
         ref={viewportRef}
         className="flex-1 relative overflow-hidden"
-        style={gridStyle}
+        style={{ ...gridStyle, touchAction: "none" }}
         onMouseDown={handleViewportMouseDown}
       >
         {/* Canvas world (transformed) */}
@@ -441,8 +535,8 @@ export function MoodboardViewer({ data }: Props) {
           ))}
         </div>
 
-        {/* Space-hold hint */}
-        {cursor === "grab" && (
+        {/* Space-hold hint — hidden on touch (no keyboard) */}
+        {cursor === "grab" && !isTouchDevice && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 pointer-events-none text-[11px] text-[var(--text-tertiary)] bg-[var(--bg-elevated)]/80 px-2 py-1 rounded">
             Espace + glisser pour déplacer
           </div>
@@ -460,7 +554,7 @@ export function MoodboardViewer({ data }: Props) {
               const r = vp.getBoundingClientRect();
               applyZoom(zoomTargetRef.current * 0.8, r.width / 2, r.height / 2);
             }}
-            className="w-5 h-5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center"
+            className={`${isTouchDevice ? "w-10 h-10 text-lg" : "w-5 h-5 text-sm"} text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center`}
             title="Zoom arrière (−)"
           >
             −
@@ -475,14 +569,14 @@ export function MoodboardViewer({ data }: Props) {
               const r = vp.getBoundingClientRect();
               applyZoom(zoomTargetRef.current * 1.25, r.width / 2, r.height / 2);
             }}
-            className="w-5 h-5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center"
+            className={`${isTouchDevice ? "w-10 h-10 text-lg" : "w-5 h-5 text-sm"} text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center`}
             title="Zoom avant (+)"
           >
             +
           </button>
           <button
             onClick={zoomToFit}
-            className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] px-1 transition-colors"
+            className={`${isTouchDevice ? "h-10 px-3 text-sm" : "text-[10px] px-1"} text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors`}
             title="Tout afficher (F)"
           >
             Tout afficher
