@@ -150,6 +150,9 @@ export function MoodboardEditor({ initialData }: Props) {
   const touchRubberBandRef      = useRef(false); // true while rubber band mode is active
   const touchRubberBandStartRef = useRef<{ vx: number; vy: number } | null>(null); // view coords of hold point
   const touchRubberBandRectRef  = useRef<{ sx: number; sy: number; ex: number; ey: number } | null>(null); // live rect (for onTouchEnd closure)
+  // Touch tap vs pan tracking
+  const touchStartedOnElementRef = useRef(false); // was the touch on an element?
+  const touchDidPanRef           = useRef(false);  // did the touch produce a significant pan movement?
 
   // ── Smooth zoom (rAF lerp) ──
   // zoomTargetRef / panTargetRef hold the *desired* state.
@@ -452,12 +455,13 @@ export function MoodboardEditor({ initialData }: Props) {
       // ── 1-finger ──
       if (e.touches.length === 1) {
         pinchRef.current = null;
+        touchDidPanRef.current = false;
         const touch = e.touches[0];
         const rect  = viewport.getBoundingClientRect();
         const viewX = touch.clientX - rect.left;
         const viewY = touch.clientY - rect.top;
 
-        // Hit-test: find topmost unlocked canvas element under the touch
+        // Hit-test: find topmost canvas element under the touch
         const canvasX = (viewX - panRef.current.x) / zoomRef.current;
         const canvasY = (viewY - panRef.current.y) / zoomRef.current;
         const sorted = [...elementsRef.current].sort((a, b) => {
@@ -471,7 +475,7 @@ export function MoodboardEditor({ initialData }: Props) {
 
         if (!hitEl) {
           // ── Empty canvas ──
-          // Start pan immediately; long-press will cancel pan and activate rubber band.
+          touchStartedOnElementRef.current = false;
           e.preventDefault(); // prevent synthetic mousedown → no accidental rubber band via mouse handler
           touchPanRef.current = {
             startX : touch.clientX,
@@ -480,13 +484,12 @@ export function MoodboardEditor({ initialData }: Props) {
             originY: panRef.current.y,
           };
 
-          // Long-press on empty → rubber band mode
+          // Long-press on empty → rubber band mode (400ms, shorter than element menu)
           longPressPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
           longPressTimerRef.current = setTimeout(() => {
             longPressTimerRef.current = null;
             if (!longPressPosRef.current) return; // cancelled (finger moved > 10px)
-            // Switch: stop panning, start rubber band
-            touchPanRef.current = null;
+            touchPanRef.current = null; // stop panning, switch to rubber band
             touchRubberBandRef.current = true;
             const r = viewport.getBoundingClientRect();
             const vx = longPressPosRef.current.clientX - r.left;
@@ -496,23 +499,35 @@ export function MoodboardEditor({ initialData }: Props) {
             setRubberBand({ sx: vx, sy: vy, ex: vx, ey: vy });
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(8);
             longPressPosRef.current = null;
-          }, 600);
+          }, 400); // 400ms: snappy enough to not feel accidental
 
         } else {
           // ── On element ──
-          // react-rnd handles drag (only if element is selected — disableDragging otherwise).
-          // Long-press → context menu.
+          touchStartedOnElementRef.current = true;
+
+          // If the element is NOT selected, allow pan from this touch (lazy: only triggers
+          // if the finger actually moves > 4px, so taps still select via synthetic mousedown).
+          if (!selectedIdsRef.current.includes(hitEl.id)) {
+            touchPanRef.current = {
+              startX : touch.clientX,
+              startY : touch.clientY,
+              originX: panRef.current.x,
+              originY: panRef.current.y,
+            };
+          }
+
+          // Long-press → context menu (600ms, intentional delay)
           longPressPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
           longPressTimerRef.current = setTimeout(() => {
             longPressTimerRef.current = null;
             if (!longPressPosRef.current) return;
             const { clientX, clientY } = longPressPosRef.current;
             const r = viewport.getBoundingClientRect();
-            // Ensure the element is selected before showing the menu
             if (!selectedIdsRef.current.includes(hitEl.id)) {
               selectedIdsRef.current = [hitEl.id];
               setSelectedIds([hitEl.id]);
             }
+            touchPanRef.current = null; // don't pan after menu appears
             setContextMenu({ x: clientX - r.left, y: clientY - r.top });
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(8);
             longPressPosRef.current = null;
@@ -564,15 +579,26 @@ export function MoodboardEditor({ initialData }: Props) {
 
         // ── Pan mode ──
         if (touchPanRef.current) {
-          e.preventDefault();
           const p  = touchPanRef.current;
-          const np = { x: p.originX + (touch.clientX - p.startX), y: p.originY + (touch.clientY - p.startY) };
-          setPan(np);
-          panRef.current       = np;
-          panTargetRef.current  = np;
+          const dx = touch.clientX - p.startX;
+          const dy = touch.clientY - p.startY;
+          const moved = Math.sqrt(dx * dx + dy * dy);
+
+          // For element-started pans: require > 4px before panning so quick taps
+          // still propagate as synthetic mousedown → select. Once the threshold is
+          // crossed, e.preventDefault() suppresses the mousedown synthesis at touchend.
+          // For empty-canvas pans: no threshold (mousedown already prevented in touchstart).
+          if (!touchStartedOnElementRef.current || moved > 4) {
+            e.preventDefault();
+            touchDidPanRef.current = true;
+            const np = { x: p.originX + dx, y: p.originY + dy };
+            setPan(np);
+            panRef.current       = np;
+            panTargetRef.current  = np;
+          }
         }
 
-        // Cancel long-press if finger moves > 10px (allows free panning once clearly moving)
+        // Cancel long-press if finger moves > 10px (allows free panning)
         if (longPressPosRef.current) {
           const ddx = touch.clientX - longPressPosRef.current.clientX;
           const ddy = touch.clientY - longPressPosRef.current.clientY;
@@ -587,7 +613,6 @@ export function MoodboardEditor({ initialData }: Props) {
         const { sx, sy, ex, ey } = touchRubberBandRectRef.current;
         const minVX = Math.min(sx, ex), maxVX = Math.max(sx, ex);
         const minVY = Math.min(sy, ey), maxVY = Math.max(sy, ey);
-        // Only treat as a real rubber band if the rect has meaningful size
         if (maxVX - minVX > 4 || maxVY - minVY > 4) {
           const minCX = (minVX - panRef.current.x) / zoomRef.current;
           const maxCX = (maxVX - panRef.current.x) / zoomRef.current;
@@ -604,9 +629,17 @@ export function MoodboardEditor({ initialData }: Props) {
         setRubberBand(null);
       }
 
+      // Tap on empty canvas (no rubber band, no significant pan, not on an element) → deselect
+      if (!touchRubberBandRef.current && !touchDidPanRef.current && !touchStartedOnElementRef.current) {
+        selectedIdsRef.current = [];
+        setSelectedIds([]);
+      }
+
       clearTouchRubberBand();
-      touchPanRef.current = null;
-      pinchRef.current    = null;
+      touchPanRef.current            = null;
+      pinchRef.current               = null;
+      touchDidPanRef.current         = false;
+      touchStartedOnElementRef.current = false;
       clearLongPress();
     };
 
@@ -2132,7 +2165,7 @@ function CanvasItem({
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
       dragAxis={dragAxis}
-      enableResizing={selected && !isMultiSelected && !element.locked}
+      enableResizing={selected && !element.locked}
       disableDragging={!!element.locked || !!forceDragDisabled}
       className="canvas-item group"
     >
