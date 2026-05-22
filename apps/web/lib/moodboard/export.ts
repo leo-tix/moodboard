@@ -201,13 +201,37 @@ function drawWrappedText(
   }
 }
 
-/** Loads an image via the same-origin proxy to avoid canvas CORS tainting. */
+/**
+ * Loads an image for use in canvas drawImage (no CORS tainting).
+ *
+ * Strategy:
+ *  1. Try R2 CDN directly with crossOrigin="anonymous" — zero Vercel bandwidth
+ *     when the R2 bucket has CORS configured for the current origin.
+ *  2. On failure (local dev, missing CORS header, network error) fall back to
+ *     the same-origin proxy /api/proxy-image which always works.
+ *
+ * This means the function is transparent to environment — no config change
+ * needed between local dev and production.
+ */
 function loadProxiedImage(storageKey: string): Promise<HTMLImageElement> {
+  const base     = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? "";
+  const directUrl = `${base}/${storageKey}`;
+  const proxyUrl  = `/api/proxy-image?key=${encodeURIComponent(storageKey)}`;
+
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload  = () => resolve(img);
-    img.onerror = reject;
-    img.src = `/api/proxy-image?key=${encodeURIComponent(storageKey)}`;
+    // Attempt 1 — direct R2 with CORS
+    const direct = new Image();
+    direct.crossOrigin = "anonymous";
+    direct.onload  = () => resolve(direct);
+    direct.onerror = () => {
+      // Attempt 2 — same-origin proxy (local dev, CORS not yet configured, etc.)
+      console.warn(`[export] CORS failed for ${storageKey}, falling back to proxy`);
+      const proxy = new Image();
+      proxy.onload  = () => resolve(proxy);
+      proxy.onerror = () => reject(new Error(`Failed to load image: ${storageKey}`));
+      proxy.src = proxyUrl;
+    };
+    direct.src = directUrl;
   });
 }
 

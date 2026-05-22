@@ -1403,26 +1403,49 @@ export function MoodboardEditor({ initialData }: Props) {
 
         <div className="w-px h-4 bg-[var(--border-subtle)]" />
 
-        <label
-          className="flex items-center gap-1.5 cursor-pointer flex-shrink-0 select-none"
-          title="Fond transparent (PNG avec canal alpha)"
-        >
-          <input
-            type="checkbox"
-            checked={exportTransparent}
-            onChange={(e) => setExportTransparent(e.target.checked)}
-            className="w-3 h-3 accent-[var(--accent,#a78bfa)] cursor-pointer"
-          />
-          <span className="text-[10px] text-[var(--text-tertiary)]">Transparent</span>
-        </label>
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          className="text-xs transition-colors px-2 py-1 rounded border flex-shrink-0 border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Exporter en PNG haute résolution"
-        >
-          {exporting ? "Export…" : "↓ PNG"}
-        </button>
+        {/* Export group — split button: [↓ PNG | ◫ transparent toggle] */}
+        <div className="flex items-center flex-shrink-0 rounded-md border border-[var(--border-subtle)] overflow-hidden select-none">
+          {/* Download button */}
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Exporter en PNG haute résolution"
+          >
+            {exporting ? (
+              <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              /* Arrow-down-to-tray icon */
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M5.5 1v6M2.5 5l3 3 3-3"/>
+                <path d="M1 9.5h9"/>
+              </svg>
+            )}
+            PNG
+          </button>
+
+          {/* Divider */}
+          <div className="w-px self-stretch bg-[var(--border-subtle)]" />
+
+          {/* Transparency toggle */}
+          <button
+            onClick={() => setExportTransparent((v) => !v)}
+            title={exportTransparent ? "Fond transparent — cliquer pour opaque" : "Fond opaque — cliquer pour transparent"}
+            className={`px-2 py-1 transition-colors ${
+              exportTransparent
+                ? "text-[var(--accent,#a78bfa)] bg-[var(--accent,#a78bfa)]/10 hover:bg-[var(--accent,#a78bfa)]/20"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+            }`}
+          >
+            {/* Checkerboard — universal symbol for transparency */}
+            <svg width="11" height="11" viewBox="0 0 10 10" aria-hidden>
+              <rect x="0" y="0" width="5" height="5" fill="currentColor" opacity="0.75"/>
+              <rect x="5" y="5" width="5" height="5" fill="currentColor" opacity="0.75"/>
+              <rect x="5" y="0" width="5" height="5" fill="currentColor" opacity="0.2"/>
+              <rect x="0" y="5" width="5" height="5" fill="currentColor" opacity="0.2"/>
+            </svg>
+          </button>
+        </div>
 
         <button
           onClick={() => setShowShare((v) => !v)}
