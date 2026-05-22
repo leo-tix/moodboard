@@ -835,10 +835,11 @@ export function MoodboardEditor({ initialData }: Props) {
             zIndex: ++nextZRef.current,
           };
         });
-        // One atomic update: move originals + insert copies
+        // One atomic update: move originals (skip locked) + insert copies
         updateElements((prev) => {
           const moved = prev.map((el) => {
             if (!ids.includes(el.id)) return el;
+            if (el.locked) return el; // locked elements never move
             const s = multiDragStartPositions.current.get(el.id);
             if (!s) return el;
             if (ids.length > 1) return { ...el, x: snap(s.x + dx), y: snap(s.y + dy) };
@@ -853,6 +854,7 @@ export function MoodboardEditor({ initialData }: Props) {
         updateElements((prev) =>
           prev.map((el) => {
             if (!ids.includes(el.id)) return el;
+            if (el.locked) return el; // locked elements never move
             const s = multiDragStartPositions.current.get(el.id);
             if (!s) return el;
             return { ...el, x: snap(s.x + dx), y: snap(s.y + dy) };
@@ -899,6 +901,7 @@ export function MoodboardEditor({ initialData }: Props) {
       prev.map((el) => {
         if (el.id === id) return el; // leader: react-rnd handles its visual position
         if (!ids.includes(el.id)) return el;
+        if (el.locked) return el; // locked elements never move
         const s = multiDragStartPositions.current.get(el.id);
         if (!s) return el;
         return { ...el, x: s.x + dx, y: s.y + dy };
