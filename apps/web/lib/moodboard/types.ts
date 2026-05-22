@@ -16,6 +16,7 @@ export type ImageElement = CanvasElementBase & {
   storageKey: string;
   title: string;
   objectFit?: "cover" | "contain"; // default "cover"
+  aspectRatio?: number; // naturalWidth / naturalHeight, used for lockAspectRatio
 };
 
 export type TextElement = CanvasElementBase & {

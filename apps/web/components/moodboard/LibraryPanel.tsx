@@ -9,10 +9,18 @@ interface LibraryItem {
   title: string;
   storageKey: string | null;
   thumbnailKey: string | null;
+  width: number | null;
+  height: number | null;
 }
 
 interface Props {
-  onAdd: (item: { inspirationId: string; storageKey: string; title: string }) => void;
+  onAdd: (item: {
+    inspirationId: string;
+    storageKey: string;
+    title: string;
+    width?: number | null;
+    height?: number | null;
+  }) => void;
 }
 
 export function LibraryPanel({ onAdd }: Props) {
@@ -64,10 +72,25 @@ export function LibraryPanel({ onAdd }: Props) {
                   e.dataTransfer.effectAllowed = "copy";
                   e.dataTransfer.setData(
                     "application/moodboard-item",
-                    JSON.stringify({ inspirationId: item.id, storageKey: item.storageKey, title: item.title })
+                    JSON.stringify({
+                      inspirationId: item.id,
+                      storageKey: item.storageKey,
+                      title: item.title,
+                      width: item.width,
+                      height: item.height,
+                    })
                   );
                 }}
-                onClick={() => item.storageKey && onAdd({ inspirationId: item.id, storageKey: item.storageKey, title: item.title })}
+                onClick={() =>
+                  item.storageKey &&
+                  onAdd({
+                    inspirationId: item.id,
+                    storageKey: item.storageKey,
+                    title: item.title,
+                    width: item.width,
+                    height: item.height,
+                  })
+                }
                 className="relative aspect-video rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-2 hover:ring-[var(--accent,#a78bfa)] transition-all group cursor-grab active:cursor-grabbing"
                 title={`${item.title} — glisser ou cliquer pour ajouter`}
               >

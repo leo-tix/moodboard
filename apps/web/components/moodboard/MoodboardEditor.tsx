@@ -51,6 +51,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const [zoom, setZoom] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [shiftHeld, setShiftHeld] = useState(false);
 
   // ── Rubber band ──
   const [rubberBand, setRubberBand] = useState<{
@@ -204,8 +205,12 @@ export function MoodboardEditor({ initialData }: Props) {
   const handleSelect = useCallback((id: string, shift: boolean) => {
     setSelectedIds((prev) => {
       if (shift) {
+        // Toggle element in/out of multi-selection
         return prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id];
       }
+      // If element is already part of multi-selection, keep the group
+      // so dragging doesn't deselect others (click on empty space to reset)
+      if (prev.includes(id) && prev.length > 1) return prev;
       return [id];
     });
     // Bring to front (no history push, minor visual change)
@@ -281,6 +286,8 @@ export function MoodboardEditor({ initialData }: Props) {
       const target = e.target as HTMLElement;
       const inInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
+      if (e.key === "Shift") { setShiftHeld(true); }
+
       if (e.code === "Space" && !inInput) {
         e.preventDefault();
         isSpaceDown.current = true;
@@ -312,6 +319,7 @@ export function MoodboardEditor({ initialData }: Props) {
         isSpaceDown.current = false;
         if (!isPanningRef.current) setCursor("default");
       }
+      if (e.key === "Shift") setShiftHeld(false);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -444,11 +452,18 @@ export function MoodboardEditor({ initialData }: Props) {
   const handleElemResize = useCallback(
     (id: string, x: number, y: number, w: number, h: number) => {
       updateElements((prev) =>
-        prev.map((el) =>
-          el.id === id
-            ? { ...el, x: snap(x), y: snap(y), w: Math.max(40, Math.round(w)), h: Math.max(24, Math.round(h)) }
-            : el
-        )
+        prev.map((el) => {
+          if (el.id !== id) return el;
+          const newW = Math.max(40, Math.round(w));
+          const newH = Math.max(24, Math.round(h));
+          const base = { ...el, x: snap(x), y: snap(y), w: newW, h: newH };
+          // Text: font size auto-scales with box height
+          if (el.type === "text") {
+            const autoFontSize = Math.max(8, Math.round(newH * 0.42));
+            return { ...base, fontSize: autoFontSize } as typeof el;
+          }
+          return base;
+        })
       );
     },
     [updateElements, snap]
@@ -487,17 +502,29 @@ export function MoodboardEditor({ initialData }: Props) {
   }, [snap]);
 
   const addImage = useCallback(
-    (item: { inspirationId: string; storageKey: string; title: string }) => {
+    (item: {
+      inspirationId: string;
+      storageKey: string;
+      title: string;
+      width?: number | null;
+      height?: number | null;
+    }) => {
       const { x, y } = getViewportCenter();
+      const ratio = item.width && item.height ? item.width / item.height : 16 / 9;
+      const W = Math.min(480, Math.max(160, item.width ?? 320));
+      const H = Math.round(W / ratio);
       const el: ImageElement = {
         id: makeId(),
         type: "image",
-        x: snap(x - 160),
-        y: snap(y - 110),
-        w: 320,
-        h: 220,
+        x: snap(x - W / 2),
+        y: snap(y - H / 2),
+        w: W,
+        h: H,
         zIndex: ++nextZRef.current,
-        ...item,
+        inspirationId: item.inspirationId,
+        storageKey: item.storageKey,
+        title: item.title,
+        aspectRatio: ratio,
       };
       updateElements((prev) => [...prev, el]);
     },
@@ -572,6 +599,26 @@ export function MoodboardEditor({ initialData }: Props) {
   // ── Upload file → library + canvas ──
   const uploadFile = useCallback(
     async (file: File, canvasX: number, canvasY: number, offsetIdx = 0) => {
+      // Detect real dimensions before upload
+      let naturalRatio = 16 / 9;
+      let naturalW = 0;
+      let naturalH = 0;
+      try {
+        const url = URL.createObjectURL(file);
+        await new Promise<void>((resolve) => {
+          const img = new window.Image();
+          img.onload = () => {
+            naturalW = img.naturalWidth;
+            naturalH = img.naturalHeight;
+            if (naturalW && naturalH) naturalRatio = naturalW / naturalH;
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+          img.src = url;
+        });
+      } catch { /* ignore */ }
+
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/upload/image", { method: "POST", body: fd });
@@ -581,17 +628,20 @@ export function MoodboardEditor({ initialData }: Props) {
         image: { storageKey: string };
       };
       const title = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
+      const W = Math.min(480, Math.max(160, naturalW || 400));
+      const H = Math.round(W / naturalRatio);
       const el: ImageElement = {
         id: makeId(),
         type: "image",
         x: snap(canvasX + offsetIdx * 24),
         y: snap(canvasY + offsetIdx * 24),
-        w: 320,
-        h: 220,
+        w: W,
+        h: H,
         zIndex: ++nextZRef.current,
         inspirationId: data.inspirationId,
         storageKey: data.image.storageKey,
         title,
+        aspectRatio: naturalRatio,
       };
       updateElements((prev) => [...prev, el]);
       if (aiOnImport.current) {
@@ -635,17 +685,25 @@ export function MoodboardEditor({ initialData }: Props) {
         inspirationId: string;
         storageKey: string;
         title: string;
+        width?: number | null;
+        height?: number | null;
       };
+      const ratio = item.width && item.height ? item.width / item.height : 16 / 9;
+      const W = Math.min(480, Math.max(160, item.width ?? 400));
+      const H = Math.round(W / ratio);
       const { x, y } = screenToCanvas(e.clientX, e.clientY);
       const el: ImageElement = {
         id: makeId(),
         type: "image",
-        x: snap(x - 160),
-        y: snap(y - 110),
-        w: 320,
-        h: 220,
+        x: snap(x - W / 2),
+        y: snap(y - H / 2),
+        w: W,
+        h: H,
         zIndex: ++nextZRef.current,
-        ...item,
+        inspirationId: item.inspirationId,
+        storageKey: item.storageKey,
+        title: item.title,
+        aspectRatio: ratio,
       };
       updateElements((prev) => [...prev, el]);
       return true;
@@ -857,6 +915,8 @@ export function MoodboardEditor({ initialData }: Props) {
                 selected={selectedIds.includes(el.id)}
                 isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
                 zoom={zoom}
+                snapEnabled={snapEnabled}
+                shiftHeld={shiftHeld}
                 onSelect={(shift) => handleSelect(el.id, shift)}
                 onChange={handleElemChange}
                 onDragStart={() => handleElemDragStart(el.id)}
@@ -994,6 +1054,8 @@ interface CanvasItemProps {
   selected: boolean;
   isMultiSelected: boolean;
   zoom: number;
+  snapEnabled: boolean;
+  shiftHeld: boolean;
   onSelect: (shift: boolean) => void;
   onChange: (el: CanvasElement) => void;
   onDragStart: () => void;
@@ -1006,6 +1068,8 @@ function CanvasItem({
   selected,
   isMultiSelected,
   zoom,
+  snapEnabled,
+  shiftHeld,
   onSelect,
   onChange,
   onDragStart,
@@ -1018,15 +1082,29 @@ function CanvasItem({
       : "outline outline-2 outline-offset-0 outline-[var(--accent,#a78bfa)]"
     : "";
 
+  // Snap grid in screen pixels: SNAP_PX canvas units × zoom = screen pixels
+  const gridPx = Math.max(1, SNAP_PX * zoom);
+  const dragGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
+  const resizeGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
+
+  // Aspect ratio lock: images lock by default, Shift unlocks
+  let lockAspectRatio: boolean | number = false;
+  if (element.type === "image" && !shiftHeld) {
+    lockAspectRatio = (element as ImageElement).aspectRatio ?? (element.w / element.h);
+  }
+
   return (
     <Rnd
       position={{ x: element.x, y: element.y }}
       size={{ width: element.w, height: element.h }}
       style={{ zIndex: element.zIndex, opacity: element.opacity ?? 1 }}
       scale={zoom}
-      onMouseDown={(e) => {
-        (e as unknown as MouseEvent).stopPropagation();
-        onSelect((e as unknown as MouseEvent).shiftKey);
+      dragGrid={dragGrid}
+      resizeGrid={resizeGrid}
+      lockAspectRatio={lockAspectRatio}
+      onMouseDown={(e: MouseEvent) => {
+        e.stopPropagation();
+        onSelect(e.shiftKey);
       }}
       onDragStart={() => {
         onDragStart();
