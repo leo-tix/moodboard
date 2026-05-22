@@ -449,6 +449,24 @@ export function MoodboardEditor({ initialData }: Props) {
     [updateElements, snap]
   );
 
+  // Real-time visual update for followers during multi-drag
+  // Uses setElements directly (no save, no history) — onDragStop applies snap + saves
+  const handleElemDragMove = useCallback((id: string, newX: number, newY: number) => {
+    const ids = selectedIdsRef.current;
+    if (!ids.includes(id) || ids.length <= 1) return;
+    const dx = newX - draggedElementStartPos.current.x;
+    const dy = newY - draggedElementStartPos.current.y;
+    setElements((prev) =>
+      prev.map((el) => {
+        if (el.id === id) return el; // leader: react-rnd handles its visual position
+        if (!ids.includes(el.id)) return el;
+        const s = multiDragStartPositions.current.get(el.id);
+        if (!s) return el;
+        return { ...el, x: s.x + dx, y: s.y + dy };
+      })
+    );
+  }, []);
+
   const handleElemResize = useCallback(
     (id: string, x: number, y: number, w: number, h: number) => {
       updateElements((prev) =>
@@ -736,6 +754,9 @@ export function MoodboardEditor({ initialData }: Props) {
     async (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
+      const types = Array.from(e.dataTransfer.types);
+      const isExternal = types.includes("Files") || types.includes("application/moodboard-item");
+      if (!isExternal) return;
       if (handleLibraryDrop(e)) return;
       await handleFileDrop(e);
     },
@@ -744,6 +765,14 @@ export function MoodboardEditor({ initialData }: Props) {
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    // Only react to real external drops (files or library items)
+    // — NOT to native drag events fired by <img> elements inside the canvas
+    const types = Array.from(e.dataTransfer.types);
+    const isExternal = types.includes("Files") || types.includes("application/moodboard-item");
+    if (!isExternal) {
+      e.dataTransfer.dropEffect = "none";
+      return;
+    }
     e.dataTransfer.dropEffect = "copy";
     setDragOver(true);
   }, []);
@@ -924,6 +953,7 @@ export function MoodboardEditor({ initialData }: Props) {
                 onSelect={(shift) => handleSelect(el.id, shift)}
                 onChange={handleElemChange}
                 onDragStart={() => handleElemDragStart(el.id)}
+                onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
                 onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
                 onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
               />
@@ -1063,6 +1093,7 @@ interface CanvasItemProps {
   onSelect: (shift: boolean) => void;
   onChange: (el: CanvasElement) => void;
   onDragStart: () => void;
+  onDragMove: (x: number, y: number) => void;
   onDragStop: (x: number, y: number) => void;
   onResize: (x: number, y: number, w: number, h: number) => void;
 }
@@ -1077,6 +1108,7 @@ function CanvasItem({
   onSelect,
   onChange,
   onDragStart,
+  onDragMove,
   onDragStop,
   onResize,
 }: CanvasItemProps) {
@@ -1110,18 +1142,16 @@ function CanvasItem({
         e.stopPropagation();
         onSelect(e.shiftKey);
       }}
-      onDragStart={() => {
-        onDragStart();
-      }}
+      onDragStart={() => onDragStart()}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      onDragStop={(_e: any, d: any) => {
-        onDragStop(d.x, d.y);
-      }}
+      onDrag={(_e: any, d: any) => onDragMove(d.x, d.y)}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onDragStop={(_e: any, d: any) => onDragStop(d.x, d.y)}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onResizeStop={(_e: any, _dir: any, ref: any, _delta: any, pos: any) => {
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
-      enableResizing
+      enableResizing={selected}
       disableDragging={false}
       className={`group ${selectionStyle}`}
     >
