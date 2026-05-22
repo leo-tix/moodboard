@@ -100,16 +100,26 @@ function ViewerElement({ element }: { element: CanvasElement }) {
   if (element.type === "image") {
     const el = element as ImageElement;
     const fit = el.objectFit ?? "cover";
+    const url = getImageUrl(el.storageKey);
     return (
       <div className="w-full h-full overflow-hidden relative" style={{ borderRadius: br }}>
-        <Image
-          src={getImageUrl(el.storageKey)}
-          alt={el.title}
-          fill
-          className={fit === "contain" ? "object-contain" : "object-cover"}
-          sizes="600px"
-          draggable={false}
-        />
+        {el.isAnimated ? (
+          <img
+            src={url}
+            alt={el.title}
+            draggable={false}
+            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
+          />
+        ) : (
+          <Image
+            src={url}
+            alt={el.title}
+            fill
+            className={fit === "contain" ? "object-contain" : "object-cover"}
+            sizes="600px"
+            draggable={false}
+          />
+        )}
       </div>
     );
   }

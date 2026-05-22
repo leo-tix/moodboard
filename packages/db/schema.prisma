@@ -169,6 +169,7 @@ model Image {
   thumbnailKey   String?
   blurHash       String?
   isMain         Boolean     @default(false)
+  isAnimated     Boolean     @default(false)
   order          Int         @default(0)
   exifData       Json?
   createdAt      DateTime    @default(now())

@@ -15,6 +15,7 @@ export interface InspirationGridItem {
     width: number | null;
     height: number | null;
     isMain: boolean;
+    isAnimated?: boolean;
   }[];
   tags: { tag: { name: string } }[];
 }
@@ -82,6 +83,7 @@ export function InspirationGrid({
               blurHash={mainImage?.blurHash ?? null}
               width={mainImage?.width ?? null}
               height={mainImage?.height ?? null}
+              isAnimated={mainImage?.isAnimated ?? false}
               category={firstCategory ? (extraCount > 0 ? `${firstCategory} +${extraCount}` : firstCategory) : null}
               tags={item.tags.map((t) => t.tag.name)}
               year={item.year}

@@ -11,6 +11,7 @@ interface LibraryItem {
   thumbnailKey: string | null;
   width: number | null;
   height: number | null;
+  isAnimated?: boolean;
 }
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
     title: string;
     width?: number | null;
     height?: number | null;
+    isAnimated?: boolean;
   }) => void;
 }
 
@@ -78,6 +80,7 @@ export function LibraryPanel({ onAdd }: Props) {
                       title: item.title,
                       width: item.width,
                       height: item.height,
+                      isAnimated: item.isAnimated ?? false,
                     })
                   );
                 }}
@@ -89,19 +92,28 @@ export function LibraryPanel({ onAdd }: Props) {
                     title: item.title,
                     width: item.width,
                     height: item.height,
+                    isAnimated: item.isAnimated ?? false,
                   })
                 }
                 className="relative aspect-video rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-2 hover:ring-[var(--accent,#a78bfa)] transition-all group cursor-grab active:cursor-grabbing"
                 title={`${item.title} — glisser ou cliquer pour ajouter`}
               >
                 {item.thumbnailKey ? (
-                  <Image
-                    src={getThumbnailUrl(item.thumbnailKey)}
-                    alt={item.title}
-                    fill
-                    className="object-cover"
-                    sizes="120px"
-                  />
+                  item.isAnimated ? (
+                    <img
+                      src={getThumbnailUrl(item.thumbnailKey)}
+                      alt={item.title}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Image
+                      src={getThumbnailUrl(item.thumbnailKey)}
+                      alt={item.title}
+                      fill
+                      className="object-cover"
+                      sizes="120px"
+                    />
+                  )
                 ) : (
                   <div className="absolute inset-0 bg-[var(--bg-elevated)]" />
                 )}

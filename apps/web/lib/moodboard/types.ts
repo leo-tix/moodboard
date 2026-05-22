@@ -17,6 +17,7 @@ export type ImageElement = CanvasElementBase & {
   title: string;
   objectFit?: "cover" | "contain"; // default "cover"
   aspectRatio?: number; // naturalWidth / naturalHeight, used for lockAspectRatio
+  isAnimated?: boolean; // true → use <img> instead of Next.js <Image>
 };
 
 export type TextElement = CanvasElementBase & {

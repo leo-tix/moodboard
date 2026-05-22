@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
       title: true,
       images: {
         where: { isMain: true },
-        select: { thumbnailKey: true, storageKey: true, width: true, height: true },
+        select: { thumbnailKey: true, storageKey: true, width: true, height: true, isAnimated: true },
         take: 1,
       },
     },
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
       storageKey: r.images[0]?.storageKey ?? null,
       width: r.images[0]?.width ?? null,
       height: r.images[0]?.height ?? null,
+      isAnimated: r.images[0]?.isAnimated ?? false,
     })),
   });
 }

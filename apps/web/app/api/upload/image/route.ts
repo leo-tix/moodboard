@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         inspirationId: inspiration.id,
         filename: `${uuid}.webp`,
         originalName: file.name,
-        mimeType: "image/webp",
+        mimeType: processed.mimeType,
         size: processed.size,
         width: processed.width,
         height: processed.height,
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
         thumbnailKey,
         blurHash: processed.blurHash,
         isMain: true,
+        isAnimated: processed.isAnimated,
       },
     });
 

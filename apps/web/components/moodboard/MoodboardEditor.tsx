@@ -508,6 +508,7 @@ export function MoodboardEditor({ initialData }: Props) {
       title: string;
       width?: number | null;
       height?: number | null;
+      isAnimated?: boolean;
     }) => {
       const { x, y } = getViewportCenter();
       const ratio = item.width && item.height ? item.width / item.height : 16 / 9;
@@ -525,6 +526,7 @@ export function MoodboardEditor({ initialData }: Props) {
         storageKey: item.storageKey,
         title: item.title,
         aspectRatio: ratio,
+        isAnimated: item.isAnimated ?? false,
       };
       updateElements((prev) => [...prev, el]);
     },
@@ -687,6 +689,7 @@ export function MoodboardEditor({ initialData }: Props) {
         title: string;
         width?: number | null;
         height?: number | null;
+        isAnimated?: boolean;
       };
       const ratio = item.width && item.height ? item.width / item.height : 16 / 9;
       const W = Math.min(480, Math.max(160, item.width ?? 400));
@@ -704,6 +707,7 @@ export function MoodboardEditor({ initialData }: Props) {
         storageKey: item.storageKey,
         title: item.title,
         aspectRatio: ratio,
+        isAnimated: item.isAnimated ?? false,
       };
       updateElements((prev) => [...prev, el]);
       return true;
@@ -1140,21 +1144,31 @@ function ElementContent({
   const br = 8; // border radius (design constant)
 
   if (element.type === "image") {
-    const fit = (element as ImageElement).objectFit ?? "cover";
-    const url = getImageUrl((element as ImageElement).storageKey);
+    const el = element as ImageElement;
+    const fit = el.objectFit ?? "cover";
+    const url = getImageUrl(el.storageKey);
     return (
       <div
-        className="w-full h-full overflow-hidden"
+        className="w-full h-full overflow-hidden relative"
         style={{ borderRadius: br }}
       >
-        <Image
-          src={url}
-          alt={(element as ImageElement).title}
-          fill
-          className={fit === "contain" ? "object-contain" : "object-cover"}
-          sizes="600px"
-          draggable={false}
-        />
+        {el.isAnimated ? (
+          <img
+            src={url}
+            alt={el.title}
+            draggable={false}
+            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
+          />
+        ) : (
+          <Image
+            src={url}
+            alt={el.title}
+            fill
+            className={fit === "contain" ? "object-contain" : "object-cover"}
+            sizes="600px"
+            draggable={false}
+          />
+        )}
       </div>
     );
   }

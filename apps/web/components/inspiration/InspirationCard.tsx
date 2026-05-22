@@ -14,6 +14,7 @@ interface InspirationCardProps {
   blurHash: string | null;
   width: number | null;
   height: number | null;
+  isAnimated?: boolean;
   category?: string | null;
   tags?: string[];
   year?: number | null;
@@ -32,6 +33,7 @@ export function InspirationCard({
   blurHash: _blurHash,
   width,
   height,
+  isAnimated = false,
   category,
   tags = [],
   year,
@@ -65,20 +67,33 @@ export function InspirationCard({
         style={{ backgroundColor: "var(--bg-elevated)" }}
       />
 
-      {/* Image */}
+      {/* Image — <img> natif pour les animés (Next.js <Image> supprime l'animation) */}
       {thumbUrl ? (
-        <Image
-          src={thumbUrl}
-          alt={title}
-          fill
-          className={cn(
-            "object-cover transition-all duration-500",
-            loaded ? "opacity-100" : "opacity-0",
-            hovered && !selectable ? "scale-[1.02]" : "scale-100"
-          )}
-          onLoad={() => setLoaded(true)}
-          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-        />
+        isAnimated ? (
+          <img
+            src={thumbUrl}
+            alt={title}
+            className={cn(
+              "absolute inset-0 w-full h-full object-cover transition-all duration-500",
+              loaded ? "opacity-100" : "opacity-0",
+              hovered && !selectable ? "scale-[1.02]" : "scale-100"
+            )}
+            onLoad={() => setLoaded(true)}
+          />
+        ) : (
+          <Image
+            src={thumbUrl}
+            alt={title}
+            fill
+            className={cn(
+              "object-cover transition-all duration-500",
+              loaded ? "opacity-100" : "opacity-0",
+              hovered && !selectable ? "scale-[1.02]" : "scale-100"
+            )}
+            onLoad={() => setLoaded(true)}
+            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+          />
+        )
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="text-[var(--text-tertiary)] text-xs">Sans image</span>
