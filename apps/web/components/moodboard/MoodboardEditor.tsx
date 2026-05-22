@@ -111,6 +111,8 @@ export function MoodboardEditor({ initialData }: Props) {
   const [exportTransparent, setExportTransparent] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [cursor, setCursor] = useState("default");
+  // Detected after mount — avoids SSR mismatch
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -138,6 +140,12 @@ export function MoodboardEditor({ initialData }: Props) {
   const dragAxisRef = useRef<"h" | "v" | null>(null); // Shift+drag axis lock
   const altDuplicateRef = useRef(false);  // Alt+drag: duplicate was triggered
   const clipboardRef = useRef<CanvasElement[]>([]); // Ctrl+C clipboard
+
+  // ── Touch gesture refs ──
+  const touchPanRef   = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const pinchRef      = useRef<{ startDist: number; startZoom: number; startMidViewX: number; startMidViewY: number; originPanX: number; originPanY: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressPosRef   = useRef<{ clientX: number; clientY: number } | null>(null);
 
   // ── Smooth zoom (rAF lerp) ──
   // zoomTargetRef / panTargetRef hold the *desired* state.
@@ -190,6 +198,11 @@ export function MoodboardEditor({ initialData }: Props) {
 
   useEffect(() => {
     aiOnImport.current = localStorage.getItem(AI_IMPORT_KEY) === "true";
+  }, []);
+
+  // Detect touch device after mount (no SSR mismatch)
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 1);
   }, []);
 
   // ── Snap helper ──
@@ -377,6 +390,181 @@ export function MoodboardEditor({ initialData }: Props) {
     // zoomToFit is stable (useCallback with stable deps) — intentional empty dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Touch gestures (iPad / iPhone) ──
+  // Registered as non-passive native listeners so we can call preventDefault()
+  // to stop the browser from synthesising duplicate mouse events.
+  //
+  // Gesture map:
+  //  1 finger on empty canvas → pan  (preventDefault → no synthetic mousedown → no rubber-band)
+  //  1 finger on element      → do nothing (react-rnd handles it via pointer events)
+  //  2 fingers anywhere       → pinch-zoom + pan simultaneously
+  //  600 ms hold (no move)    → context menu (replaces right-click)
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      // Always close context menu when a new touch begins outside the menu itself
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-role="context-menu"]')) {
+        setContextMenu(null);
+      }
+
+      // Cancel any in-flight long-press
+      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+      longPressPosRef.current = null;
+
+      // ── 2-finger: init pinch/zoom + pan ──
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchPanRef.current = null;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const rect = viewport.getBoundingClientRect();
+        pinchRef.current = {
+          startDist    : dist,
+          startZoom    : zoomRef.current,
+          startMidViewX: (t0.clientX + t1.clientX) / 2 - rect.left,
+          startMidViewY: (t0.clientY + t1.clientY) / 2 - rect.top,
+          originPanX   : panRef.current.x,
+          originPanY   : panRef.current.y,
+        };
+        return;
+      }
+
+      // ── 1-finger ──
+      if (e.touches.length === 1) {
+        pinchRef.current = null;
+        const touch = e.touches[0];
+        const rect  = viewport.getBoundingClientRect();
+        const viewX = touch.clientX - rect.left;
+        const viewY = touch.clientY - rect.top;
+
+        // Hit-test: find topmost canvas element at the touch point
+        const canvasX = (viewX - panRef.current.x) / zoomRef.current;
+        const canvasY = (viewY - panRef.current.y) / zoomRef.current;
+        const sorted = [...elementsRef.current].sort((a, b) => {
+          const az = a.type === "sticky" ? a.zIndex + 100_000 : a.zIndex;
+          const bz = b.type === "sticky" ? b.zIndex + 100_000 : b.zIndex;
+          return bz - az; // descending: highest z-index checked first
+        });
+        const hitEl = sorted.find(
+          (el) => canvasX >= el.x && canvasX <= el.x + el.w && canvasY >= el.y && canvasY <= el.y + el.h
+        );
+
+        // Empty canvas → pan (prevent synthetic mousedown → no rubber-band)
+        if (!hitEl) {
+          e.preventDefault();
+          touchPanRef.current = {
+            startX : touch.clientX,
+            startY : touch.clientY,
+            originX: panRef.current.x,
+            originY: panRef.current.y,
+          };
+        }
+
+        // Long-press timer (works on element and empty canvas)
+        longPressPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+        longPressTimerRef.current = setTimeout(() => {
+          longPressTimerRef.current = null;
+          if (!longPressPosRef.current) return;
+          const { clientX, clientY } = longPressPosRef.current;
+          const r = viewport.getBoundingClientRect();
+
+          if (hitEl) {
+            // Select the pressed element if not already in selection
+            const ids = selectedIdsRef.current;
+            if (!ids.includes(hitEl.id)) {
+              selectedIdsRef.current = [hitEl.id];
+              setSelectedIds([hitEl.id]);
+            }
+          } else {
+            selectedIdsRef.current = [];
+            setSelectedIds([]);
+          }
+
+          setContextMenu({ x: clientX - r.left, y: clientY - r.top });
+          if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(8);
+          longPressPosRef.current = null;
+        }, 600);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      // ── 2-finger: pinch-zoom + translate simultaneously ──
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const p  = pinchRef.current;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const rect = viewport.getBoundingClientRect();
+        const curMidX = (t0.clientX + t1.clientX) / 2 - rect.left;
+        const curMidY = (t0.clientY + t1.clientY) / 2 - rect.top;
+
+        // Zoom: linear scale relative to start distance
+        const newZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, p.startZoom * (dist / p.startDist)));
+
+        // Pan: canvas point that was under the start midpoint stays under the current midpoint
+        const canvasMidX = (p.startMidViewX - p.originPanX) / p.startZoom;
+        const canvasMidY = (p.startMidViewY - p.originPanY) / p.startZoom;
+        const newPanX = curMidX - canvasMidX * newZoom;
+        const newPanY = curMidY - canvasMidY * newZoom;
+
+        // Apply directly (no lerp — touch must feel instant)
+        zoomRef.current      = newZoom;
+        panRef.current       = { x: newPanX, y: newPanY };
+        zoomTargetRef.current = newZoom;
+        panTargetRef.current  = { x: newPanX, y: newPanY };
+        setZoom(newZoom);
+        setPan({ x: newPanX, y: newPanY });
+        return;
+      }
+
+      // ── 1-finger pan ──
+      if (e.touches.length === 1 && touchPanRef.current) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const p  = touchPanRef.current;
+        const np = { x: p.originX + (touch.clientX - p.startX), y: p.originY + (touch.clientY - p.startY) };
+        setPan(np);
+        panRef.current      = np;
+        panTargetRef.current = np;
+      }
+
+      // Cancel long-press if finger moves more than 10px
+      if (longPressPosRef.current && e.touches.length >= 1) {
+        const t   = e.touches[0];
+        const ddx = t.clientX - longPressPosRef.current.clientX;
+        const ddy = t.clientY - longPressPosRef.current.clientY;
+        if (Math.sqrt(ddx * ddx + ddy * ddy) > 10) {
+          if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+          longPressPosRef.current = null;
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      touchPanRef.current = null;
+      pinchRef.current    = null;
+      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+      longPressPosRef.current = null;
+    };
+
+    viewport.addEventListener("touchstart",  onTouchStart,  { passive: false });
+    viewport.addEventListener("touchmove",   onTouchMove,   { passive: false });
+    viewport.addEventListener("touchend",    onTouchEnd);
+    viewport.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      viewport.removeEventListener("touchstart",  onTouchStart);
+      viewport.removeEventListener("touchmove",   onTouchMove);
+      viewport.removeEventListener("touchend",    onTouchEnd);
+      viewport.removeEventListener("touchcancel", onTouchEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // refs + stable setters — no reactive deps needed
 
   // ── Block native HTML5 drag inside the canvas viewport ──
   // react-rnd uses mouse events; if the browser enters native drag mode
@@ -1297,7 +1485,7 @@ export function MoodboardEditor({ initialData }: Props) {
     setSaved(false);
   };
 
-  // ── Toolbar position (viewport-relative coords) ──
+  // ── Toolbar position (viewport-relative coords, clamped to viewport bounds) ──
   const toolbarPos = useMemo(() => {
     if (selectedIds.length === 0) return null;
     const selected = elements.filter((el) => selectedIds.includes(el.id));
@@ -1305,10 +1493,14 @@ export function MoodboardEditor({ initialData }: Props) {
     const minX = Math.min(...selected.map((el) => el.x));
     const minY = Math.min(...selected.map((el) => el.y));
     const maxX = Math.max(...selected.map((el) => el.x + el.w));
-    return {
-      x: ((minX + maxX) / 2) * zoom + pan.x,
-      y: minY * zoom + pan.y,
-    };
+    const rawX = ((minX + maxX) / 2) * zoom + pan.x;
+    const rawY = minY * zoom + pan.y;
+    // Clamp X so the toolbar (centered at rawX, ~280px wide) stays inside the viewport.
+    // We don't know the exact toolbar width at this point, so use a conservative margin.
+    const vpW = viewportRef.current?.getBoundingClientRect().width ?? 0;
+    const margin = 160; // half of max toolbar width
+    const clampedX = vpW > 0 ? Math.min(Math.max(rawX, margin), vpW - margin) : rawX;
+    return { x: clampedX, y: rawY };
   }, [selectedIds, elements, zoom, pan]);
 
   // ── Dot grid background ──
@@ -1327,7 +1519,7 @@ export function MoodboardEditor({ initialData }: Props) {
     <div className="h-screen flex flex-col bg-[var(--bg-base)] overflow-hidden">
 
       {/* ── Top bar ── */}
-      <div className="flex-shrink-0 h-11 border-b border-[var(--border-subtle)] flex items-center gap-2 px-4 select-none">
+      <div className="flex-shrink-0 h-11 border-b border-[var(--border-subtle)] flex items-center gap-2 px-4 select-none overflow-x-auto scrollbar-none" style={{ touchAction: "pan-x" }}>
         <button
           onClick={() => router.push("/moodboards")}
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors flex-shrink-0"
@@ -1472,7 +1664,7 @@ export function MoodboardEditor({ initialData }: Props) {
         <div
           ref={viewportRef}
           className="flex-1 relative overflow-hidden"
-          style={gridStyle}
+          style={{ ...gridStyle, touchAction: "none" }}
           onMouseDown={handleViewportMouseDown}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
@@ -1488,6 +1680,7 @@ export function MoodboardEditor({ initialData }: Props) {
               transformOrigin: "0 0",
               width: 0,
               height: 0,
+              touchAction: "none",
             }}
           >
             {/* Alt+drag ghost copies — non-interactive overlays at original positions.
@@ -1575,9 +1768,11 @@ export function MoodboardEditor({ initialData }: Props) {
             };
             return (
               <div
+                data-role="context-menu"
                 className="absolute z-[300] min-w-[172px] bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-2xl py-1 text-xs"
                 style={{ left: contextMenu.x, top: contextMenu.y }}
                 onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
               >
                 {canGroup && (
                   <button
@@ -1642,10 +1837,10 @@ export function MoodboardEditor({ initialData }: Props) {
             />
           )}
 
-          {/* Keyboard shortcuts panel */}
-          <KeyboardShortcutsPanel />
+          {/* Keyboard shortcuts panel — hidden on touch (no physical keyboard) */}
+          {!isTouchDevice && <KeyboardShortcutsPanel />}
 
-          {/* Zoom controls (bottom-right) */}
+          {/* Zoom controls (bottom-right) — buttons are 40px on touch for easy tapping */}
           <div className="absolute bottom-4 right-4 z-50 flex items-center gap-1 bg-[var(--bg-elevated)]/90 backdrop-blur border border-[var(--border-default)] rounded-lg px-2 py-1 shadow select-none">
             <button
               onClick={() => {
@@ -1654,14 +1849,22 @@ export function MoodboardEditor({ initialData }: Props) {
                 const r = vp.getBoundingClientRect();
                 applyZoom(zoomRef.current * 0.8, r.width / 2, r.height / 2);
               }}
-              className="w-5 h-5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center"
-              title="Zoom arrière (Ctrl -)"
+              className={`${isTouchDevice ? "w-10 h-10 text-lg" : "w-5 h-5 text-sm"} text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-colors`}
+              title="Zoom arrière"
             >
               −
             </button>
-            <span className="text-[11px] text-[var(--text-tertiary)] w-10 text-center">
+            <button
+              onClick={() => {
+                const vp = viewportRef.current;
+                if (!vp) return;
+                applyZoom(1, vp.getBoundingClientRect().width / 2, vp.getBoundingClientRect().height / 2);
+              }}
+              className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] w-10 text-center transition-colors"
+              title="Zoom 100 %"
+            >
               {Math.round(zoom * 100)}%
-            </span>
+            </button>
             <button
               onClick={() => {
                 const vp = viewportRef.current;
@@ -1669,22 +1872,22 @@ export function MoodboardEditor({ initialData }: Props) {
                 const r = vp.getBoundingClientRect();
                 applyZoom(zoomRef.current * 1.25, r.width / 2, r.height / 2);
               }}
-              className="w-5 h-5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center"
-              title="Zoom avant (Ctrl +)"
+              className={`${isTouchDevice ? "w-10 h-10 text-lg" : "w-5 h-5 text-sm"} text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-colors`}
+              title="Zoom avant"
             >
               +
             </button>
             <button
-              onClick={resetView}
-              className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] px-1 transition-colors"
-              title="Vue par défaut"
+              onClick={() => zoomToFit()}
+              className={`text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] px-1 transition-colors ${isTouchDevice ? "hidden" : ""}`}
+              title="Ajuster à tout"
             >
-              Réinitialiser
+              Ajuster
             </button>
             <div className="w-px h-3 bg-[var(--border-subtle)]" />
             <button
               onClick={() => setSnapEnabled((v) => !v)}
-              className={`text-[10px] px-1 rounded transition-colors ${
+              className={`${isTouchDevice ? "w-10 h-10 text-base" : "text-[10px] px-1"} rounded transition-colors ${
                 snapEnabled
                   ? "text-[var(--accent,#a78bfa)]"
                   : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -1693,10 +1896,23 @@ export function MoodboardEditor({ initialData }: Props) {
             >
               ⊞
             </button>
+            {/* Zoom-to-fit on touch */}
+            {isTouchDevice && (
+              <>
+                <div className="w-px h-3 bg-[var(--border-subtle)]" />
+                <button
+                  onClick={() => zoomToFit()}
+                  className="w-10 h-10 text-base text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center justify-center transition-colors"
+                  title="Ajuster à tout (F)"
+                >
+                  ⊡
+                </button>
+              </>
+            )}
           </div>
 
-          {/* Grab cursor hint */}
-          {cursor === "grab" && (
+          {/* Grab cursor hint — desktop only */}
+          {cursor === "grab" && !isTouchDevice && (
             <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 pointer-events-none text-[11px] text-[var(--text-tertiary)] bg-[var(--bg-elevated)]/80 px-2 py-1 rounded">
               Espace + glisser pour déplacer
             </div>

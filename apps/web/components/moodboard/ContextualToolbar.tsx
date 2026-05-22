@@ -444,6 +444,7 @@ export function ContextualToolbar({
 
   return (
     <div
+      data-role="toolbar"
       className="absolute z-[200] flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-xl px-1.5 py-1"
       style={{
         left: posX,
@@ -453,6 +454,7 @@ export function ContextualToolbar({
         whiteSpace: "nowrap",
       }}
       onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
     >
       {/* ── Multi-select: alignment ── */}
       {isMulti && (
