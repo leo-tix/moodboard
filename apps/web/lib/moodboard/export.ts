@@ -20,15 +20,18 @@ export async function exportMoodboardAsPng(
   elements: CanvasElement[],
   background: string,
   title: string,
+  { transparent = false }: { transparent?: boolean } = {},
 ): Promise<void> {
   if (typeof window === "undefined") return;
 
   // ── Bounding box ──────────────────────────────────────────────────────────
   if (elements.length === 0) {
     const c = makeCanvas(800, 600);
-    const ctx = c.getContext("2d")!;
-    ctx.fillStyle = background;
-    ctx.fillRect(0, 0, 800, 600);
+    if (!transparent) {
+      const ctx = c.getContext("2d")!;
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, 800, 600);
+    }
     triggerDownload(c, title);
     return;
   }
@@ -47,8 +50,10 @@ export async function exportMoodboardAsPng(
   const ctx = canvas.getContext("2d")!;
 
   // ── Background ────────────────────────────────────────────────────────────
-  ctx.fillStyle = background;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!transparent) {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
 
   // ── Elements (sorted by effective z-order) ────────────────────────────────
   const sorted = [...elements].sort((a, b) => {

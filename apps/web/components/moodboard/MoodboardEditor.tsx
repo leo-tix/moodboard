@@ -109,6 +109,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const [saved, setSaved] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportTransparent, setExportTransparent] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [cursor, setCursor] = useState("default");
 
@@ -1003,11 +1004,13 @@ export function MoodboardEditor({ initialData }: Props) {
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
-      await exportMoodboardAsPng(elementsRef.current, background, title);
+      await exportMoodboardAsPng(elementsRef.current, background, title, {
+        transparent: exportTransparent,
+      });
     } finally {
       setExporting(false);
     }
-  }, [background, title]);
+  }, [background, title, exportTransparent]);
 
   // ── Add element helpers ──
   const getViewportCenter = useCallback((): { x: number; y: number } => {
@@ -1400,6 +1403,18 @@ export function MoodboardEditor({ initialData }: Props) {
 
         <div className="w-px h-4 bg-[var(--border-subtle)]" />
 
+        <label
+          className="flex items-center gap-1.5 cursor-pointer flex-shrink-0 select-none"
+          title="Fond transparent (PNG avec canal alpha)"
+        >
+          <input
+            type="checkbox"
+            checked={exportTransparent}
+            onChange={(e) => setExportTransparent(e.target.checked)}
+            className="w-3 h-3 accent-[var(--accent,#a78bfa)] cursor-pointer"
+          />
+          <span className="text-[10px] text-[var(--text-tertiary)]">Transparent</span>
+        </label>
         <button
           onClick={handleExport}
           disabled={exporting}
