@@ -250,6 +250,21 @@ export function MoodboardEditor({ initialData }: Props) {
     panRef.current = { x: 80, y: 60 };
   }, []);
 
+  // ── Block native HTML5 drag inside the canvas viewport ──
+  // react-rnd uses mouse events; if the browser enters native drag mode
+  // (e.g. from an <img> inside a canvas element), mousemove stops firing
+  // and the view freezes. Capturing dragstart and calling preventDefault
+  // stops the browser from entering that mode entirely.
+  // External drops (files from desktop, library panel items) are unaffected
+  // because their dragstart fires OUTSIDE the viewport element.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const prevent = (e: DragEvent) => e.preventDefault();
+    viewport.addEventListener("dragstart", prevent, true); // capture phase
+    return () => viewport.removeEventListener("dragstart", prevent, true);
+  }, []);
+
   // ── Wheel handler (non-passive) ──
   useEffect(() => {
     const viewport = viewportRef.current;
