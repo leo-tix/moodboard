@@ -60,6 +60,20 @@ function Sep() {
   return <div className="w-px h-3 bg-[var(--border-subtle)] mx-0.5 flex-shrink-0" />;
 }
 
+// Mini lock/unlock SVG icons for the toolbar
+const LockClosedIcon = () => (
+  <svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor" aria-hidden>
+    <rect x="1.5" y="5" width="7" height="5.5" rx="1.2" />
+    <path d="M3 5V3.5a2 2 0 0 1 4 0V5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+);
+const LockOpenIcon = () => (
+  <svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor" aria-hidden>
+    <rect x="1.5" y="5" width="7" height="5.5" rx="1.2" />
+    <path d="M3 5V3.5a2 2 0 0 1 4 0" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+);
+
 function ColorSwatch({
   value,
   onChange,
@@ -291,6 +305,12 @@ export function ContextualToolbar({
   const single = !isMulti ? selected[0] : null;
 
   const upd = (id: string, patch: Patch) => onUpdateMany([{ id, patch }]);
+
+  // Lock helpers — computed from current selection
+  const anyLocked = selected.some((el) => el.locked);
+  const allLocked = selected.length > 0 && selected.every((el) => el.locked);
+  const toggleLock = () =>
+    onUpdateMany(selected.map((el) => ({ id: el.id, patch: { locked: !allLocked } })));
 
   // ── Grid arrangement ──
   // Positions units in a grid without resizing anything.
@@ -552,7 +572,18 @@ export function ContextualToolbar({
         </>
       )}
 
+      {/* Lock / Unlock */}
+      <Sep />
+      <ToolBtn
+        title={allLocked ? "Déverrouiller (Ctrl+L)" : "Verrouiller (Ctrl+L)"}
+        onClick={toggleLock}
+        active={anyLocked}
+      >
+        {allLocked ? <LockClosedIcon /> : <LockOpenIcon />}
+      </ToolBtn>
+
       {/* Delete */}
+      <Sep />
       <ToolBtn title="Supprimer (Suppr)" onClick={onDeleteSelected} danger>
         ✕
       </ToolBtn>

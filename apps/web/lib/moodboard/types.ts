@@ -9,6 +9,7 @@ export type CanvasElementBase = {
   zIndex: number;
   opacity?: number; // 0–1, default 1
   groupId?: string; // elements sharing a groupId form a logical group
+  locked?: boolean; // true → drag/resize disabled; still selectable
 };
 
 export type ImageElement = CanvasElementBase & {

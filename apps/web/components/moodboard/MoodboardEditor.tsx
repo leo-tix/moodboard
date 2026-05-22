@@ -40,6 +40,30 @@ function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
+// ── Custom canvas cursor (crosshair with ring, white with shadow underlay) ──
+// Computed once — works on server (no window API needed, just string ops).
+const CURSOR_CROSSHAIR_CSS = (() => {
+  const svg = [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">',
+    // Shadow layer (dark, slightly offset)
+    '<circle cx="10" cy="10" r="4.5" fill="none" stroke="rgba(0,0,0,0.5)" stroke-width="3"/>',
+    '<circle cx="10" cy="10" r="1.5" fill="rgba(0,0,0,0.4)"/>',
+    '<line x1="10" y1="1" x2="10" y2="5.5" stroke="rgba(0,0,0,0.5)" stroke-width="2.5"/>',
+    '<line x1="10" y1="14.5" x2="10" y2="19" stroke="rgba(0,0,0,0.5)" stroke-width="2.5"/>',
+    '<line x1="1" y1="10" x2="5.5" y2="10" stroke="rgba(0,0,0,0.5)" stroke-width="2.5"/>',
+    '<line x1="14.5" y1="10" x2="19" y2="10" stroke="rgba(0,0,0,0.5)" stroke-width="2.5"/>',
+    // White layer
+    '<circle cx="10" cy="10" r="4.5" fill="none" stroke="white" stroke-width="1.4"/>',
+    '<circle cx="10" cy="10" r="1.5" fill="white"/>',
+    '<line x1="10" y1="1" x2="10" y2="5.5" stroke="white" stroke-width="1.2"/>',
+    '<line x1="10" y1="14.5" x2="10" y2="19" stroke="white" stroke-width="1.2"/>',
+    '<line x1="1" y1="10" x2="5.5" y2="10" stroke="white" stroke-width="1.2"/>',
+    '<line x1="14.5" y1="10" x2="19" y2="10" stroke="white" stroke-width="1.2"/>',
+    '</svg>',
+  ].join('');
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 10 10, crosshair`;
+})();
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function MoodboardEditor({ initialData }: Props) {
@@ -52,6 +76,9 @@ export function MoodboardEditor({ initialData }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [shiftHeld, setShiftHeld] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [draggingId,    setDraggingId]    = useState<string | null>(null);
+  const [dragAxisState, setDragAxisState] = useState<"both" | "x" | "y">("both");
 
   // ── Rubber band ──
   const [rubberBand, setRubberBand] = useState<{
@@ -98,12 +125,54 @@ export function MoodboardEditor({ initialData }: Props) {
   const draggedElementStartPos = useRef({ x: 0, y: 0 });
   const aiOnImport = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Feature refs ──
+  const altHeldRef = useRef(false);       // Alt key tracking
+  const shiftHeldRef = useRef(false);     // Shift key (sync ref for drag handlers)
+  const dragAxisRef = useRef<"h" | "v" | null>(null); // Shift+drag axis lock
+  const altDuplicateRef = useRef(false);  // Alt+drag: duplicate was triggered
+  const clipboardRef = useRef<CanvasElement[]>([]); // Ctrl+C clipboard
+
+  // ── Smooth zoom (rAF lerp) ──
+  // zoomTargetRef / panTargetRef hold the *desired* state.
+  // A requestAnimationFrame loop lerps the visual state toward the target each frame,
+  // giving buttery smooth zoom on mouse wheel and trackpad pinch.
+  const zoomTargetRef = useRef(zoom);
+  const panTargetRef  = useRef<{ x: number; y: number }>(pan);
+  const zoomRafRef    = useRef<number | null>(null);
+  // Holds the step function; re-assigned every render so the closure always
+  // captures the latest React state setters (setZoom / setPan are stable, but
+  // the pattern lets us avoid stale-closure pitfalls in the rAF loop).
+  const zoomStepFnRef = useRef<() => void>(() => {});
 
   // ── History ──
   const historyRef = useRef<CanvasElement[][]>([
     JSON.parse(JSON.stringify(initialData.canvasData)),
   ]);
   const historyIdxRef = useRef(0);
+
+  // ── Smooth zoom step (reassigned every render — always captures latest setters) ──
+  // L = lerp factor per 60 Hz frame. 0.22 → reaches ~95% of target in ~12 frames ≈ 200 ms.
+  // Using the ref-wrapper pattern: rAF calls `() => zoomStepFnRef.current()` which
+  // always dereferences the latest version of the function.
+  zoomStepFnRef.current = () => {
+    const L  = 0.22;
+    const tz = zoomTargetRef.current;
+    const tp = panTargetRef.current;
+    const cz = zoomRef.current;
+    const cp = panRef.current;
+    const nz  = cz + (tz - cz) * L;
+    const npx = cp.x + (tp.x - cp.x) * L;
+    const npy = cp.y + (tp.y - cp.y) * L;
+    const done = Math.abs(nz - tz) < 0.0008 && Math.abs(npx - tp.x) < 0.2 && Math.abs(npy - tp.y) < 0.2;
+    const fz  = done ? tz : nz;
+    const fpx = done ? tp.x : npx;
+    const fpy = done ? tp.y : npy;
+    zoomRef.current = fz;
+    panRef.current  = { x: fpx, y: fpy };
+    setZoom(fz);
+    setPan({ x: fpx, y: fpy });
+    zoomRafRef.current = done ? null : requestAnimationFrame(() => zoomStepFnRef.current());
+  };
 
   // Sync refs
   useEffect(() => { panRef.current = pan; }, [pan]);
@@ -200,8 +269,14 @@ export function MoodboardEditor({ initialData }: Props) {
   const deleteSelected = useCallback(() => {
     const ids = selectedIdsRef.current;
     if (ids.length === 0) return;
-    updateElements((prev) => prev.filter((el) => !ids.includes(el.id)));
-    setSelectedIds([]);
+    // Skip locked elements — they are immutable until explicitly unlocked
+    const toDelete = ids.filter((id) => {
+      const el = elementsRef.current.find((e) => e.id === id);
+      return !el?.locked;
+    });
+    if (toDelete.length === 0) return;
+    updateElements((prev) => prev.filter((el) => !toDelete.includes(el.id)));
+    setSelectedIds((prev) => prev.filter((id) => !toDelete.includes(id)));
   }, [updateElements]);
 
   // ── Select element ──
@@ -235,41 +310,65 @@ export function MoodboardEditor({ initialData }: Props) {
     // selection immediately (setSelectedIds is async — ref would lag one render)
     selectedIdsRef.current = next;
     setSelectedIds(next);
-    // Bring to front (no history push, minor visual change)
-    setElements((prev) =>
-      prev.map((el) =>
-        el.id === id ? { ...el, zIndex: ++nextZRef.current } : el
-      )
-    );
-    scheduleSave({
-      canvasData: elementsRef.current.map((el) =>
-        el.id === id ? { ...el, zIndex: nextZRef.current } : el
-      ),
-    });
+    // Bring to front — skip for locked elements (z-order is frozen when locked)
+    if (!clicked?.locked) {
+      setElements((prev) =>
+        prev.map((el) =>
+          el.id === id ? { ...el, zIndex: ++nextZRef.current } : el
+        )
+      );
+      scheduleSave({
+        canvasData: elementsRef.current.map((el) =>
+          el.id === id ? { ...el, zIndex: nextZRef.current } : el
+        ),
+      });
+    }
   }, [scheduleSave]);
 
-  // ── Zoom helpers ──
+  // ── Smooth zoom helpers ──
+  // All zoom mutations set targets and kick off the rAF loop (if not already running).
+  // Pan mutations during zoom also update panTarget so the loop converges correctly.
+  const kickZoomAnimation = useCallback(() => {
+    if (zoomRafRef.current === null) {
+      zoomRafRef.current = requestAnimationFrame(() => zoomStepFnRef.current());
+    }
+  }, []);
+
   const applyZoom = useCallback((newZoom: number, pivotX: number, pivotY: number) => {
     const cz = zoomRef.current;
     const cp = panRef.current;
-    const clampedZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, newZoom));
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, newZoom));
     const canvasX = (pivotX - cp.x) / cz;
     const canvasY = (pivotY - cp.y) / cz;
-    const newPan = {
-      x: pivotX - canvasX * clampedZoom,
-      y: pivotY - canvasY * clampedZoom,
+    zoomTargetRef.current = clamped;
+    panTargetRef.current  = {
+      x: pivotX - canvasX * clamped,
+      y: pivotY - canvasY * clamped,
     };
-    setZoom(clampedZoom);
-    setPan(newPan);
-    zoomRef.current = clampedZoom;
-    panRef.current = newPan;
-  }, []);
+    kickZoomAnimation();
+  }, [kickZoomAnimation]);
 
   const resetView = useCallback(() => {
-    setZoom(1);
-    setPan({ x: 80, y: 60 });
-    zoomRef.current = 1;
-    panRef.current = { x: 80, y: 60 };
+    zoomTargetRef.current = 1;
+    panTargetRef.current  = { x: 80, y: 60 };
+    kickZoomAnimation();
+  }, [kickZoomAnimation]);
+
+  // ── Cancel smooth-zoom rAF on unmount ──
+  useEffect(() => {
+    return () => {
+      if (zoomRafRef.current !== null) cancelAnimationFrame(zoomRafRef.current);
+    };
+  }, []);
+
+  // ── Zoom-to-fit on first load ──
+  // Give the browser one frame to measure the viewport before computing the fit.
+  // If the canvas is empty the call is a no-op (zoomToFit guards against 0 elements).
+  useEffect(() => {
+    const t = setTimeout(() => zoomToFit(), 80);
+    return () => clearTimeout(t);
+    // zoomToFit is stable (useCallback with stable deps) — intentional empty dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Block native HTML5 drag inside the canvas viewport ──
@@ -299,15 +398,28 @@ export function MoodboardEditor({ initialData }: Props) {
       const py = e.clientY - rect.top;
 
       if (e.ctrlKey || e.metaKey) {
-        // Zoom
+        // Smooth zoom: accumulate into the target each wheel event so rapid scrolling
+        // stacks correctly, then the rAF loop lerps the visual state toward the target.
         const factor = e.deltaY > 0 ? 0.92 : 1.08;
-        applyZoom(zoomRef.current * factor, px, py);
+        const newTarget = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoomTargetRef.current * factor));
+        // Compute new pan so the canvas point under the cursor stays fixed.
+        // Use zoomRef (current visual zoom) as the pivot base so the anchor is correct
+        // even when the animation hasn't finished yet.
+        const cz = zoomRef.current;
+        const cp = panRef.current;
+        const canvasX = (px - cp.x) / cz;
+        const canvasY = (py - cp.y) / cz;
+        zoomTargetRef.current = newTarget;
+        panTargetRef.current  = { x: px - canvasX * newTarget, y: py - canvasY * newTarget };
+        kickZoomAnimation();
       } else {
-        // Pan
+        // Pan — applied directly (no lerp: trackpad panning must feel instant).
+        // Keep panTargetRef in sync so any running zoom-lerp converges to the right place.
         const np = {
           x: panRef.current.x - e.deltaX,
           y: panRef.current.y - e.deltaY,
         };
+        panTargetRef.current = np;
         setPan(np);
         panRef.current = np;
       }
@@ -315,7 +427,75 @@ export function MoodboardEditor({ initialData }: Props) {
 
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
-  }, [applyZoom]);
+  }, [applyZoom, kickZoomAnimation]);
+
+  // ── Group / Ungroup (declared early — used by keyboard handler below) ──
+  const handleGroup = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    if (ids.length < 2) return;
+    const groupId = makeId();
+    updateElements((prev) =>
+      prev.map((el) => (ids.includes(el.id) ? { ...el, groupId } : el))
+    );
+    setContextMenu(null);
+  }, [updateElements]);
+
+  const handleUngroup = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    updateElements((prev) =>
+      prev.map((el) =>
+        ids.includes(el.id) ? { ...el, groupId: undefined } : el
+      )
+    );
+    setContextMenu(null);
+  }, [updateElements]);
+
+  // ── Zoom-to-fit helper ──
+  const zoomToFit = useCallback((targetIds?: string[]) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const { width, height } = vp.getBoundingClientRect();
+    const targets = targetIds && targetIds.length > 0
+      ? elementsRef.current.filter((el) => targetIds.includes(el.id))
+      : elementsRef.current;
+    if (targets.length === 0) return;
+    const minX = Math.min(...targets.map((el) => el.x));
+    const minY = Math.min(...targets.map((el) => el.y));
+    const maxX = Math.max(...targets.map((el) => el.x + el.w));
+    const maxY = Math.max(...targets.map((el) => el.y + el.h));
+    const bw = maxX - minX;
+    const bh = maxY - minY;
+    const PAD = 80;
+    const newZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN,
+      Math.min((width - PAD * 2) / Math.max(1, bw), (height - PAD * 2) / Math.max(1, bh))
+    ));
+    const newPan = {
+      x: (width  - bw * newZoom) / 2 - minX * newZoom,
+      y: (height - bh * newZoom) / 2 - minY * newZoom,
+    };
+    zoomTargetRef.current = newZoom;
+    panTargetRef.current  = newPan;
+    kickZoomAnimation();
+  }, [kickZoomAnimation]);
+
+  // ── Duplicate helper (shared by Ctrl+D and Alt+drag) ──
+  const duplicateElements = useCallback(
+    (ids: string[], offsetX = 20, offsetY = 20): CanvasElement[] => {
+      const toDup = elementsRef.current.filter((el) => ids.includes(el.id));
+      const groupIdMap = new Map<string, string>();
+      return toDup.map((el) => {
+        let newGroupId = el.groupId;
+        if (el.groupId) {
+          if (!groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, makeId());
+          newGroupId = groupIdMap.get(el.groupId)!;
+        }
+        return { ...el, id: makeId(), groupId: newGroupId,
+          x: el.x + offsetX, y: el.y + offsetY,
+          zIndex: ++nextZRef.current };
+      });
+    },
+    []
+  );
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -323,48 +503,155 @@ export function MoodboardEditor({ initialData }: Props) {
       const target = e.target as HTMLElement;
       const inInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      if (e.key === "Shift") { setShiftHeld(true); }
+      // Track modifier keys (always, even in inputs)
+      if (e.key === "Shift") { setShiftHeld(true); shiftHeldRef.current = true; }
+      if (e.key === "Alt")   { altHeldRef.current = true; }
 
       if (e.code === "Space" && !inInput) {
         e.preventDefault();
         isSpaceDown.current = true;
+        setSpaceHeld(true);
         if (!isPanningRef.current) setCursor("grab");
         return;
       }
 
       if (inInput) return;
 
+      // ── Ctrl / Meta combos ──
       if (e.ctrlKey || e.metaKey) {
         if (e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
-        if (e.key === "z" && e.shiftKey) { e.preventDefault(); redo(); return; }
+        if (e.key === "z" &&  e.shiftKey) { e.preventDefault(); redo(); return; }
         if (e.key === "y") { e.preventDefault(); redo(); return; }
+
         if (e.key === "a") {
           e.preventDefault();
-          setSelectedIds(elementsRef.current.map((el) => el.id));
+          const all = elementsRef.current.map((el) => el.id);
+          selectedIdsRef.current = all;
+          setSelectedIds(all);
           return;
         }
+
         if (e.key.toLowerCase() === "g") {
           e.preventDefault();
           if (e.shiftKey) handleUngroup(); else handleGroup();
           return;
         }
+
+        // Ctrl+C — copy selection to clipboard
+        if (e.key === "c") {
+          e.preventDefault();
+          const ids = selectedIdsRef.current;
+          if (ids.length === 0) return;
+          clipboardRef.current = elementsRef.current.filter((el) => ids.includes(el.id));
+          return;
+        }
+
+        // Ctrl+V — paste clipboard (element duplication, not image paste)
+        if (e.key === "v") {
+          if (clipboardRef.current.length === 0) return; // let image-paste handler run
+          e.preventDefault();
+          if (e.repeat) return; // prevent runaway duplication on key hold
+          const copies = duplicateElements(clipboardRef.current.map((el) => el.id));
+          // Shift clipboard for next paste so items stack neatly
+          clipboardRef.current = clipboardRef.current.map((el) => ({ ...el, x: el.x + 20, y: el.y + 20 }));
+          updateElements((prev) => [...prev, ...copies]);
+          const newIds = copies.map((el) => el.id);
+          selectedIdsRef.current = newIds;
+          setSelectedIds(newIds);
+          return;
+        }
+
+        // Ctrl+D — duplicate in place
+        if (e.key === "d") {
+          e.preventDefault();
+          if (e.repeat) return; // prevent runaway duplication on key hold
+          const ids = selectedIdsRef.current;
+          if (ids.length === 0) return;
+          const copies = duplicateElements(ids);
+          updateElements((prev) => [...prev, ...copies]);
+          const newIds = copies.map((el) => el.id);
+          selectedIdsRef.current = newIds;
+          setSelectedIds(newIds);
+          return;
+        }
+
+        // Ctrl+L — toggle lock on selected elements
+        if (e.key === "l") {
+          e.preventDefault();
+          const ids = selectedIdsRef.current;
+          if (ids.length === 0) return;
+          const anyUnlocked = elementsRef.current
+            .filter((el) => ids.includes(el.id))
+            .some((el) => !el.locked);
+          updateElements((prev) =>
+            prev.map((el) => ids.includes(el.id) ? { ...el, locked: anyUnlocked } : el)
+          );
+          return;
+        }
+
+        return;
       }
 
+      // ── Arrow keys — nudge ──
+      if (e.key.startsWith("Arrow")) {
+        const ids = selectedIdsRef.current;
+        if (ids.length === 0) return;
+        // Don't interfere with browser scroll on unrelated keys
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp"   ? -step : e.key === "ArrowDown"  ? step : 0;
+        updateElements((prev) =>
+          prev.map((el) =>
+            ids.includes(el.id) && !el.locked
+              ? { ...el, x: el.x + dx, y: el.y + dy }
+              : el
+          )
+        );
+        return;
+      }
+
+      // ── F — zoom to fit (selection or all) ──
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        zoomToFit(selectedIdsRef.current.length > 0 ? selectedIdsRef.current : undefined);
+        return;
+      }
+
+      // ── Shift+1 — zoom 100% at viewport center ──
+      // Use e.code (layout-independent) — e.key varies: "!" on QWERTY, "1" on AZERTY, etc.
+      if (e.shiftKey && e.code === "Digit1") {
+        e.preventDefault();
+        const vp = viewportRef.current;
+        if (!vp) return;
+        const { width, height } = vp.getBoundingClientRect();
+        applyZoom(1, width / 2, height / 2);
+        return;
+      }
+
+      // ── Delete / Backspace ──
       if (e.key === "Delete" || e.key === "Backspace") {
         deleteSelected();
+        return;
       }
+
+      // ── Escape ──
       if (e.key === "Escape") {
         setSelectedIds([]);
+        selectedIdsRef.current = [];
         setContextMenu(null);
+        return;
       }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === "Space") {
         isSpaceDown.current = false;
+        setSpaceHeld(false);
         if (!isPanningRef.current) setCursor("default");
       }
-      if (e.key === "Shift") setShiftHeld(false);
+      if (e.key === "Shift") { setShiftHeld(false); shiftHeldRef.current = false; }
+      if (e.key === "Alt")   { altHeldRef.current = false; }
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -373,7 +660,7 @@ export function MoodboardEditor({ initialData }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [undo, redo, deleteSelected]);
+  }, [undo, redo, deleteSelected, handleGroup, handleUngroup, duplicateElements, updateElements, zoomToFit, applyZoom]);
 
   // ── Viewport mouse handlers (pan + rubber band) ──
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -393,6 +680,9 @@ export function MoodboardEditor({ initialData }: Props) {
         };
         setPan(np);
         panRef.current = np;
+        // Keep the smooth-zoom rAF target in sync — without this, any running
+        // zoom animation would fight the manual pan and snap back to the old target.
+        panTargetRef.current = np;
       };
       const onUp = () => {
         isPanningRef.current = false;
@@ -454,11 +744,17 @@ export function MoodboardEditor({ initialData }: Props) {
     }
   }, []);
 
-  // ── Element drag (multi-select support) ──
+  // ── Element drag (multi-select, Shift+axis, Alt+duplicate) ──
   const handleElemDragStart = useCallback((id: string) => {
     const dragged = elementsRef.current.find((el) => el.id === id);
-    if (!dragged) return;
+    if (!dragged || dragged.locked) return;
     draggedElementStartPos.current = { x: dragged.x, y: dragged.y };
+
+    // Reset per-drag state
+    dragAxisRef.current     = null;
+    altDuplicateRef.current = false;
+    setDraggingId(id);
+    setDragAxisState("both");
 
     // Use ref (already synchronously updated by handleSelect) and defensively
     // expand to group members in case the group was just formed / ref lagged.
@@ -478,21 +774,82 @@ export function MoodboardEditor({ initialData }: Props) {
       });
       multiDragStartPositions.current = map;
     }
+
+    // Alt+drag: only flag intent here — copies are created in handleElemDragStop
+    // AFTER confirming a real drag occurred. Inserting copies in onDragStart caused
+    // a setElements → re-render → second onDragStart cycle = infinite duplication.
+    if (altHeldRef.current && ids.includes(id)) {
+      altDuplicateRef.current = true;
+    }
   }, []);
 
   const handleElemDragStop = useCallback(
     (id: string, newX: number, newY: number) => {
-      const dx = newX - draggedElementStartPos.current.x;
-      const dy = newY - draggedElementStartPos.current.y;
+      let dx = newX - draggedElementStartPos.current.x;
+      let dy = newY - draggedElementStartPos.current.y;
 
       // Ignore accidental micro-drags (right-click, click-to-select, etc.)
-      // that happen when react-rnd fires onDragStop with < 3px of movement.
-      // Without this guard, snap() would reposition elements even on plain clicks.
-      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) {
+        // Alt was held but no real move → clear the flag, do nothing
+        altDuplicateRef.current = false;
+        return;
+      }
+
+      // Shift+drag: constrain to dominant axis at stop time
+      if (shiftHeldRef.current || dragAxisRef.current) {
+        const axis = dragAxisRef.current ?? (Math.abs(dx) >= Math.abs(dy) ? "h" : "v");
+        if (axis === "h") { dy = 0; newY = draggedElementStartPos.current.y; }
+        else              { dx = 0; newX = draggedElementStartPos.current.x; }
+      }
+
+      // Reset visual axis constraint on the Rnd component
+      setDraggingId(null);
+      setDragAxisState("both");
 
       const ids = selectedIdsRef.current;
+
+      // Alt+drag duplicate — real drag confirmed.
+      // Create copies at the drag-START positions (they stay put) while
+      // moving the originals to their drag-END positions.
+      // Everything is committed in a single updateElements call to avoid
+      // triggering extra re-renders (which was the root cause of infinite duplication
+      // when copies were inserted in onDragStart instead of here).
+      if (altDuplicateRef.current) {
+        altDuplicateRef.current = false;
+        const groupIdMap = new Map<string, string>();
+        const elementsToDup = elementsRef.current.filter((el) => ids.includes(el.id));
+        const copies = elementsToDup.map((el) => {
+          let newGroupId = el.groupId;
+          if (el.groupId) {
+            if (!groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, makeId());
+            newGroupId = groupIdMap.get(el.groupId)!;
+          }
+          // Copy stays at the original (pre-drag) position
+          const start = multiDragStartPositions.current.get(el.id);
+          return {
+            ...el,
+            id: makeId(),
+            groupId: newGroupId,
+            x: start?.x ?? el.x,
+            y: start?.y ?? el.y,
+            zIndex: ++nextZRef.current,
+          };
+        });
+        // One atomic update: move originals + insert copies
+        updateElements((prev) => {
+          const moved = prev.map((el) => {
+            if (!ids.includes(el.id)) return el;
+            const s = multiDragStartPositions.current.get(el.id);
+            if (!s) return el;
+            if (ids.length > 1) return { ...el, x: snap(s.x + dx), y: snap(s.y + dy) };
+            return el.id === id ? { ...el, x: snap(newX), y: snap(newY) } : el;
+          });
+          return [...moved, ...copies];
+        });
+        return;
+      }
+
       if (ids.includes(id) && ids.length > 1) {
-        // Multi-drag: apply delta to all selected
         updateElements((prev) =>
           prev.map((el) => {
             if (!ids.includes(el.id)) return el;
@@ -516,9 +873,28 @@ export function MoodboardEditor({ initialData }: Props) {
   // Uses setElements directly (no save, no history) — onDragStop applies snap + saves
   const handleElemDragMove = useCallback((id: string, newX: number, newY: number) => {
     const ids = selectedIdsRef.current;
+    let dx = newX - draggedElementStartPos.current.x;
+    let dy = newY - draggedElementStartPos.current.y;
+
+    // Shift+drag: determine and lock axis once movement exceeds threshold.
+    // Done BEFORE the early-return so single-element drags also lock their axis.
+    // We also update dragAxisState so react-rnd's dragAxis prop physically constrains
+    // the leader element's visual position in real-time (not just at drop time).
+    if (shiftHeldRef.current) {
+      if (!dragAxisRef.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+        dragAxisRef.current = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+        // "h" = horizontal only → lock react-rnd to x-axis
+        // "v" = vertical only   → lock react-rnd to y-axis
+        setDragAxisState(dragAxisRef.current === "h" ? "x" : "y");
+      }
+    }
+
+    // Follower visual update only applies during multi-selection
     if (!ids.includes(id) || ids.length <= 1) return;
-    const dx = newX - draggedElementStartPos.current.x;
-    const dy = newY - draggedElementStartPos.current.y;
+
+    if (dragAxisRef.current === "h") dy = 0;
+    if (dragAxisRef.current === "v") dx = 0;
+
     setElements((prev) =>
       prev.map((el) => {
         if (el.id === id) return el; // leader: react-rnd handles its visual position
@@ -589,27 +965,6 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [updateElements]
   );
-
-  // ── Group / Ungroup ──
-  const handleGroup = useCallback(() => {
-    const ids = selectedIdsRef.current;
-    if (ids.length < 2) return;
-    const groupId = makeId();
-    updateElements((prev) =>
-      prev.map((el) => (ids.includes(el.id) ? { ...el, groupId } : el))
-    );
-    setContextMenu(null);
-  }, [updateElements]);
-
-  const handleUngroup = useCallback(() => {
-    const ids = selectedIdsRef.current;
-    updateElements((prev) =>
-      prev.map((el) =>
-        ids.includes(el.id) ? { ...el, groupId: undefined } : el
-      )
-    );
-    setContextMenu(null);
-  }, [updateElements]);
 
   // ── Toolbar update handler ──
   const handleUpdateMany = useCallback(
@@ -932,7 +1287,9 @@ export function MoodboardEditor({ initialData }: Props) {
     backgroundImage: `radial-gradient(circle, rgba(128,128,148,0.22) 1px, transparent 1px)`,
     backgroundSize: `${gridSize}px ${gridSize}px`,
     backgroundPosition: `${pan.x % gridSize}px ${pan.y % gridSize}px`,
-    cursor,
+    // Default canvas cursor: custom crosshair SVG (hides OS cursor on empty canvas).
+    // Canvas elements override this with their own cursor (react-rnd sets cursor:move).
+    cursor: cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
   };
 
   return (
@@ -1067,6 +1424,10 @@ export function MoodboardEditor({ initialData }: Props) {
                 zoom={zoom}
                 snapEnabled={snapEnabled}
                 shiftHeld={shiftHeld}
+                spaceHeld={spaceHeld}
+                // Only apply axis constraint to the element being actively dragged.
+                // Other selected elements (followers) are moved via setElements directly.
+                dragAxis={el.id === draggingId ? dragAxisState : "both"}
                 onSelect={(shift) => handleSelect(el.id, shift)}
                 onContextMenu={(cx, cy) => {
                   const vp = viewportRef.current;
@@ -1103,6 +1464,16 @@ export function MoodboardEditor({ initialData }: Props) {
             const selEls = elements.filter((el) => selectedIds.includes(el.id));
             const hasGroup = selEls.some((el) => el.groupId);
             const canGroup = selectedIds.length > 1;
+            const anyLocked = selEls.some((el) => el.locked);
+            const allLocked = selEls.length > 0 && selEls.every((el) => el.locked);
+            const toggleLock = () => {
+              updateElements((prev) =>
+                prev.map((el) =>
+                  selectedIds.includes(el.id) ? { ...el, locked: !allLocked } : el
+                )
+              );
+              setContextMenu(null);
+            };
             return (
               <div
                 className="absolute z-[300] min-w-[172px] bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-2xl py-1 text-xs"
@@ -1130,6 +1501,14 @@ export function MoodboardEditor({ initialData }: Props) {
                 {(canGroup || hasGroup) && (
                   <div className="my-1 border-t border-[var(--border-subtle)]" />
                 )}
+                <button
+                  onClick={toggleLock}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  <span>{anyLocked ? "Déverrouiller" : "Verrouiller"}</span>
+                  <kbd className="text-[10px] text-[var(--text-tertiary)] ml-3">Ctrl+L</kbd>
+                </button>
+                <div className="my-1 border-t border-[var(--border-subtle)]" />
                 <button
                   onClick={() => { deleteSelected(); setContextMenu(null); }}
                   className="w-full flex items-center justify-between px-3 py-1.5 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
@@ -1163,6 +1542,9 @@ export function MoodboardEditor({ initialData }: Props) {
               posY={toolbarPos.y}
             />
           )}
+
+          {/* Keyboard shortcuts panel */}
+          <KeyboardShortcutsPanel />
 
           {/* Zoom controls (bottom-right) */}
           <div className="absolute bottom-4 right-4 z-50 flex items-center gap-1 bg-[var(--bg-elevated)]/90 backdrop-blur border border-[var(--border-default)] rounded-lg px-2 py-1 shadow select-none">
@@ -1267,6 +1649,10 @@ interface CanvasItemProps {
   zoom: number;
   snapEnabled: boolean;
   shiftHeld: boolean;
+  spaceHeld: boolean;
+  /** Axis constraint for react-rnd — "x", "y", or "both" (default). Applied to the
+   *  leader element during Shift+drag so the constraint is visible in real-time. */
+  dragAxis: "both" | "x" | "y";
   onSelect: (shift: boolean) => void;
   onContextMenu: (clientX: number, clientY: number) => void;
   onChange: (el: CanvasElement) => void;
@@ -1276,6 +1662,13 @@ interface CanvasItemProps {
   onResize: (x: number, y: number, w: number, h: number) => void;
 }
 
+const LockIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden>
+    <rect x="2" y="4.5" width="6" height="5" rx="1" />
+    <path d="M3 4.5V3a2 2 0 0 1 4 0v1.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+);
+
 function CanvasItem({
   element,
   selected,
@@ -1283,6 +1676,8 @@ function CanvasItem({
   zoom,
   snapEnabled,
   shiftHeld,
+  spaceHeld,
+  dragAxis,
   onSelect,
   onContextMenu,
   onChange,
@@ -1316,9 +1711,13 @@ function CanvasItem({
       position={{ x: element.x, y: element.y }}
       size={{ width: element.w, height: element.h }}
       style={{
-        zIndex: element.zIndex,
+        // Sticky notes always render above images/colors/text.
+        // The offset is purely visual — stored zIndex is unchanged.
+        zIndex: element.type === "sticky" ? element.zIndex + 100000 : element.zIndex,
         opacity: element.opacity ?? 1,
         userSelect: "none",
+        // Locked elements: indicate non-interactivity with a not-allowed cursor.
+        cursor: element.locked ? "not-allowed" : undefined,
         ...outlineStyle,
       }}
       scale={zoom}
@@ -1326,6 +1725,15 @@ function CanvasItem({
       resizeGrid={resizeGrid}
       lockAspectRatio={lockAspectRatio}
       onMouseDown={(e: MouseEvent) => {
+        // Only handle left-click here.
+        // Middle-click (button=1) must bubble up to the viewport so pan can start.
+        // Right-click (button=2) bubbles to viewport but that handler only runs
+        // rubber-band for button=0, so nothing bad happens.
+        if (e.button !== 0) return;
+        // Space + click → pan mode: let the event bubble to the viewport pan handler.
+        // Without this check, the element would capture the click and start a drag
+        // instead of letting the canvas pan.
+        if (spaceHeld) return;
         e.stopPropagation();
         onSelect(e.shiftKey);
       }}
@@ -1346,12 +1754,156 @@ function CanvasItem({
       onResizeStop={(_e: any, _dir: any, ref: any, _delta: any, pos: any) => {
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
-      enableResizing={selected && !isMultiSelected}
-      disableDragging={false}
-      className="canvas-item"
+      dragAxis={dragAxis}
+      enableResizing={selected && !isMultiSelected && !element.locked}
+      disableDragging={!!element.locked}
+      className="canvas-item group"
     >
       <ElementContent element={element} selected={selected} onChange={onChange} />
+      {/* Lock indicator — fades in on hover (or when selected) to signal the layer is locked.
+          Stays hidden otherwise so it doesn't clutter the canvas at a glance. */}
+      {element.locked && (
+        <div
+          className={`absolute top-1 right-1 pointer-events-none text-white/80 transition-opacity duration-150 ${
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+          style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.7))" }}
+        >
+          <LockIcon />
+        </div>
+      )}
     </Rnd>
+  );
+}
+
+// ── Keyboard shortcuts panel ─────────────────────────────────────────────────
+
+type ShortcutGroup = {
+  label: string;
+  rows: [string, string][]; // [kbd, description]
+};
+
+const SHORTCUT_GROUPS: ShortcutGroup[] = [
+  {
+    label: "Vue",
+    rows: [
+      ["Espace + glisser", "Déplacer la vue"],
+      ["Ctrl + scroll", "Zoom"],
+      ["F", "Ajuster à la sélection"],
+      ["Shift + 1", "Zoom 100 %"],
+    ],
+  },
+  {
+    label: "Sélection",
+    rows: [
+      ["Clic", "Sélectionner"],
+      ["Shift + clic", "Ajouter à la sélection"],
+      ["Ctrl + A", "Tout sélectionner"],
+      ["Glisser (vide)", "Rectangle de sélection"],
+    ],
+  },
+  {
+    label: "Déplacer",
+    rows: [
+      ["↑ ↓ ← →", "Déplacer 1 px"],
+      ["Shift + ↑↓←→", "Déplacer 10 px"],
+      ["Shift + glisser", "Contraindre axe H / V"],
+      ["Alt + glisser", "Dupliquer en déplaçant"],
+    ],
+  },
+  {
+    label: "Éditer",
+    rows: [
+      ["Ctrl + Z", "Annuler"],
+      ["Ctrl + Y", "Rétablir"],
+      ["Ctrl + C / V", "Copier / Coller"],
+      ["Ctrl + D", "Dupliquer"],
+      ["Suppr", "Supprimer"],
+      ["Échap", "Désélectionner"],
+    ],
+  },
+  {
+    label: "Organiser",
+    rows: [
+      ["Ctrl + G", "Grouper"],
+      ["Ctrl + Shift + G", "Dégrouper"],
+      ["Ctrl + L", "Verrouiller / déverrouiller"],
+    ],
+  },
+];
+
+function KeyboardShortcutsPanel() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div
+      className="absolute right-4 z-50 flex flex-col items-end gap-2"
+      style={{ bottom: "3.5rem" }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {/* Panel */}
+      {open && (
+        <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-xl shadow-2xl overflow-hidden w-72">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-subtle)]">
+            <span className="text-[11px] font-medium text-[var(--text-secondary)] tracking-wide uppercase">
+              Raccourcis clavier
+            </span>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors text-xs"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Shortcut groups */}
+          <div className="overflow-y-auto max-h-[70vh] py-1">
+            {SHORTCUT_GROUPS.map((group, gi) => (
+              <div key={gi}>
+                {/* Category label */}
+                <p className="px-4 pt-3 pb-1 text-[9px] uppercase tracking-widest text-[var(--text-tertiary)] font-semibold">
+                  {group.label}
+                </p>
+                {group.rows.map(([kbd, desc], ri) => (
+                  <div
+                    key={ri}
+                    className="flex items-center justify-between px-4 py-1 gap-3 hover:bg-[var(--bg-overlay)]/40 transition-colors"
+                  >
+                    <span className="text-[11px] text-[var(--text-secondary)] flex-1 min-w-0">
+                      {desc}
+                    </span>
+                    <kbd className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded px-1.5 py-0.5 font-mono whitespace-nowrap">
+                      {kbd}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-[var(--border-subtle)] px-4 py-2 text-center">
+            <span className="text-[10px] text-[var(--text-tertiary)]">
+              Shift maintenu · Snap désactivé sur les images
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Toggle button */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Raccourcis clavier"
+        className={`w-7 h-7 rounded-full border shadow transition-all flex items-center justify-center text-[12px] font-semibold ${
+          open
+            ? "bg-[var(--bg-elevated)] border-[var(--border-strong)] text-[var(--text-primary)]"
+            : "bg-[var(--bg-elevated)]/80 backdrop-blur border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)]"
+        }`}
+      >
+        ?
+      </button>
+    </div>
   );
 }
 
