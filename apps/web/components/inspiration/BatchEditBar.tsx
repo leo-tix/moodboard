@@ -102,10 +102,10 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 100, opacity: 0 }}
       transition={{ type: "spring", bounce: 0.1, duration: 0.35 }}
-      className="fixed bottom-0 left-56 right-0 z-50"
+      className="fixed bottom-14 md:bottom-0 left-0 md:left-56 right-0 z-50"
     >
-      <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border-t border-[var(--border-default)] px-6 py-4">
-        <div className="flex items-start gap-6 max-w-5xl">
+      <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border-t border-[var(--border-default)] px-4 py-3">
+        <div className="flex items-start gap-4 max-w-5xl overflow-x-auto scrollbar-none" style={{ touchAction: "pan-x" }}>
           {/* Count + controls */}
           <div className="flex-shrink-0 pt-4">
             <p className="text-sm font-medium text-[var(--text-primary)]">

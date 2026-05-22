@@ -485,7 +485,7 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ overscrollBehaviorY: "contain" }}>
         {aiFirst ? (
           <>
             {aiSection}

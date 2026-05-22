@@ -50,6 +50,11 @@ export function DropZone() {
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 1);
+  }, []);
 
   // Per-item metadata drawer
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -352,7 +357,9 @@ export function DropZone() {
             >
               <div className="text-3xl mb-3 opacity-30">↑</div>
               <p className="text-[var(--text-secondary)] text-sm mb-1">
-                Glisse tes images ici ou clique pour sélectionner
+                {isTouchDevice
+                  ? "Appuie pour sélectionner tes images"
+                  : "Glisse tes images ici ou clique pour sélectionner"}
               </p>
               <p className="text-[var(--text-tertiary)] text-xs">
                 JPG, PNG, WebP, GIF, AVIF — max {MAX_SIZE_MB} MB par fichier
@@ -512,13 +519,13 @@ export function DropZone() {
                       </div>
                     )}
 
-                    {/* Bouton éditer au hover */}
+                    {/* Bouton éditer — toujours visible sur touch, au survol sinon */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setEditingId(item.inspirationId!);
                       }}
-                      className="absolute inset-0 bg-black/0 hover:bg-black/40 transition-colors flex items-end justify-end p-1.5 opacity-0 group-hover:opacity-100"
+                      className={`absolute inset-0 bg-black/0 hover:bg-black/40 transition-colors flex items-end justify-end p-1.5 ${isTouchDevice ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
                     >
                       <span className="text-white text-[10px] bg-black/60 px-1.5 py-0.5 rounded">
                         ✎
@@ -527,14 +534,14 @@ export function DropZone() {
                   </>
                 )}
 
-                {/* Supprimer avant upload */}
+                {/* Supprimer avant upload — toujours visible sur touch */}
                 {item.status === "pending" && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       removeFile(item.id);
                     }}
-                    className="absolute top-1 right-1 w-4 h-4 bg-black/60 rounded-full text-white/80 text-[9px] hidden group-hover:flex items-center justify-center hover:bg-red-500/80"
+                    className={`absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full text-white/80 text-[9px] ${isTouchDevice ? "flex" : "hidden group-hover:flex"} items-center justify-center hover:bg-red-500/80`}
                   >
                     ×
                   </button>
@@ -617,12 +624,12 @@ export function DropZone() {
                 Métadonnées — appliquer à tout l&apos;import
               </p>
               <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-                {doneIds.length} image{doneIds.length > 1 ? "s" : ""} — survole une image pour
-                éditer individuellement
+                {doneIds.length} image{doneIds.length > 1 ? "s" : ""} —{" "}
+                {isTouchDevice ? "appuie sur ✎" : "survole une image"} pour éditer individuellement
               </p>
             </div>
 
-            <div className="p-5 grid grid-cols-3 gap-5">
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-5">
               <div>
                 <label className={sectionLabel}>Titre (identique pour toutes)</label>
                 <input
@@ -681,7 +688,7 @@ export function DropZone() {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", bounce: 0, duration: 0.32 }}
-              className="fixed top-0 right-0 bottom-0 w-[480px] bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-50 flex flex-col"
+              className="fixed top-0 right-0 bottom-0 w-full sm:w-[480px] bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-50 flex flex-col"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
@@ -701,7 +708,7 @@ export function DropZone() {
                 </div>
                 <button
                   onClick={() => setEditingId(null)}
-                  className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2"
+                  className="w-9 h-9 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2 flex-shrink-0"
                 >
                   ✕
                 </button>

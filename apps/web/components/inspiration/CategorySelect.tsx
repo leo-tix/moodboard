@@ -94,11 +94,12 @@ export function CategorySelect({
     setShowCreate(false);
   };
 
-  // Close on outside click (checks both trigger and portal dropdown)
+  // Close on outside click or touch (checks both trigger and portal dropdown)
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = (e instanceof TouchEvent ? e.touches[0]?.target : e.target) as Node | null;
+      if (!target) return;
       if (
         triggerRef.current?.contains(target) ||
         dropdownRef.current?.contains(target)
@@ -106,8 +107,12 @@ export function CategorySelect({
       setOpen(false);
       setShowCreate(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("mousedown", handler as EventListener);
+    document.addEventListener("touchstart", handler as EventListener);
+    return () => {
+      document.removeEventListener("mousedown", handler as EventListener);
+      document.removeEventListener("touchstart", handler as EventListener);
+    };
   }, [open]);
 
   const selectedCategory = cats.find((c) => c.id === value.categoryId);
