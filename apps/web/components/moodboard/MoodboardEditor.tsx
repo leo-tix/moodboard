@@ -79,6 +79,11 @@ export function MoodboardEditor({ initialData }: Props) {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [draggingId,    setDraggingId]    = useState<string | null>(null);
   const [dragAxisState, setDragAxisState] = useState<"both" | "x" | "y">("both");
+  // Ghost copies shown during Alt+drag — rendered as non-interactive overlays at the
+  // original positions so the user sees the duplication result in real time.
+  // Kept in a separate state from `elements` so inserting them doesn't trigger a
+  // re-render of the Rnd components (which would break the in-progress drag).
+  const [altDragGhosts, setAltDragGhosts] = useState<CanvasElement[] | null>(null);
 
   // ── Rubber band ──
   const [rubberBand, setRubberBand] = useState<{
@@ -775,11 +780,18 @@ export function MoodboardEditor({ initialData }: Props) {
       multiDragStartPositions.current = map;
     }
 
-    // Alt+drag: only flag intent here — copies are created in handleElemDragStop
-    // AFTER confirming a real drag occurred. Inserting copies in onDragStart caused
-    // a setElements → re-render → second onDragStart cycle = infinite duplication.
+    // Alt+drag: flag intent and show ghost copies at the current positions.
+    // Ghosts live in a separate state so they never re-render the Rnd components
+    // (which would interrupt the in-progress drag and risk infinite duplication).
+    // Real copies are only committed to `elements` at DragStop once a genuine drag
+    // is confirmed (movement > 3px threshold).
     if (altHeldRef.current && ids.includes(id)) {
       altDuplicateRef.current = true;
+      // Snapshot unlocked selected elements — these are what will be duplicated
+      const ghosts = elementsRef.current.filter(
+        (el) => ids.includes(el.id) && !el.locked
+      );
+      setAltDragGhosts(ghosts);
     }
   }, []);
 
@@ -790,8 +802,9 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // Ignore accidental micro-drags (right-click, click-to-select, etc.)
       if (Math.abs(dx) < 3 && Math.abs(dy) < 3) {
-        // Alt was held but no real move → clear the flag, do nothing
+        // Alt was held but no real move → clear flag and ghosts, do nothing
         altDuplicateRef.current = false;
+        setAltDragGhosts(null);
         return;
       }
 
@@ -816,6 +829,7 @@ export function MoodboardEditor({ initialData }: Props) {
       // when copies were inserted in onDragStart instead of here).
       if (altDuplicateRef.current) {
         altDuplicateRef.current = false;
+        setAltDragGhosts(null); // ghosts replaced by real copies below
         const groupIdMap = new Map<string, string>();
         const elementsToDup = elementsRef.current.filter((el) => ids.includes(el.id));
         const copies = elementsToDup.map((el) => {
@@ -1418,6 +1432,30 @@ export function MoodboardEditor({ initialData }: Props) {
               height: 0,
             }}
           >
+            {/* Alt+drag ghost copies — non-interactive overlays at original positions.
+                Rendered BEFORE the live elements so they sit below them in z-order. */}
+            {altDragGhosts?.map((el) => (
+              <div
+                key={`ghost-${el.id}`}
+                style={{
+                  position: "absolute",
+                  left: el.x,
+                  top: el.y,
+                  width: el.w,
+                  height: el.h,
+                  zIndex: el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
+                  opacity: 0.5,
+                  pointerEvents: "none",
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  outline: "1.5px dashed rgba(255,255,255,0.6)",
+                  outlineOffset: "0px",
+                }}
+              >
+                <ElementContent element={el} selected={false} onChange={() => {}} />
+              </div>
+            ))}
+
             {elements.map((el) => (
               <CanvasItem
                 key={el.id}
