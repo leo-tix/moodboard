@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
@@ -117,13 +116,10 @@ export function Lightbox({ items, currentIndex, onClose, onNavigate }: LightboxP
             onClick={(e) => e.stopPropagation()}
           >
             {imageUrl ? (
-              <Image
+              <img
                 src={imageUrl}
                 alt={item.title}
-                fill
-                className="object-contain"
-                priority
-                sizes="100vw"
+                className="absolute inset-0 w-full h-full object-contain"
               />
             ) : (
               <div className="flex items-center justify-center h-full">

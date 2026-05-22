@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
@@ -81,17 +80,16 @@ export function InspirationCard({
             onLoad={() => setLoaded(true)}
           />
         ) : (
-          <Image
+          <img
             src={thumbUrl}
             alt={title}
-            fill
+            loading="lazy"
             className={cn(
-              "object-cover transition-all duration-500",
+              "absolute inset-0 w-full h-full object-cover transition-all duration-500",
               loaded ? "opacity-100" : "opacity-0",
               hovered && !selectable ? "scale-[1.02]" : "scale-100"
             )}
             onLoad={() => setLoaded(true)}
-            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
           />
         )
       ) : (

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import Image from "next/image";
 import { getImageUrl } from "@/lib/storage/urls";
 import type {
   CanvasElement,
@@ -513,13 +512,11 @@ function ViewerElement({ element }: { element: CanvasElement }) {
             className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
           />
         ) : (
-          <Image
+          <img
             src={url}
             alt={el.title}
-            fill
-            className={fit === "contain" ? "object-contain" : "object-cover"}
-            sizes="600px"
             draggable={false}
+            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
           />
         )}
       </div>

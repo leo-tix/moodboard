@@ -8,7 +8,6 @@ import {
   useMemo,
 } from "react";
 import { Rnd } from "react-rnd";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getImageUrl } from "@/lib/storage/urls";
 import type {
@@ -2040,13 +2039,11 @@ function ElementContent({
             className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
           />
         ) : (
-          <Image
+          <img
             src={url}
             alt={el.title}
-            fill
-            className={fit === "contain" ? "object-contain" : "object-cover"}
-            sizes="600px"
             draggable={false}
+            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
           />
         )}
       </div>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 
 interface LibraryItem {
@@ -106,12 +105,11 @@ export function LibraryPanel({ onAdd }: Props) {
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   ) : (
-                    <Image
+                    <img
                       src={getThumbnailUrl(item.thumbnailKey)}
                       alt={item.title}
-                      fill
-                      className="object-cover"
-                      sizes="120px"
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover"
                     />
                   )
                 ) : (

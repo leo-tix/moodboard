@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { getThumbnailUrl } from "@/lib/storage/urls";
@@ -275,12 +274,11 @@ export function CollectionDetailClient({
                   {/* Thumbnail */}
                   <div className="aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] mb-1.5 relative">
                     {s.thumbnailKey ? (
-                      <Image
+                      <img
                         src={getThumbnailUrl(s.thumbnailKey)}
                         alt={s.title}
-                        fill
-                        className="object-cover"
-                        sizes="20vw"
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover"
                       />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">

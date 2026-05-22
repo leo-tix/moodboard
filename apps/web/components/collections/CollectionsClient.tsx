@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import type { CollectionSuggestion } from "@/lib/collections/suggestions";
@@ -44,12 +43,11 @@ function CoverMosaic({
   }
   if (thumbs.length === 1) {
     return (
-      <Image
+      <img
         src={getThumbnailUrl(thumbs[0])}
         alt={name}
-        fill
-        className="object-cover"
-        sizes="(max-width: 768px) 50vw, 25vw"
+        loading="lazy"
+        className="absolute inset-0 w-full h-full object-cover"
       />
     );
   }
@@ -57,12 +55,11 @@ function CoverMosaic({
     <div className="grid grid-cols-2 grid-rows-2 h-full gap-px">
       {thumbs.slice(0, 4).map((key, i) => (
         <div key={i} className="relative overflow-hidden bg-[var(--bg-elevated)]">
-          <Image
+          <img
             src={getThumbnailUrl(key)}
             alt=""
-            fill
-            className="object-cover"
-            sizes="15vw"
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover"
           />
         </div>
       ))}

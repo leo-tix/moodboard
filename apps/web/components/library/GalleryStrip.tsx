@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 
@@ -71,12 +70,11 @@ export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps
               `}
             >
               {item.thumbnailKey ? (
-                <Image
+                <img
                   src={getThumbnailUrl(item.thumbnailKey)}
                   alt={item.title}
-                  fill
-                  className="object-cover"
-                  sizes="56px"
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
                 />
               ) : (
                 <div className="absolute inset-0 bg-[var(--bg-elevated)]" />

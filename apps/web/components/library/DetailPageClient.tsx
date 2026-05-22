@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getImageUrl } from "@/lib/storage/urls";
@@ -50,14 +49,11 @@ function ZoomableImage({ storageKey, title, zoom }: {
       style={{ transform: `scale(${zoom})`, transformOrigin: "center center", transition: "transform 0.18s ease" }}
     >
       {url ? (
-        <Image
+        <img
           src={url}
           alt={title}
-          fill
-          priority
-          className={`object-contain transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+          className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
           onLoad={() => setLoaded(true)}
-          sizes="(max-width: 768px) 100vw, (max-width: 1280px) 70vw, 60vw"
         />
       ) : (
         <span className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</span>
