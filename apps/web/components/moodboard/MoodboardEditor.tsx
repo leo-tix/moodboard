@@ -68,6 +68,9 @@ export function MoodboardEditor({ initialData }: Props) {
   const [showLibrary, setShowLibrary] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
+  // ── Context menu ──
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
   // ── Status ──
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(true);
@@ -203,16 +206,35 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Select element ──
   const handleSelect = useCallback((id: string, shift: boolean) => {
-    setSelectedIds((prev) => {
-      if (shift) {
-        // Toggle element in/out of multi-selection
-        return prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id];
+    // Compute next selection synchronously so selectedIdsRef is up-to-date
+    // before any drag handler fires in the same mousedown event batch.
+    const prev = selectedIdsRef.current;
+    const clicked = elementsRef.current.find((el) => el.id === id);
+    const gid = clicked?.groupId;
+
+    let next: string[];
+    if (shift) {
+      next = prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id];
+    } else {
+      // Already selected among multiple — keep selection unchanged
+      if (prev.includes(id) && prev.length > 1) {
+        next = prev;
+      } else {
+        next = [id];
       }
-      // If element is already part of multi-selection, keep the group
-      // so dragging doesn't deselect others (click on empty space to reset)
-      if (prev.includes(id) && prev.length > 1) return prev;
-      return [id];
-    });
+    }
+    // Auto-expand selection to all members of the clicked element's group
+    if (gid) {
+      const members = elementsRef.current
+        .filter((el) => el.groupId === gid)
+        .map((el) => el.id);
+      next = [...new Set([...next, ...members])];
+    }
+
+    // Synchronously update the ref so drag/context handlers see the correct
+    // selection immediately (setSelectedIds is async — ref would lag one render)
+    selectedIdsRef.current = next;
+    setSelectedIds(next);
     // Bring to front (no history push, minor visual change)
     setElements((prev) =>
       prev.map((el) =>
@@ -321,12 +343,20 @@ export function MoodboardEditor({ initialData }: Props) {
           setSelectedIds(elementsRef.current.map((el) => el.id));
           return;
         }
+        if (e.key.toLowerCase() === "g") {
+          e.preventDefault();
+          if (e.shiftKey) handleUngroup(); else handleGroup();
+          return;
+        }
       }
 
       if (e.key === "Delete" || e.key === "Backspace") {
         deleteSelected();
       }
-      if (e.key === "Escape") setSelectedIds([]);
+      if (e.key === "Escape") {
+        setSelectedIds([]);
+        setContextMenu(null);
+      }
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
@@ -378,6 +408,7 @@ export function MoodboardEditor({ initialData }: Props) {
     if (e.button === 0) {
       // Rubber band
       if (!e.shiftKey) setSelectedIds([]);
+      setContextMenu(null);
       const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
@@ -428,7 +459,18 @@ export function MoodboardEditor({ initialData }: Props) {
     const dragged = elementsRef.current.find((el) => el.id === id);
     if (!dragged) return;
     draggedElementStartPos.current = { x: dragged.x, y: dragged.y };
-    const ids = selectedIdsRef.current;
+
+    // Use ref (already synchronously updated by handleSelect) and defensively
+    // expand to group members in case the group was just formed / ref lagged.
+    let ids = selectedIdsRef.current;
+    const gid = dragged.groupId;
+    if (gid) {
+      const members = elementsRef.current
+        .filter((el) => el.groupId === gid)
+        .map((el) => el.id);
+      ids = [...new Set([...ids, ...members])];
+    }
+
     if (ids.includes(id)) {
       const map = new Map<string, { x: number; y: number }>();
       elementsRef.current.forEach((el) => {
@@ -440,11 +482,17 @@ export function MoodboardEditor({ initialData }: Props) {
 
   const handleElemDragStop = useCallback(
     (id: string, newX: number, newY: number) => {
+      const dx = newX - draggedElementStartPos.current.x;
+      const dy = newY - draggedElementStartPos.current.y;
+
+      // Ignore accidental micro-drags (right-click, click-to-select, etc.)
+      // that happen when react-rnd fires onDragStop with < 3px of movement.
+      // Without this guard, snap() would reposition elements even on plain clicks.
+      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+
       const ids = selectedIdsRef.current;
       if (ids.includes(id) && ids.length > 1) {
         // Multi-drag: apply delta to all selected
-        const dx = newX - draggedElementStartPos.current.x;
-        const dy = newY - draggedElementStartPos.current.y;
         updateElements((prev) =>
           prev.map((el) => {
             if (!ids.includes(el.id)) return el;
@@ -482,6 +530,39 @@ export function MoodboardEditor({ initialData }: Props) {
     );
   }, []);
 
+  // ── Group resize (multi-select) ──
+  type ResizePatch = { x: number; y: number; w: number; h: number };
+  const handleGroupResizeUpdate = useCallback(
+    (updates: Array<{ id: string; patch: ResizePatch }>) => {
+      setElements((prev) =>
+        prev.map((el) => {
+          const u = updates.find((u) => u.id === el.id);
+          return u ? { ...el, ...u.patch } : el;
+        })
+      );
+    },
+    []
+  );
+
+  const handleGroupResizeCommit = useCallback(
+    (updates: Array<{ id: string; patch: ResizePatch }>) => {
+      updateElements((prev) =>
+        prev.map((el) => {
+          const u = updates.find((u) => u.id === el.id);
+          if (!u) return el;
+          return {
+            ...el,
+            x: snap(u.patch.x),
+            y: snap(u.patch.y),
+            w: Math.max(40, Math.round(u.patch.w)),
+            h: Math.max(24, Math.round(u.patch.h)),
+          };
+        })
+      );
+    },
+    [updateElements, snap]
+  );
+
   const handleElemResize = useCallback(
     (id: string, x: number, y: number, w: number, h: number) => {
       updateElements((prev) =>
@@ -508,6 +589,27 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [updateElements]
   );
+
+  // ── Group / Ungroup ──
+  const handleGroup = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    if (ids.length < 2) return;
+    const groupId = makeId();
+    updateElements((prev) =>
+      prev.map((el) => (ids.includes(el.id) ? { ...el, groupId } : el))
+    );
+    setContextMenu(null);
+  }, [updateElements]);
+
+  const handleUngroup = useCallback(() => {
+    const ids = selectedIdsRef.current;
+    updateElements((prev) =>
+      prev.map((el) =>
+        ids.includes(el.id) ? { ...el, groupId: undefined } : el
+      )
+    );
+    setContextMenu(null);
+  }, [updateElements]);
 
   // ── Toolbar update handler ──
   const handleUpdateMany = useCallback(
@@ -966,6 +1068,12 @@ export function MoodboardEditor({ initialData }: Props) {
                 snapEnabled={snapEnabled}
                 shiftHeld={shiftHeld}
                 onSelect={(shift) => handleSelect(el.id, shift)}
+                onContextMenu={(cx, cy) => {
+                  const vp = viewportRef.current;
+                  if (!vp) return;
+                  const r = vp.getBoundingClientRect();
+                  setContextMenu({ x: cx - r.left, y: cy - r.top });
+                }}
                 onChange={handleElemChange}
                 onDragStart={() => handleElemDragStart(el.id)}
                 onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
@@ -989,6 +1097,60 @@ export function MoodboardEditor({ initialData }: Props) {
                 }}
               />
             )}
+
+          {/* Context menu */}
+          {contextMenu && (() => {
+            const selEls = elements.filter((el) => selectedIds.includes(el.id));
+            const hasGroup = selEls.some((el) => el.groupId);
+            const canGroup = selectedIds.length > 1;
+            return (
+              <div
+                className="absolute z-[300] min-w-[172px] bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-2xl py-1 text-xs"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {canGroup && (
+                  <button
+                    onClick={handleGroup}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    <span>Grouper la sélection</span>
+                    <kbd className="text-[10px] text-[var(--text-tertiary)] ml-3">Ctrl+G</kbd>
+                  </button>
+                )}
+                {hasGroup && (
+                  <button
+                    onClick={handleUngroup}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    <span>Dégrouper</span>
+                    <kbd className="text-[10px] text-[var(--text-tertiary)] ml-3">Ctrl+⇧+G</kbd>
+                  </button>
+                )}
+                {(canGroup || hasGroup) && (
+                  <div className="my-1 border-t border-[var(--border-subtle)]" />
+                )}
+                <button
+                  onClick={() => { deleteSelected(); setContextMenu(null); }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+                >
+                  <span>Supprimer</span>
+                  <kbd className="text-[10px] ml-3">⌦</kbd>
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Group resize overlay */}
+          {selectedIds.length > 1 && (
+            <GroupResizeOverlay
+              selectedElements={elements.filter((el) => selectedIds.includes(el.id))}
+              pan={pan}
+              zoom={zoom}
+              onUpdate={handleGroupResizeUpdate}
+              onCommit={handleGroupResizeCommit}
+            />
+          )}
 
           {/* Contextual toolbar */}
           {toolbarPos && (
@@ -1106,6 +1268,7 @@ interface CanvasItemProps {
   snapEnabled: boolean;
   shiftHeld: boolean;
   onSelect: (shift: boolean) => void;
+  onContextMenu: (clientX: number, clientY: number) => void;
   onChange: (el: CanvasElement) => void;
   onDragStart: () => void;
   onDragMove: (x: number, y: number) => void;
@@ -1121,17 +1284,21 @@ function CanvasItem({
   snapEnabled,
   shiftHeld,
   onSelect,
+  onContextMenu,
   onChange,
   onDragStart,
   onDragMove,
   onDragStop,
   onResize,
 }: CanvasItemProps) {
-  const selectionStyle = selected
-    ? isMultiSelected
-      ? "outline outline-2 outline-offset-0 outline-[var(--accent,#a78bfa)]/60"
-      : "outline outline-2 outline-offset-0 outline-[var(--accent,#a78bfa)]"
-    : "";
+  // Use inline style for outline — more reliable than Tailwind classes
+  // and guarantees "none" on non-selected elements regardless of browser defaults
+  const outlineStyle: React.CSSProperties = selected
+    ? {
+        outline: `2px solid ${isMultiSelected ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.9)"}`,
+        outlineOffset: "0px",
+      }
+    : { outline: "none" };
 
   // Snap grid in screen pixels: SNAP_PX canvas units × zoom = screen pixels
   const gridPx = Math.max(1, SNAP_PX * zoom);
@@ -1148,7 +1315,12 @@ function CanvasItem({
     <Rnd
       position={{ x: element.x, y: element.y }}
       size={{ width: element.w, height: element.h }}
-      style={{ zIndex: element.zIndex, opacity: element.opacity ?? 1 }}
+      style={{
+        zIndex: element.zIndex,
+        opacity: element.opacity ?? 1,
+        userSelect: "none",
+        ...outlineStyle,
+      }}
       scale={zoom}
       dragGrid={dragGrid}
       resizeGrid={resizeGrid}
@@ -1156,6 +1328,14 @@ function CanvasItem({
       onMouseDown={(e: MouseEvent) => {
         e.stopPropagation();
         onSelect(e.shiftKey);
+      }}
+      onContextMenu={(e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Selection is already handled by onMouseDown (fired first).
+        // Don't call onSelect here — it would trigger a second drag-start
+        // position snapshot and potentially snap elements on right-click.
+        onContextMenu(e.clientX, e.clientY);
       }}
       onDragStart={() => onDragStart()}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1166,9 +1346,9 @@ function CanvasItem({
       onResizeStop={(_e: any, _dir: any, ref: any, _delta: any, pos: any) => {
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
-      enableResizing={selected}
+      enableResizing={selected && !isMultiSelected}
       disableDragging={false}
-      className={`group ${selectionStyle}`}
+      className="canvas-item"
     >
       <ElementContent element={element} selected={selected} onChange={onChange} />
     </Rnd>
@@ -1193,8 +1373,11 @@ function ElementContent({
     const fit = el.objectFit ?? "cover";
     const url = getImageUrl(el.storageKey);
     return (
+      // pointer-events:none on the visual layer — the Rnd wrapper handles all
+      // mouse events. This prevents the browser from showing its native image
+      // hover/selection highlight on non-selected elements.
       <div
-        className="w-full h-full overflow-hidden relative"
+        className="w-full h-full overflow-hidden relative pointer-events-none"
         style={{ borderRadius: br }}
       >
         {el.isAnimated ? (
@@ -1287,4 +1470,153 @@ function ElementContent({
   }
 
   return null;
+}
+
+// ── Group Resize Overlay ─────────────────────────────────────────────────────
+// Renders a dashed bounding box with 8 resize handles around the multi-selection.
+// Handles are in viewport coords; drag deltas are converted to canvas units.
+
+type ResizePatch = { x: number; y: number; w: number; h: number };
+
+interface GroupResizeOverlayProps {
+  selectedElements: CanvasElement[];
+  pan: { x: number; y: number };
+  zoom: number;
+  onUpdate: (updates: Array<{ id: string; patch: ResizePatch }>) => void;
+  onCommit: (updates: Array<{ id: string; patch: ResizePatch }>) => void;
+}
+
+function GroupResizeOverlay({
+  selectedElements,
+  pan,
+  zoom,
+  onUpdate,
+  onCommit,
+}: GroupResizeOverlayProps) {
+  if (selectedElements.length < 2) return null;
+
+  const gx  = Math.min(...selectedElements.map((el) => el.x));
+  const gy  = Math.min(...selectedElements.map((el) => el.y));
+  const gx2 = Math.max(...selectedElements.map((el) => el.x + el.w));
+  const gy2 = Math.max(...selectedElements.map((el) => el.y + el.h));
+  const gw  = gx2 - gx;
+  const gh  = gy2 - gy;
+
+  // Viewport coords
+  const vx = gx * zoom + pan.x;
+  const vy = gy * zoom + pan.y;
+  const vw = gw * zoom;
+  const vh = gh * zoom;
+
+  const HANDLE = 7;
+
+  const handles: Array<{ dir: string; cx: number; cy: number; cursor: string }> = [
+    { dir: "nw", cx: 0,    cy: 0,    cursor: "nw-resize" },
+    { dir: "n",  cx: vw/2, cy: 0,    cursor: "n-resize"  },
+    { dir: "ne", cx: vw,   cy: 0,    cursor: "ne-resize" },
+    { dir: "e",  cx: vw,   cy: vh/2, cursor: "e-resize"  },
+    { dir: "se", cx: vw,   cy: vh,   cursor: "se-resize" },
+    { dir: "s",  cx: vw/2, cy: vh,   cursor: "s-resize"  },
+    { dir: "sw", cx: 0,    cy: vh,   cursor: "sw-resize" },
+    { dir: "w",  cx: 0,    cy: vh/2, cursor: "w-resize"  },
+  ];
+
+  const onHandleMouseDown = (dir: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startMX = e.clientX;
+    const startMY = e.clientY;
+    // Capture at drag-start time
+    const origGx = gx, origGy = gy, origGw = gw, origGh = gh;
+    const capturedZoom = zoom;
+
+    const relData = selectedElements.map((el) => ({
+      id: el.id,
+      relX: origGw > 0 ? (el.x - origGx) / origGw : 0,
+      relY: origGh > 0 ? (el.y - origGy) / origGh : 0,
+      relW: origGw > 0 ? el.w / origGw : 1,
+      relH: origGh > 0 ? el.h / origGh : 1,
+    }));
+
+    const AR = origGw / Math.max(1, origGh);
+
+    // free = false → maintain aspect ratio (default); free = true → Shift held
+    const compute = (clientX: number, clientY: number, free: boolean) => {
+      const dx = (clientX - startMX) / capturedZoom;
+      const dy = (clientY - startMY) / capturedZoom;
+
+      let ngx  = origGx,          ngy  = origGy;
+      let ngx2 = origGx + origGw, ngy2 = origGy + origGh;
+
+      if (dir === "nw" || dir === "w" || dir === "sw") ngx  = origGx + dx;
+      if (dir === "ne" || dir === "e" || dir === "se") ngx2 = origGx + origGw + dx;
+      if (dir === "nw" || dir === "n" || dir === "ne") ngy  = origGy + dy;
+      if (dir === "sw" || dir === "s" || dir === "se") ngy2 = origGy + origGh + dy;
+
+      let ngw = Math.max(80, ngx2 - ngx);
+      let ngh = Math.max(40, ngy2 - ngy);
+
+      if (!free) {
+        // Maintain aspect ratio — width drives except for N/S handles
+        if (dir === "n" || dir === "s") {
+          ngw = Math.max(80, ngh * AR);
+          ngx = origGx + origGw / 2 - ngw / 2; // keep horizontal center
+        } else if (dir === "e" || dir === "w") {
+          ngh = Math.max(40, ngw / AR);
+          ngy = origGy + origGh / 2 - ngh / 2; // keep vertical center
+        } else {
+          // Corners: width drives, anchor the opposite corner
+          ngh = Math.max(40, ngw / AR);
+          if (dir === "nw" || dir === "ne") ngy = (origGy + origGh) - ngh; // bottom fixed
+          if (dir === "nw" || dir === "sw") ngx = (origGx + origGw) - ngw; // right fixed
+        }
+      }
+
+      return relData.map(({ id, relX, relY, relW, relH }) => ({
+        id,
+        patch: {
+          x: ngx + relX * ngw,
+          y: ngy + relY * ngh,
+          w: Math.max(20, relW * ngw),
+          h: Math.max(10, relH * ngh),
+        },
+      }));
+    };
+
+    const onMove = (ev: MouseEvent) => onUpdate(compute(ev.clientX, ev.clientY, ev.shiftKey));
+    const onUp   = (ev: MouseEvent) => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup",   onUp);
+      onCommit(compute(ev.clientX, ev.clientY, ev.shiftKey));
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+  };
+
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{ left: vx, top: vy, width: vw, height: vh, zIndex: 99998,
+               border: "1px dashed rgba(255,255,255,0.35)" }}
+    >
+      {handles.map(({ dir, cx, cy, cursor }) => (
+        <div
+          key={dir}
+          className="absolute pointer-events-auto"
+          style={{
+            left: cx - HANDLE / 2,
+            top:  cy - HANDLE / 2,
+            width: HANDLE,
+            height: HANDLE,
+            background: "white",
+            border: "1px solid rgba(0,0,0,0.35)",
+            borderRadius: 1,
+            cursor,
+          }}
+          onMouseDown={(e) => onHandleMouseDown(dir, e)}
+        />
+      ))}
+    </div>
+  );
 }

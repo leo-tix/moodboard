@@ -122,6 +122,111 @@ function OpacitySlider({ value, onChange }: { value: number; onChange: (v: numbe
   );
 }
 
+// ── Layout unit helpers ───────────────────────────────────────────────────────
+// A "unit" is the atom of layout: either a group (all elements sharing a groupId,
+// treated as a single bounding-box) or a standalone element.
+
+type Unit = {
+  ids: string[];
+  elements: CanvasElement[];
+  /** Bounding box of the unit in canvas coordinates */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/** Partition selected elements into units (one per group + one per standalone). */
+function buildUnits(els: CanvasElement[]): Unit[] {
+  const groupMap = new Map<string, CanvasElement[]>();
+  const singles: CanvasElement[] = [];
+
+  for (const el of els) {
+    if (el.groupId) {
+      const g = groupMap.get(el.groupId) ?? [];
+      g.push(el);
+      groupMap.set(el.groupId, g);
+    } else {
+      singles.push(el);
+    }
+  }
+
+  const units: Unit[] = [];
+
+  for (const [, members] of groupMap) {
+    const x = Math.min(...members.map((e) => e.x));
+    const y = Math.min(...members.map((e) => e.y));
+    const w = Math.max(...members.map((e) => e.x + e.w)) - x;
+    const h = Math.max(...members.map((e) => e.y + e.h)) - y;
+    units.push({ ids: members.map((e) => e.id), elements: members, x, y, w, h });
+  }
+
+  for (const el of singles) {
+    units.push({ ids: [el.id], elements: [el], x: el.x, y: el.y, w: el.w, h: el.h });
+  }
+
+  return units;
+}
+
+/**
+ * Build the patch list to move a unit's top-left to (newX, newY).
+ *
+ * - Single element → move + resize to (newW, newH) when provided.
+ * - Group          → translate only (preserve internal layout).
+ *                    Scaling would produce a "grid inside the group" effect,
+ *                    so groups always keep their actual member sizes.
+ *                    Pass (newW, newH) here to influence nothing for groups —
+ *                    the caller should use (unit.w, unit.h) for spacing instead.
+ */
+function unitPatches(
+  unit: Unit,
+  newX: number,
+  newY: number,
+  newW?: number,
+  newH?: number,
+): Array<{ id: string; patch: Patch }> {
+  if (unit.ids.length === 1) {
+    const el = unit.elements[0];
+    return [
+      {
+        id: el.id,
+        patch: { x: newX, y: newY, w: newW ?? el.w, h: newH ?? el.h },
+      },
+    ];
+  }
+
+  // Group: translate every member by the same delta — do NOT scale.
+  // Scaling members to fit a "cell" creates a nested grid effect and breaks
+  // the user's intentional internal arrangement.
+  const dx = newX - unit.x;
+  const dy = newY - unit.y;
+  return unit.elements.map((el) => ({
+    id: el.id,
+    patch: { x: el.x + dx, y: el.y + dy },
+  }));
+}
+
+// ── Layout / Arrangement SVG icons ──────────────────────────────────────────
+
+const LayoutIcons = {
+  grid: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+      <rect x="0" y="0" width="5" height="5" rx="0.5" />
+      <rect x="7" y="0" width="5" height="5" rx="0.5" />
+      <rect x="0" y="7" width="5" height="5" rx="0.5" />
+      <rect x="7" y="7" width="5" height="5" rx="0.5" />
+    </svg>
+  ),
+  masonry: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+      <rect x="0" y="0" width="5" height="7" rx="0.5" />
+      <rect x="0" y="9" width="5" height="3" rx="0.5" />
+      <rect x="7" y="0" width="5" height="3" rx="0.5" />
+      <rect x="7" y="5" width="5" height="7" rx="0.5" />
+    </svg>
+  ),
+};
+
 // ── Alignment SVG icons ──────────────────────────────────────────────────────
 
 const AlignIcons = {
@@ -187,6 +292,115 @@ export function ContextualToolbar({
 
   const upd = (id: string, patch: Patch) => onUpdateMany([{ id, patch }]);
 
+  // ── Grid arrangement ──
+  // Positions units in a grid without resizing anything.
+  // Column widths = max unit width per column, row heights = max unit height per row,
+  // so no unit ever overlaps its neighbour regardless of size differences.
+  const applyGrid = () => {
+    if (selected.length < 2) return;
+    const units = buildUnits(selected);
+    if (units.length < 2) return;
+
+    // Choose cols to minimise empty cells in the last row.
+    // ceil(sqrt(n)) gives a near-square grid but can leave the last row half-empty
+    // (e.g. 3 items → 2 cols → row 0 full, row 1 has 1 item + 1 empty cell).
+    // If the empty count ≥ half the row, switch to one fewer row (= more cols),
+    // which often eliminates the gap entirely (3 items → 3 cols → 1 full row).
+    const sqrtCols  = Math.ceil(Math.sqrt(units.length));
+    const sqrtRows  = Math.ceil(units.length / sqrtCols);
+    const lastEmpty = sqrtCols * sqrtRows - units.length;
+    const cols = (lastEmpty >= sqrtCols / 2 && sqrtRows > 1)
+      ? Math.min(units.length, Math.ceil(units.length / (sqrtRows - 1)))
+      : Math.max(2, sqrtCols);
+
+    const gap    = 12;
+    const startX = Math.min(...units.map((u) => u.x));
+    const startY = Math.min(...units.map((u) => u.y));
+
+    // Sort by height descending so tall units cluster in the first rows.
+    // This minimises per-row height variance and the resulting vertical gaps:
+    // a row of similarly-tall units leaves no dead space below shorter neighbours.
+    const sorted = [...units].sort((a, b) => b.h - a.h);
+
+    // Per-column max width & per-row max height based on actual unit sizes
+    const rows = Math.ceil(sorted.length / cols);
+    const colWidths  = Array<number>(cols).fill(0);
+    const rowHeights = Array<number>(rows).fill(0);
+    sorted.forEach((u, i) => {
+      colWidths[i % cols]              = Math.max(colWidths[i % cols],              u.w);
+      rowHeights[Math.floor(i / cols)] = Math.max(rowHeights[Math.floor(i / cols)], u.h);
+    });
+
+    // Prefix sums → absolute x/y origin of each column/row
+    const colX = colWidths.reduce<number[]>((acc, w, i) => {
+      acc.push(i === 0 ? 0 : acc[i - 1] + colWidths[i - 1] + gap);
+      return acc;
+    }, []);
+    const rowY = rowHeights.reduce<number[]>((acc, h, i) => {
+      acc.push(i === 0 ? 0 : acc[i - 1] + rowHeights[i - 1] + gap);
+      return acc;
+    }, []);
+
+    const updates: Array<{ id: string; patch: Patch }> = [];
+    sorted.forEach((unit, i) => {
+      updates.push(...unitPatches(unit, startX + colX[i % cols], startY + rowY[Math.floor(i / cols)]));
+    });
+    onUpdateMany(updates);
+  };
+
+  // ── Masonry arrangement ──
+  // Fills columns shortest-first without resizing anything.
+  // Column stride = max unit width so wider units never bleed into adjacent columns.
+  const applyMasonry = () => {
+    if (selected.length < 2) return;
+    const units = buildUnits(selected);
+    if (units.length < 2) return;
+
+    // Same cols heuristic as grid: avoid leaving the last slots empty
+    const sqrtCols  = Math.ceil(Math.sqrt(units.length));
+    const sqrtRows  = Math.ceil(units.length / sqrtCols);
+    const lastEmpty = sqrtCols * sqrtRows - units.length;
+    const cols = (lastEmpty >= sqrtCols / 2 && sqrtRows > 1)
+      ? Math.min(units.length, Math.ceil(units.length / (sqrtRows - 1)))
+      : Math.max(2, sqrtCols);
+
+    const gap    = 12;
+    const startX = Math.min(...units.map((u) => u.x));
+    const startY = Math.min(...units.map((u) => u.y));
+
+    // Sort left→right, top→bottom for a natural fill order
+    const sorted = [...units].sort((a, b) => a.x - b.x || a.y - b.y);
+
+    // Pass 1 — assign each unit to a column (shortest-column-first).
+    // We use a temporary uniform stride to drive column assignment only;
+    // actual x positions are computed in pass 2 from real per-column widths.
+    const colHtmp = Array<number>(cols).fill(0);
+    const assignments: Array<{ unit: Unit; col: number; relY: number }> = [];
+    for (const unit of sorted) {
+      const col = colHtmp.indexOf(Math.min(...colHtmp));
+      assignments.push({ unit, col, relY: colHtmp[col] });
+      colHtmp[col] += unit.h + gap;
+    }
+
+    // Pass 2 — per-column max width → tight x positions with no wasted space.
+    // A column of narrow images no longer inherits the stride of a wide group
+    // sitting in another column (which was the source of the "empty column" look).
+    const colWidths = Array<number>(cols).fill(0);
+    for (const { unit, col } of assignments) {
+      colWidths[col] = Math.max(colWidths[col], unit.w);
+    }
+    const colX = colWidths.reduce<number[]>((acc, w, i) => {
+      acc.push(i === 0 ? 0 : acc[i - 1] + colWidths[i - 1] + gap);
+      return acc;
+    }, []);
+
+    const updates: Array<{ id: string; patch: Patch }> = [];
+    for (const { unit, col, relY } of assignments) {
+      updates.push(...unitPatches(unit, startX + colX[col], startY + relY));
+    }
+    onUpdateMany(updates);
+  };
+
   const align = (type: "left" | "centerH" | "right" | "top" | "centerV" | "bottom") => {
     const minX = Math.min(...selected.map((el) => el.x));
     const minY = Math.min(...selected.map((el) => el.y));
@@ -230,6 +444,9 @@ export function ContextualToolbar({
           <ToolBtn title="Aligner en haut" onClick={() => align("top")}>{AlignIcons.top}</ToolBtn>
           <ToolBtn title="Centrer verticalement" onClick={() => align("centerV")}>{AlignIcons.centerV}</ToolBtn>
           <ToolBtn title="Aligner en bas" onClick={() => align("bottom")}>{AlignIcons.bottom}</ToolBtn>
+          <Sep />
+          <ToolBtn title="Agencer en grille uniforme" onClick={applyGrid}>{LayoutIcons.grid}</ToolBtn>
+          <ToolBtn title="Agencer en maçonnerie (masonry)" onClick={applyMasonry}>{LayoutIcons.masonry}</ToolBtn>
           <Sep />
         </>
       )}

@@ -8,6 +8,7 @@ export type CanvasElementBase = {
   h: number;
   zIndex: number;
   opacity?: number; // 0–1, default 1
+  groupId?: string; // elements sharing a groupId form a logical group
 };
 
 export type ImageElement = CanvasElementBase & {

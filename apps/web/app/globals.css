@@ -59,6 +59,15 @@ body {
   overflow-x: hidden;
 }
 
+/* Canvas elements: prevent all native browser image drag/selection highlight */
+.canvas-item img,
+.canvas-item [data-nimg] {
+  -webkit-user-drag: none;
+  user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* ============================================================
    SCROLLBAR CUSTOM
    ============================================================ */
