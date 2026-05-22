@@ -23,6 +23,7 @@ import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
 import { SharePanel } from "@/components/moodboard/SharePanel";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
 import { AI_IMPORT_KEY } from "@/components/settings/GeneralSettings";
+import { exportMoodboardAsPng } from "@/lib/moodboard/export";
 
 interface Props {
   initialData: MoodboardData;
@@ -107,6 +108,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [cursor, setCursor] = useState("default");
 
@@ -997,6 +999,16 @@ export function MoodboardEditor({ initialData }: Props) {
     [updateElements]
   );
 
+  // ── Export PNG ──
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      await exportMoodboardAsPng(elementsRef.current, background, title);
+    } finally {
+      setExporting(false);
+    }
+  }, [background, title]);
+
   // ── Add element helpers ──
   const getViewportCenter = useCallback((): { x: number; y: number } => {
     const viewport = viewportRef.current;
@@ -1387,6 +1399,15 @@ export function MoodboardEditor({ initialData }: Props) {
         </button>
 
         <div className="w-px h-4 bg-[var(--border-subtle)]" />
+
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="text-xs transition-colors px-2 py-1 rounded border flex-shrink-0 border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Exporter en PNG haute résolution"
+        >
+          {exporting ? "Export…" : "↓ PNG"}
+        </button>
 
         <button
           onClick={() => setShowShare((v) => !v)}
