@@ -263,7 +263,6 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
                         src={getThumbnailUrl(item.thumbnailKey)}
                         alt={item.title}
                         className="absolute inset-0 w-full h-full object-cover"
-                        loading="lazy"
                       />
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <p className="text-[9px] text-white truncate">{item.title}</p>
