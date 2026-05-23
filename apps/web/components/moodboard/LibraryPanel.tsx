@@ -80,9 +80,9 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = search.trim()
-    ? items.filter((i) => i.title.toLowerCase().includes(search.toLowerCase()))
-    : items;
+  const filtered = items
+    .filter((i) => !!i.thumbnailKey && !!i.storageKey)
+    .filter((i) => !search.trim() || i.title.toLowerCase().includes(search.toLowerCase()));
 
   // ── Touch long-press drag handlers ────────────────────────────────────────
   const handleItemTouchStart = useCallback((item: LibraryItem, e: React.TouchEvent) => {
@@ -237,16 +237,11 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
                 }}
                 title={`${item.title} — glisser ou cliquer pour ajouter`}
               >
-                {item.thumbnailKey ? (
-                  <img
-                    src={getThumbnailUrl(item.thumbnailKey)}
-                    alt={item.title}
-                    className="absolute inset-0 w-full h-full object-cover lib-img-fade"
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.15"; }}
-                  />
-                ) : (
-                  <div className="absolute inset-0 bg-[var(--bg-elevated)]" />
-                )}
+                <img
+                  src={getThumbnailUrl(item.thumbnailKey!)}
+                  alt={item.title}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <p className="text-[9px] text-white truncate">{item.title}</p>
                 </div>
