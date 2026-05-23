@@ -57,7 +57,7 @@ function LazyImage({
           observer.disconnect();
         }
       },
-      { root: scrollRoot, rootMargin: "200px" }
+      { root: scrollRoot, rootMargin: "400px" }
     );
     observer.observe(img);
     return () => observer.disconnect();
@@ -84,8 +84,11 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
   const [search,  setSearch]  = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Ref for the scrollable container — used as IntersectionObserver root
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // Scroll container as state (not ref) so LazyImage children re-render with the
+  // correct IntersectionObserver root the moment the div mounts.
+  // useRef doesn't trigger re-renders, so children created during the first render
+  // would receive null and fall back to viewport-root — causing intermittent failures.
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
 
   // ── Drag ghost (touch long-press drag) ────────────────────────────────────
   const [dragGhost, setDragGhost] = useState<{
@@ -226,7 +229,7 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
       </div>
 
       {/* Scrollable grid */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
+      <div ref={setScrollEl} className="flex-1 overflow-y-auto p-2">
         {loading ? (
           <div className="grid grid-cols-2 gap-1.5">
             {Array.from({ length: 12 }).map((_, i) => (
@@ -295,7 +298,7 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
                       src={getThumbnailUrl(item.thumbnailKey)}
                       alt={item.title}
                       className="absolute inset-0 w-full h-full object-cover"
-                      scrollRoot={scrollRef.current}
+                      scrollRoot={scrollEl}
                     />
                   )
                 ) : (
