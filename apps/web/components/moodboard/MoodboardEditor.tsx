@@ -437,8 +437,12 @@ export function MoodboardEditor({ initialData }: Props) {
       const target = e.target as HTMLElement;
       if (!target.closest('[data-role="context-menu"]')) setContextMenu(null);
 
-      // Toolbar buttons: let React synthetic handlers run uninterrupted
-      if (target.closest('[data-role="toolbar"]')) return;
+      // Toolbar buttons: let React synthetic handlers run uninterrupted.
+      // Also set the "started on element" flag so onTouchEnd doesn't deselect.
+      if (target.closest('[data-role="toolbar"]')) {
+        touchStartedOnElementRef.current = true;
+        return;
+      }
 
       clearLongPress();
 
