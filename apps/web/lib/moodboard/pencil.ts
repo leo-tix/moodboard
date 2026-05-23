@@ -20,7 +20,7 @@
  *      stroke is committed and cached.
  */
 
-import type { Stroke, StrokePoint } from "./types";
+import type { Stroke, StrokePoint, StrokeElement } from "./types";
 
 // ── Smoothing / interpolation helpers (commit-time only) ──────────────────────
 
@@ -266,7 +266,9 @@ export function buildCachedStroke(stroke: Stroke): CachedStroke {
  */
 export function drawCachedStroke(ctx: CanvasRenderingContext2D, cached: CachedStroke): void {
   ctx.save();
-  ctx.globalAlpha  = cached.globalAlpha;
+  // Multiply rather than replace so that an element-level opacity set by the
+  // caller (e.g. the export pipeline) is respected in addition to the tool alpha.
+  ctx.globalAlpha *= cached.globalAlpha;
   ctx.strokeStyle  = cached.strokeStyle;
   ctx.fillStyle    = cached.strokeStyle;
 
@@ -331,4 +333,51 @@ export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): v
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
   const cached = buildCachedStroke(stroke);
   drawCachedStroke(ctx, cached);
+}
+
+// ── StrokeElement helpers ─────────────────────────────────────────────────────
+
+/**
+ * Compute the tight bounding box of a stroke, padded by the stroke width.
+ * The padding ensures the drawn outline (which extends beyond the point coords
+ * by ~strokeWidth/2) is fully enclosed.
+ */
+export function strokeBBox(stroke: Stroke): { x: number; y: number; w: number; h: number } {
+  const { points, width, tool } = stroke;
+  if (points.length === 0) return { x: 0, y: 0, w: 50, h: 50 };
+
+  // Generous padding so round caps and thick markers are fully enclosed
+  const pad = width * (tool === "marker" ? 8 : 4);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    w: Math.max(10, maxX - minX + pad * 2),
+    h: Math.max(10, maxY - minY + pad * 2),
+  };
+}
+
+/**
+ * Convert a raw Stroke into a StrokeElement ready to be added to the canvas.
+ * The bounding box is computed once and stored as the origin for future transforms.
+ */
+export function strokeToElement(stroke: Stroke, zIndex: number): StrokeElement {
+  const { x, y, w, h } = strokeBBox(stroke);
+  return {
+    type:    "stroke",
+    id:      stroke.id,
+    x, y, w, h,
+    originX: x,
+    originY: y,
+    originW: w,
+    originH: h,
+    zIndex,
+    stroke,
+  };
 }

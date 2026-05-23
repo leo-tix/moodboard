@@ -63,13 +63,36 @@ export type StickyElement = CanvasElementBase & {
   textColor: string;
 };
 
-export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement;
+/**
+ * A committed Apple Pencil stroke that behaves exactly like any other canvas element.
+ *
+ * The stroke points are stored in ORIGINAL canvas coordinates and never mutated
+ * after commit.  Moving / resizing only updates x/y/w/h; the canvas renderer derives
+ * the correct matrix transform from (x,y,w,h) vs (originX,originY,originW,originH).
+ */
+export type StrokeElement = CanvasElementBase & {
+  type: "stroke";
+  /** Raw stroke data — points in original canvas coords, never modified post-commit */
+  stroke: Stroke;
+  /** Bounding box at commit time — used to compute the render transform on move/resize */
+  originX: number;
+  originY: number;
+  originW: number;
+  originH: number;
+};
+
+export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement | StrokeElement;
 
 export interface MoodboardData {
   id: string;
   title: string;
+  /** All canvas elements, including StrokeElements (converted from legacy pencilStrokes on load) */
   canvasData: CanvasElement[];
-  pencilStrokes: Stroke[];
+  /**
+   * Legacy field — only present on boards created before the StrokeElement migration.
+   * Converted to StrokeElements at load time in edit/page.tsx; never written to for new strokes.
+   */
+  pencilStrokes?: Stroke[];
   background: string;
   shareToken: string | null;
   shareExpiry: string | null;

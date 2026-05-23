@@ -21,10 +21,11 @@ import type {
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
 import { SharePanel } from "@/components/moodboard/SharePanel";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
-import { PencilLayer, type Stroke, type PencilTool } from "@/components/moodboard/PencilLayer";
+import { PencilLayer, type Stroke, type PencilTool, type StrokeElement } from "@/components/moodboard/PencilLayer";
 import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
 import { AI_IMPORT_KEY } from "@/components/settings/GeneralSettings";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
+import { strokeToElement } from "@/lib/moodboard/pencil";
 
 interface Props {
   initialData: MoodboardData;
@@ -121,21 +122,9 @@ export function MoodboardEditor({ initialData }: Props) {
   const [pencilTool,   setPencilTool]   = useState<PencilTool>("pen");
   const [pencilColor,  setPencilColor]  = useState("#ffffff");
   const [pencilSize,   setPencilSize]   = useState(5);
-  const [strokes,      setStrokes]      = useState<Stroke[]>(initialData.pencilStrokes ?? []);
-  // History for per-stroke undo (independent of canvas element history)
-  const strokeHistoryRef = useRef<Stroke[][]>([initialData.pencilStrokes ?? []]);
   // Stable ref so native touch handlers can read drawingMode without being recreated
   const drawingModeRef = useRef(drawingMode);
   useEffect(() => { drawingModeRef.current = drawingMode; }, [drawingMode]);
-  // Always-current view of strokes (needed in async save callbacks)
-  const currentStrokesRef = useRef(strokes);
-  useEffect(() => { currentStrokesRef.current = strokes; }, [strokes]);
-  // Strokes drawn since the last successful save (delta for append saves)
-  const unsavedStrokesRef  = useRef<Stroke[]>([]);
-  // If true, next save must replace the full array (undo / erase / clear)
-  const pendingReplaceRef  = useRef(false);
-  // Timer for the 30 s debounce during active drawing
-  const strokeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -237,38 +226,6 @@ export function MoodboardEditor({ initialData }: Props) {
     setIsTouchDevice(navigator.maxTouchPoints > 1);
   }, []);
 
-  // Flush unsaved pencil strokes when the component unmounts (navigation away).
-  // flushStrokesSave is fire-and-forget here — we can't await in a cleanup fn.
-  useEffect(() => {
-    return () => {
-      if (strokeSaveTimerRef.current) clearTimeout(strokeSaveTimerRef.current);
-      // Best-effort: send any pending strokes before unmount
-      const needReplace = pendingReplaceRef.current;
-      const toAppend = unsavedStrokesRef.current;
-      if (!needReplace && toAppend.length === 0) return;
-      const payload = needReplace
-        ? { pencilStrokes: currentStrokesRef.current }
-        : undefined;
-      if (needReplace) {
-        fetch(`/api/moodboards/${initialData.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          keepalive: true, // survives page unload
-        }).catch(() => {});
-      } else {
-        fetch(`/api/moodboards/${initialData.id}/strokes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ append: toAppend }),
-          keepalive: true,
-        }).catch(() => {});
-      }
-    };
-  // initialData.id is stable; we intentionally don't re-run this effect
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // ── Snap helper ──
   const snap = useCallback(
     (v: number) => (snapEnabledRef.current ? Math.round(v / SNAP_PX) * SNAP_PX : v),
@@ -277,7 +234,7 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Auto-save ──
   const save = useCallback(
-    async (data: { title?: string; canvasData?: CanvasElement[]; pencilStrokes?: Stroke[]; background?: string }) => {
+    async (data: { title?: string; canvasData?: CanvasElement[]; background?: string }) => {
       setSaving(true);
       setSaved(false);
       try {
@@ -301,65 +258,6 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [save]
   );
-
-  // ── Pencil stroke save helpers ───────────────────────────────────────────
-  //
-  // Strategy:
-  //   • New stroke drawn  → append-only POST (sends just the new stroke, ~1 KB)
-  //   • Undo / erase / clear → full replace PATCH (sends current array, rare)
-  //   • Debounce: 30 s during drawing, 800 ms after destructive ops
-  //   • Flush immediately when the user exits drawing mode
-  //
-  // This avoids the previous pattern of sending the full array (up to several
-  // MB) after every single stroke.
-
-  /** Send only new strokes (delta append). */
-  const appendPencilStrokes = useCallback(async (newStrokes: Stroke[]) => {
-    if (newStrokes.length === 0) return;
-    await fetch(`/api/moodboards/${initialData.id}/strokes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ append: newStrokes }),
-    });
-  }, [initialData.id]);
-
-  /** Flush: either append unsaved strokes or replace the full array. */
-  const flushStrokesSave = useCallback(async () => {
-    if (strokeSaveTimerRef.current) {
-      clearTimeout(strokeSaveTimerRef.current);
-      strokeSaveTimerRef.current = null;
-    }
-    const needReplace = pendingReplaceRef.current;
-    const toAppend    = unsavedStrokesRef.current.splice(0); // drain atomically
-    pendingReplaceRef.current = false;
-
-    if (!needReplace && toAppend.length === 0) return;
-
-    setSaving(true);
-    setSaved(false);
-    try {
-      if (needReplace) {
-        await fetch(`/api/moodboards/${initialData.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pencilStrokes: currentStrokesRef.current }),
-        });
-      } else {
-        await appendPencilStrokes(toAppend);
-      }
-      setSaved(true);
-    } finally {
-      setSaving(false);
-    }
-  }, [initialData.id, appendPencilStrokes]);
-
-  /** Schedule a debounced stroke save. Replace ops use a short delay. */
-  const scheduleStrokeSave = useCallback((type: "append" | "replace") => {
-    if (type === "replace") pendingReplaceRef.current = true;
-    if (strokeSaveTimerRef.current) clearTimeout(strokeSaveTimerRef.current);
-    const delay = type === "replace" ? 800 : 30_000;
-    strokeSaveTimerRef.current = setTimeout(flushStrokesSave, delay);
-  }, [flushStrokesSave]);
 
   // ── History push ──
   const pushHistory = useCallback((els: CanvasElement[]) => {
@@ -1577,21 +1475,26 @@ export function MoodboardEditor({ initialData }: Props) {
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   };
 
+  /**
+   * Commit a finished stroke as a first-class canvas element.
+   * Goes through the normal updateElements pipeline → undo/redo + auto-save for free.
+   */
   const handleStrokeAdd = useCallback((stroke: Stroke) => {
-    setStrokes((prev) => {
-      const next = [...prev, stroke];
-      strokeHistoryRef.current = [...strokeHistoryRef.current, next];
-      return next;
-    });
-    // Track for delta append — only this stroke needs to be sent
-    unsavedStrokesRef.current.push(stroke);
-    scheduleStrokeSave("append");
-  }, [scheduleStrokeSave]);
+    const el = strokeToElement(stroke, ++nextZRef.current);
+    updateElements((prev) => [...prev, el]);
+  }, [updateElements]);
 
+  /**
+   * Eraser: remove any StrokeElement whose path passes within `radius` of (cx, cy).
+   * Non-stroke elements are never affected by the pencil eraser.
+   * Uses setElements directly to avoid creating a history entry on every move;
+   * each distinct stroke deletion does push history (via inline logic).
+   */
   const handleEraseAt = useCallback((cx: number, cy: number, radius: number) => {
-    setStrokes((prev) => {
-      const next = prev.filter((stroke) => {
-        const { points } = stroke;
+    setElements((prev) => {
+      const next = prev.filter((el) => {
+        if (el.type !== "stroke") return true;
+        const { points } = el.stroke;
         if (points.length === 0) return false;
         if (points.length === 1) {
           return Math.hypot(cx - points[0].x, cy - points[0].y) > radius;
@@ -1603,36 +1506,28 @@ export function MoodboardEditor({ initialData }: Props) {
         return true;
       });
       if (next.length !== prev.length) {
-        strokeHistoryRef.current = [...strokeHistoryRef.current, next];
-        // Erase removes strokes — must replace the full array
-        unsavedStrokesRef.current = [];
-        scheduleStrokeSave("replace");
+        // A stroke was erased — push to history and schedule save
+        scheduleSave({ canvasData: next });
+        setSaved(false);
+        pushHistory(next);
       }
       return next;
     });
-  // distPointToSegment is stable (declared in same scope); scheduleStrokeSave is a stable callback
+  // distPointToSegment is stable (declared in same scope)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduleStrokeSave]);
+  }, [scheduleSave, pushHistory]);
 
-  const handlePencilUndo = useCallback(() => {
-    const hist = strokeHistoryRef.current;
-    if (hist.length <= 1) return;
-    strokeHistoryRef.current = hist.slice(0, -1);
-    setStrokes(strokeHistoryRef.current[strokeHistoryRef.current.length - 1]);
-    unsavedStrokesRef.current = [];
-    scheduleStrokeSave("replace");
-  }, [scheduleStrokeSave]);
+  /** Pencil undo = regular canvas undo (strokes are canvas elements). */
+  const handlePencilUndo = useCallback(() => undo(), [undo]);
 
+  /** Clear all drawn strokes from the canvas. */
   const handlePencilClear = useCallback(() => {
-    strokeHistoryRef.current = [[]];
-    setStrokes([]);
-    unsavedStrokesRef.current = [];
-    scheduleStrokeSave("replace");
-  }, [scheduleStrokeSave]);
+    updateElements((prev) => prev.filter((el) => el.type !== "stroke"));
+  }, [updateElements]);
 
   // Stable ref so native touch handler (empty dep array) always calls latest undo
-  const pencilUndoRef = useRef(handlePencilUndo);
-  useEffect(() => { pencilUndoRef.current = handlePencilUndo; }, [handlePencilUndo]);
+  const pencilUndoRef = useRef(undo);
+  useEffect(() => { pencilUndoRef.current = undo; }, [undo]);
 
   // ── Export PNG ──
   const handleExport = useCallback(async () => {
@@ -1640,7 +1535,6 @@ export function MoodboardEditor({ initialData }: Props) {
     try {
       await exportMoodboardAsPng(elementsRef.current, background, title, {
         transparent: exportTransparent,
-        strokes: currentStrokesRef.current,
       });
     } finally {
       setExporting(false);
@@ -2100,7 +1994,7 @@ export function MoodboardEditor({ initialData }: Props) {
         {/* Apple Pencil drawing mode toggle — touch/iPad only */}
         {isTouchDevice && (
           <button
-            onClick={() => { if (drawingMode) flushStrokesSave(); setDrawingMode((v) => !v); }}
+            onClick={() => { setDrawingMode((v) => !v); }}
             title={drawingMode ? "Quitter le mode dessin" : "Mode dessin Apple Pencil"}
             className={`flex-shrink-0 transition-colors px-2 py-1 rounded border text-xs ${
               drawingMode
@@ -2224,7 +2118,7 @@ export function MoodboardEditor({ initialData }: Props) {
             tool={pencilTool}
             color={pencilColor}
             width={pencilSize}
-            strokes={strokes}
+            strokeElements={elements.filter((el) => el.type === "stroke") as StrokeElement[]}
             onStrokeAdd={handleStrokeAdd}
             onEraseAt={handleEraseAt}
             onToggleEraser={handleToggleEraser}
@@ -2237,14 +2131,14 @@ export function MoodboardEditor({ initialData }: Props) {
               tool={pencilTool}
               color={pencilColor}
               size={pencilSize}
-              canUndo={strokes.length > 0}
-              canClear={strokes.length > 0}
+              canUndo={elements.some((el) => el.type === "stroke")}
+              canClear={elements.some((el) => el.type === "stroke")}
               onToolChange={setPencilTool}
               onColorChange={setPencilColor}
               onSizeChange={setPencilSize}
               onUndo={handlePencilUndo}
               onClear={handlePencilClear}
-              onClose={() => { flushStrokesSave(); setDrawingMode(false); }}
+              onClose={() => setDrawingMode(false)}
             />
           )}
 
@@ -2837,6 +2731,12 @@ function ElementContent({
         </div>
       </div>
     );
+  }
+
+  if (element.type === "stroke") {
+    // The visual is rendered by the PencilLayer canvas overlay.
+    // This transparent div is the hit area for selection / drag / resize via react-rnd.
+    return <div className="w-full h-full" />;
   }
 
   return null;

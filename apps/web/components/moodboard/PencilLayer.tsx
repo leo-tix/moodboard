@@ -28,7 +28,7 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
-import type { PencilTool, StrokePoint, Stroke } from "@/lib/moodboard/types";
+import type { PencilTool, StrokePoint, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import {
   buildCachedStroke,
   drawCachedStroke,
@@ -37,7 +37,7 @@ import {
 } from "@/lib/moodboard/pencil";
 
 // Re-export for consumers that import from this file
-export type { PencilTool, StrokePoint, Stroke };
+export type { PencilTool, StrokePoint, Stroke, StrokeElement };
 
 interface Props {
   /** Whether drawing mode is active (pen events are captured) */
@@ -48,7 +48,9 @@ interface Props {
   color: string;
   /** Base stroke width in canvas units */
   width: number;
-  strokes: Stroke[];
+  /** All committed stroke elements (replaces the old Stroke[] array) */
+  strokeElements: StrokeElement[];
+  /** Called when a new stroke is committed — parent converts to StrokeElement */
   onStrokeAdd: (stroke: Stroke) => void;
   /** Called continuously while eraser moves over the canvas */
   onEraseAt: (canvasX: number, canvasY: number, radius: number) => void;
@@ -96,14 +98,18 @@ function applyCanvasTransform(
 
 
 /**
- * Redraw all committed strokes using pre-built Path2D cache.
+ * Redraw all committed stroke elements using pre-built Path2D cache.
  *
- * Each stroke is O(1) GPU draw call (fill or stroke with cached Path2D).
- * Cache is lazy-built on first encounter and pruned of stale entries.
+ * Each stroke element supports independent move/resize via a per-element
+ * matrix transform derived from (x,y,w,h) vs (originX,originY,originW,originH).
+ * The Path2D is built once at commit time and never invalidated on move/resize —
+ * only the transform matrix changes.
+ *
+ * Each stroke = 1 ctx.fill() or 1 ctx.stroke() call regardless of point count.
  */
 function redrawCommittedCanvas(
   canvas: HTMLCanvasElement,
-  strokes: Stroke[],
+  strokeElements: StrokeElement[],
   pan: { x: number; y: number },
   zoom: number,
   cache: Map<string, CachedStroke>,
@@ -112,20 +118,39 @@ function redrawCommittedCanvas(
   if (!ctx || canvas.width === 0) return;
   const dpr = window.devicePixelRatio || 1;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  applyCanvasTransform(ctx, pan, zoom, dpr);
 
-  // Prune stale cache entries (strokes that were deleted by undo/erase)
-  const currentIds = new Set(strokes.map((s) => s.id));
+  // Prune stale cache entries (elements that were deleted by undo/erase)
+  const currentIds = new Set(strokeElements.map((el) => el.stroke.id));
   for (const id of cache.keys()) {
     if (!currentIds.has(id)) cache.delete(id);
   }
 
-  for (const stroke of strokes) {
+  // Sort by zIndex so strokes respect layering order
+  const sorted = [...strokeElements].sort((a, b) => a.zIndex - b.zIndex);
+
+  for (const el of sorted) {
+    const sid = el.stroke.id;
     // Lazy build: compute Path2D only on first draw after commit
-    if (!cache.has(stroke.id)) {
-      cache.set(stroke.id, buildCachedStroke(stroke));
+    if (!cache.has(sid)) {
+      cache.set(sid, buildCachedStroke(el.stroke));
     }
-    drawCachedStroke(ctx, cache.get(stroke.id)!);
+
+    // Per-element transform: scale from origin bbox, then apply pan+zoom
+    // sx/sy handle resize; tx/ty handle move (after accounting for scale)
+    const sx = el.originW > 0 ? el.w / el.originW : 1;
+    const sy = el.originH > 0 ? el.h / el.originH : 1;
+    const tx = el.x - el.originX * sx;
+    const ty = el.y - el.originY * sy;
+    ctx.setTransform(
+      zoom * dpr * sx,
+      0,
+      0,
+      zoom * dpr * sy,
+      (pan.x + tx * zoom) * dpr,
+      (pan.y + ty * zoom) * dpr,
+    );
+
+    drawCachedStroke(ctx, cache.get(sid)!);
   }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -140,7 +165,7 @@ export function PencilLayer({
   tool,
   color,
   width,
-  strokes,
+  strokeElements,
   onStrokeAdd,
   onEraseAt,
   onToggleEraser,
@@ -156,18 +181,18 @@ export function PencilLayer({
   const toolRef    = useRef(tool);
   const colorRef   = useRef(color);
   const widthRef   = useRef(width);
-  const strokesRef        = useRef(strokes);
+  const strokeElementsRef = useRef(strokeElements);
   const activeRef         = useRef(active);
   const onToggleEraserRef = useRef(onToggleEraser);
 
-  useEffect(() => { panRef.current           = pan;             }, [pan]);
-  useEffect(() => { zoomRef.current          = zoom;            }, [zoom]);
-  useEffect(() => { toolRef.current          = tool;            }, [tool]);
-  useEffect(() => { colorRef.current         = color;           }, [color]);
-  useEffect(() => { widthRef.current         = width;           }, [width]);
-  useEffect(() => { strokesRef.current       = strokes;         }, [strokes]);
-  useEffect(() => { activeRef.current        = active;          }, [active]);
-  useEffect(() => { onToggleEraserRef.current = onToggleEraser; }, [onToggleEraser]);
+  useEffect(() => { panRef.current              = pan;            }, [pan]);
+  useEffect(() => { zoomRef.current             = zoom;           }, [zoom]);
+  useEffect(() => { toolRef.current             = tool;           }, [tool]);
+  useEffect(() => { colorRef.current            = color;          }, [color]);
+  useEffect(() => { widthRef.current            = width;          }, [width]);
+  useEffect(() => { strokeElementsRef.current   = strokeElements; }, [strokeElements]);
+  useEffect(() => { activeRef.current           = active;         }, [active]);
+  useEffect(() => { onToggleEraserRef.current   = onToggleEraser; }, [onToggleEraser]);
 
   const currentStroke  = useRef<Stroke | null>(null);
   const rafId          = useRef<number | null>(null);
@@ -208,7 +233,7 @@ export function PencilLayer({
       resizeToViewport();
       // Redraw after resize
       if (committedRef.current) {
-        redrawCommittedCanvas(committedRef.current, strokesRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
+        redrawCommittedCanvas(committedRef.current, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
       }
     });
     ro.observe(vp);
@@ -219,9 +244,9 @@ export function PencilLayer({
 
   useEffect(() => {
     if (committedRef.current) {
-      redrawCommittedCanvas(committedRef.current, strokes, pan, zoom, strokeCacheRef.current);
+      redrawCommittedCanvas(committedRef.current, strokeElements, pan, zoom, strokeCacheRef.current);
     }
-  }, [strokes, pan, zoom]);
+  }, [strokeElements, pan, zoom]);
 
   // ── Live canvas helpers (rAF-throttled) ──────────────────────────────────
 

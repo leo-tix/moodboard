@@ -1,5 +1,5 @@
-import type { CanvasElement, Stroke } from "./types";
-import { drawStroke } from "./pencil";
+import type { CanvasElement } from "./types";
+import { buildCachedStroke, drawCachedStroke } from "./pencil";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -11,25 +11,25 @@ const BORDER_R    = 8;     // canvas-unit border radius matching the editor
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Renders all canvas elements onto an offscreen HTMLCanvasElement and
- * triggers a PNG download in the browser.
+ * Renders all canvas elements (including StrokeElements) onto an offscreen
+ * HTMLCanvasElement and triggers a PNG download in the browser.
  *
  * Images are fetched through /api/proxy-image so that `drawImage` never
  * taints the canvas (same-origin fetch, no CORS headers needed on R2).
+ *
+ * Stroke elements use the same Path2D cache + per-element matrix transform
+ * as the live editor, so exported strokes are pixel-identical to what the
+ * user sees on screen.
  */
 export async function exportMoodboardAsPng(
   elements: CanvasElement[],
   background: string,
   title: string,
-  { transparent = false, strokes = [] }: { transparent?: boolean; strokes?: Stroke[] } = {},
+  { transparent = false }: { transparent?: boolean } = {},
 ): Promise<void> {
   if (typeof window === "undefined") return;
 
-  // ── Bounding box (elements + pencil stroke points) ────────────────────────
-  const strokePoints = strokes.flatMap((s) => s.points);
-  const hasContent   = elements.length > 0 || strokePoints.length > 0;
-
-  if (!hasContent) {
+  if (elements.length === 0) {
     const c = makeCanvas(800, 600);
     if (!transparent) {
       const ctx = c.getContext("2d")!;
@@ -40,27 +40,14 @@ export async function exportMoodboardAsPng(
     return;
   }
 
-  // Max stroke width used in rendering (pen: width*2, marker: width*5*tiltScale≈width*10)
-  // Add a generous pad so thick strokes aren't clipped at the edges.
-  const strokePad = strokes.length > 0
-    ? Math.max(...strokes.map((s) => s.width)) * 12
-    : 0;
+  // ── Bounding box (union of all elements) ──────────────────────────────────
+  const allXs = elements.flatMap((e) => [e.x, e.x + e.w]);
+  const allYs = elements.flatMap((e) => [e.y, e.y + e.h]);
 
-  const allXs = [
-    ...elements.map((e) => e.x),
-    ...elements.map((e) => e.x + e.w),
-    ...strokePoints.map((p) => p.x),
-  ];
-  const allYs = [
-    ...elements.map((e) => e.y),
-    ...elements.map((e) => e.y + e.h),
-    ...strokePoints.map((p) => p.y),
-  ];
-
-  const minX = Math.min(...allXs) - PAD - strokePad;
-  const minY = Math.min(...allYs) - PAD - strokePad;
-  const maxX = Math.max(...allXs) + PAD + strokePad;
-  const maxY = Math.max(...allYs) + PAD + strokePad;
+  const minX = Math.min(...allXs) - PAD;
+  const minY = Math.min(...allYs) - PAD;
+  const maxX = Math.max(...allXs) + PAD;
+  const maxY = Math.max(...allYs) + PAD;
   const bw = maxX - minX;
   const bh = maxY - minY;
 
@@ -83,15 +70,41 @@ export async function exportMoodboardAsPng(
     return az - bz;
   });
 
+  // Per-export stroke cache (Path2D is built once per stroke, reused if the
+  // export function is called multiple times in the same session).
+  const strokeCache = new Map<string, ReturnType<typeof buildCachedStroke>>();
+
   for (const el of sorted) {
+    ctx.save();
+    ctx.globalAlpha = el.opacity ?? 1;
+
+    if (el.type === "stroke") {
+      // Per-element matrix: scale + translate from origin bbox to current bbox,
+      // then convert moodboard coords → export pixel coords.
+      const sid = el.stroke.id;
+      if (!strokeCache.has(sid)) strokeCache.set(sid, buildCachedStroke(el.stroke));
+      const cached = strokeCache.get(sid)!;
+
+      const sx = el.originW > 0 ? el.w / el.originW : 1;
+      const sy = el.originH > 0 ? el.h / el.originH : 1;
+      const tx = el.x - el.originX * sx;
+      const ty = el.y - el.originY * sy;
+
+      ctx.setTransform(
+        scale * sx, 0, 0, scale * sy,
+        (tx - minX) * scale,
+        (ty - minY) * scale,
+      );
+      drawCachedStroke(ctx, cached);
+      ctx.restore();
+      continue;
+    }
+
     const x  = (el.x - minX) * scale;
     const y  = (el.y - minY) * scale;
     const w  = el.w * scale;
     const h  = el.h * scale;
     const br = BORDER_R * scale;
-
-    ctx.save();
-    ctx.globalAlpha = el.opacity ?? 1;
 
     if (el.type === "color") {
       ctx.fillStyle = el.color;
@@ -142,18 +155,8 @@ export async function exportMoodboardAsPng(
     ctx.restore();
   }
 
-  // ── Pencil strokes ────────────────────────────────────────────────────────
-  // Apply the same offset+scale transform as the elements so strokes land
-  // exactly where the user drew them relative to the canvas content.
-  if (strokes.length > 0) {
-    ctx.save();
-    ctx.setTransform(scale, 0, 0, scale, -minX * scale, -minY * scale);
-    for (const stroke of strokes) {
-      drawStroke(ctx, stroke);
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.restore();
-  }
+  // Reset transform after all strokes (which may have set non-identity transforms)
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 
   triggerDownload(canvas, title);
 }
