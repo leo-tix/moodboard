@@ -303,14 +303,15 @@ enum VideoImportStatus {
 // MOODBOARD — Planche d'ambiance
 // ============================================================
 model Moodboard {
-  id          String    @id @default(cuid())
-  title       String    @default("Sans titre")
-  canvasData  Json      @default("[]")
-  background  String    @default("#0a0a0a")
-  shareToken  String?   @unique @default(uuid())
-  shareExpiry DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  title          String    @default("Sans titre")
+  canvasData     Json      @default("[]")
+  pencilStrokes  Json      @default("[]")
+  background     String    @default("#0a0a0a")
+  shareToken     String?   @unique @default(uuid())
+  shareExpiry    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@map("moodboards")
 }

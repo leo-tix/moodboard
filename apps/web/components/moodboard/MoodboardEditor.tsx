@@ -121,12 +121,14 @@ export function MoodboardEditor({ initialData }: Props) {
   const [pencilTool,   setPencilTool]   = useState<PencilTool>("pen");
   const [pencilColor,  setPencilColor]  = useState("#ffffff");
   const [pencilSize,   setPencilSize]   = useState(5);
-  const [strokes,      setStrokes]      = useState<Stroke[]>([]);
+  const [strokes,      setStrokes]      = useState<Stroke[]>(initialData.pencilStrokes ?? []);
   // History for per-stroke undo (independent of canvas element history)
-  const strokeHistoryRef = useRef<Stroke[][]>([[]]);
+  const strokeHistoryRef = useRef<Stroke[][]>([initialData.pencilStrokes ?? []]);
   // Stable ref so native touch handlers can read drawingMode without being recreated
   const drawingModeRef = useRef(drawingMode);
   useEffect(() => { drawingModeRef.current = drawingMode; }, [drawingMode]);
+  // Skip the first save triggered by initial state (strokes already persisted)
+  const strokesInitializedRef = useRef(true);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -236,7 +238,7 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Auto-save ──
   const save = useCallback(
-    async (data: { title?: string; canvasData?: CanvasElement[]; background?: string }) => {
+    async (data: { title?: string; canvasData?: CanvasElement[]; pencilStrokes?: Stroke[]; background?: string }) => {
       setSaving(true);
       setSaved(false);
       try {
@@ -260,6 +262,18 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [save]
   );
+
+  // ── Autosave pencil strokes whenever they change ──
+  useEffect(() => {
+    // Skip the very first render — strokes are already persisted in the DB
+    if (strokesInitializedRef.current) {
+      strokesInitializedRef.current = false;
+      return;
+    }
+    scheduleSave({ pencilStrokes: strokes });
+    // scheduleSave is stable; strokes is the only real dependency here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strokes]);
 
   // ── History push ──
   const pushHistory = useCallback((els: CanvasElement[]) => {

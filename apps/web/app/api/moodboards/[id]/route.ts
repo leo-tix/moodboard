@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const data: Record<string, unknown> = {};
   if (body.title !== undefined) data.title = body.title;
   if (body.canvasData !== undefined) data.canvasData = body.canvasData;
+  if (body.pencilStrokes !== undefined) data.pencilStrokes = body.pencilStrokes;
   if (body.background !== undefined) data.background = body.background;
 
   const moodboard = await db.moodboard.update({ where: { id }, data });

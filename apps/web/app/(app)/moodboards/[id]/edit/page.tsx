@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { MoodboardEditor } from "@/components/moodboard/MoodboardEditor";
-import type { CanvasElement } from "@/lib/moodboard/types";
+import type { CanvasElement, Stroke } from "@/lib/moodboard/types";
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -17,6 +17,7 @@ export default async function MoodboardEditPage({ params }: Props) {
         id: moodboard.id,
         title: moodboard.title,
         canvasData: moodboard.canvasData as CanvasElement[],
+        pencilStrokes: (moodboard.pencilStrokes as unknown) as Stroke[],
         background: moodboard.background,
         shareToken: moodboard.shareToken,
         shareExpiry: moodboard.shareExpiry?.toISOString() ?? null,

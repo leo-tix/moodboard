@@ -21,26 +21,10 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
+import type { PencilTool, StrokePoint, Stroke } from "@/lib/moodboard/types";
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
-export type PencilTool = "pen" | "marker" | "eraser";
-
-export interface StrokePoint {
-  x: number;        // moodboard canvas coordinates
-  y: number;
-  pressure: number; // 0–1 (defaults to 0.5 when device doesn't report it)
-  tiltX?: number;   // degrees, –90..90
-  tiltY?: number;
-}
-
-export interface Stroke {
-  id: string;
-  tool: PencilTool;
-  color: string;
-  width: number;    // base width in canvas units (before pressure multiplication)
-  points: StrokePoint[];
-}
+// Re-export for consumers that import from this file
+export type { PencilTool, StrokePoint, Stroke };
 
 interface Props {
   /** Whether drawing mode is active (pen events are captured) */

@@ -20,6 +20,7 @@ export default async function MoodboardsPage() {
   const serialized = moodboards.map((m) => ({
     ...m,
     canvasData: m.canvasData as CanvasElement[],
+    pencilStrokes: [] as import("@/lib/moodboard/types").Stroke[],
     shareExpiry: m.shareExpiry?.toISOString() ?? null,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),

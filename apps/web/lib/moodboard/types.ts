@@ -1,5 +1,25 @@
 // Types partagés pour le canvas moodboard
 
+// ── Apple Pencil stroke types ──────────────────────────────────────────────
+
+export type PencilTool = "pen" | "marker" | "eraser";
+
+export interface StrokePoint {
+  x: number;        // moodboard canvas coordinates
+  y: number;
+  pressure: number; // 0–1
+  tiltX?: number;
+  tiltY?: number;
+}
+
+export interface Stroke {
+  id: string;
+  tool: PencilTool;
+  color: string;
+  width: number;    // base width in canvas units
+  points: StrokePoint[];
+}
+
 export type CanvasElementBase = {
   id: string;
   x: number;
@@ -49,6 +69,7 @@ export interface MoodboardData {
   id: string;
   title: string;
   canvasData: CanvasElement[];
+  pencilStrokes: Stroke[];
   background: string;
   shareToken: string | null;
   shareExpiry: string | null;
