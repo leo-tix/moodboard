@@ -45,6 +45,23 @@ interface Props {
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
+/**
+ * Round point values before storage to reduce JSON payload size.
+ * x/y: integer (sub-pixel precision unnecessary for drawing)
+ * pressure: 2 decimals (0.01 granularity sufficient for brush width)
+ * tilt: integer degrees
+ * Result: ~35 bytes/pt vs ~65 bytes/pt uncompressed (≈46% smaller)
+ */
+function compressPoint(pos: { x: number; y: number }, e: { pressure: number; tiltX?: number; tiltY?: number }) {
+  return {
+    x: Math.round(pos.x),
+    y: Math.round(pos.y),
+    pressure: Math.round((e.pressure || 0.5) * 100) / 100,
+    tiltX: e.tiltX !== undefined ? Math.round(e.tiltX) : undefined,
+    tiltY: e.tiltY !== undefined ? Math.round(e.tiltY) : undefined,
+  };
+}
+
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
@@ -289,13 +306,7 @@ export function PencilLayer({
         tool:  toolRef.current,
         color: colorRef.current,
         width: widthRef.current,
-        points: [{
-          x: pos.x,
-          y: pos.y,
-          pressure: e.pressure || 0.5,
-          tiltX: e.tiltX,
-          tiltY: e.tiltY,
-        }],
+        points: [compressPoint(pos, e)],
       };
       scheduleLiveRedraw();
     };
@@ -330,13 +341,7 @@ export function PencilLayer({
 
       for (const ev of evts) {
         const pos = toCanvas(ev.clientX, ev.clientY);
-        currentStroke.current.points.push({
-          x: pos.x,
-          y: pos.y,
-          pressure: ev.pressure || 0.5,
-          tiltX: ev.tiltX,
-          tiltY: ev.tiltY,
-        });
+        currentStroke.current.points.push(compressPoint(pos, ev));
       }
 
       scheduleLiveRedraw();

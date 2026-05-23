@@ -127,8 +127,15 @@ export function MoodboardEditor({ initialData }: Props) {
   // Stable ref so native touch handlers can read drawingMode without being recreated
   const drawingModeRef = useRef(drawingMode);
   useEffect(() => { drawingModeRef.current = drawingMode; }, [drawingMode]);
-  // Skip the first save triggered by initial state (strokes already persisted)
-  const strokesInitializedRef = useRef(true);
+  // Always-current view of strokes (needed in async save callbacks)
+  const currentStrokesRef = useRef(strokes);
+  useEffect(() => { currentStrokesRef.current = strokes; }, [strokes]);
+  // Strokes drawn since the last successful save (delta for append saves)
+  const unsavedStrokesRef  = useRef<Stroke[]>([]);
+  // If true, next save must replace the full array (undo / erase / clear)
+  const pendingReplaceRef  = useRef(false);
+  // Timer for the 30 s debounce during active drawing
+  const strokeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -230,6 +237,38 @@ export function MoodboardEditor({ initialData }: Props) {
     setIsTouchDevice(navigator.maxTouchPoints > 1);
   }, []);
 
+  // Flush unsaved pencil strokes when the component unmounts (navigation away).
+  // flushStrokesSave is fire-and-forget here — we can't await in a cleanup fn.
+  useEffect(() => {
+    return () => {
+      if (strokeSaveTimerRef.current) clearTimeout(strokeSaveTimerRef.current);
+      // Best-effort: send any pending strokes before unmount
+      const needReplace = pendingReplaceRef.current;
+      const toAppend = unsavedStrokesRef.current;
+      if (!needReplace && toAppend.length === 0) return;
+      const payload = needReplace
+        ? { pencilStrokes: currentStrokesRef.current }
+        : undefined;
+      if (needReplace) {
+        fetch(`/api/moodboards/${initialData.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          keepalive: true, // survives page unload
+        }).catch(() => {});
+      } else {
+        fetch(`/api/moodboards/${initialData.id}/strokes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ append: toAppend }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+  // initialData.id is stable; we intentionally don't re-run this effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Snap helper ──
   const snap = useCallback(
     (v: number) => (snapEnabledRef.current ? Math.round(v / SNAP_PX) * SNAP_PX : v),
@@ -263,17 +302,64 @@ export function MoodboardEditor({ initialData }: Props) {
     [save]
   );
 
-  // ── Autosave pencil strokes whenever they change ──
-  useEffect(() => {
-    // Skip the very first render — strokes are already persisted in the DB
-    if (strokesInitializedRef.current) {
-      strokesInitializedRef.current = false;
-      return;
+  // ── Pencil stroke save helpers ───────────────────────────────────────────
+  //
+  // Strategy:
+  //   • New stroke drawn  → append-only POST (sends just the new stroke, ~1 KB)
+  //   • Undo / erase / clear → full replace PATCH (sends current array, rare)
+  //   • Debounce: 30 s during drawing, 800 ms after destructive ops
+  //   • Flush immediately when the user exits drawing mode
+  //
+  // This avoids the previous pattern of sending the full array (up to several
+  // MB) after every single stroke.
+
+  /** Send only new strokes (delta append). */
+  const appendPencilStrokes = useCallback(async (newStrokes: Stroke[]) => {
+    if (newStrokes.length === 0) return;
+    await fetch(`/api/moodboards/${initialData.id}/strokes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ append: newStrokes }),
+    });
+  }, [initialData.id]);
+
+  /** Flush: either append unsaved strokes or replace the full array. */
+  const flushStrokesSave = useCallback(async () => {
+    if (strokeSaveTimerRef.current) {
+      clearTimeout(strokeSaveTimerRef.current);
+      strokeSaveTimerRef.current = null;
     }
-    scheduleSave({ pencilStrokes: strokes });
-    // scheduleSave is stable; strokes is the only real dependency here
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strokes]);
+    const needReplace = pendingReplaceRef.current;
+    const toAppend    = unsavedStrokesRef.current.splice(0); // drain atomically
+    pendingReplaceRef.current = false;
+
+    if (!needReplace && toAppend.length === 0) return;
+
+    setSaving(true);
+    setSaved(false);
+    try {
+      if (needReplace) {
+        await fetch(`/api/moodboards/${initialData.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pencilStrokes: currentStrokesRef.current }),
+        });
+      } else {
+        await appendPencilStrokes(toAppend);
+      }
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }, [initialData.id, appendPencilStrokes]);
+
+  /** Schedule a debounced stroke save. Replace ops use a short delay. */
+  const scheduleStrokeSave = useCallback((type: "append" | "replace") => {
+    if (type === "replace") pendingReplaceRef.current = true;
+    if (strokeSaveTimerRef.current) clearTimeout(strokeSaveTimerRef.current);
+    const delay = type === "replace" ? 800 : 30_000;
+    strokeSaveTimerRef.current = setTimeout(flushStrokesSave, delay);
+  }, [flushStrokesSave]);
 
   // ── History push ──
   const pushHistory = useCallback((els: CanvasElement[]) => {
@@ -1394,7 +1480,10 @@ export function MoodboardEditor({ initialData }: Props) {
       strokeHistoryRef.current = [...strokeHistoryRef.current, next];
       return next;
     });
-  }, []);
+    // Track for delta append — only this stroke needs to be sent
+    unsavedStrokesRef.current.push(stroke);
+    scheduleStrokeSave("append");
+  }, [scheduleStrokeSave]);
 
   const handleEraseAt = useCallback((cx: number, cy: number, radius: number) => {
     setStrokes((prev) => {
@@ -1412,23 +1501,31 @@ export function MoodboardEditor({ initialData }: Props) {
       });
       if (next.length !== prev.length) {
         strokeHistoryRef.current = [...strokeHistoryRef.current, next];
+        // Erase removes strokes — must replace the full array
+        unsavedStrokesRef.current = [];
+        scheduleStrokeSave("replace");
       }
       return next;
     });
+  // distPointToSegment is stable (declared in same scope); scheduleStrokeSave is a stable callback
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scheduleStrokeSave]);
 
   const handlePencilUndo = useCallback(() => {
     const hist = strokeHistoryRef.current;
     if (hist.length <= 1) return;
     strokeHistoryRef.current = hist.slice(0, -1);
     setStrokes(strokeHistoryRef.current[strokeHistoryRef.current.length - 1]);
-  }, []);
+    unsavedStrokesRef.current = [];
+    scheduleStrokeSave("replace");
+  }, [scheduleStrokeSave]);
 
   const handlePencilClear = useCallback(() => {
     strokeHistoryRef.current = [[]];
     setStrokes([]);
-  }, []);
+    unsavedStrokesRef.current = [];
+    scheduleStrokeSave("replace");
+  }, [scheduleStrokeSave]);
 
   // ── Export PNG ──
   const handleExport = useCallback(async () => {
@@ -1894,7 +1991,7 @@ export function MoodboardEditor({ initialData }: Props) {
 
         {/* Apple Pencil drawing mode toggle */}
         <button
-          onClick={() => setDrawingMode((v) => !v)}
+          onClick={() => { if (drawingMode) flushStrokesSave(); setDrawingMode((v) => !v); }}
           title={drawingMode ? "Quitter le mode dessin" : "Mode dessin Apple Pencil"}
           className={`flex-shrink-0 transition-colors px-2 py-1 rounded border text-xs ${
             drawingMode
@@ -2036,7 +2133,7 @@ export function MoodboardEditor({ initialData }: Props) {
               onSizeChange={setPencilSize}
               onUndo={handlePencilUndo}
               onClear={handlePencilClear}
-              onClose={() => setDrawingMode(false)}
+              onClose={() => { flushStrokesSave(); setDrawingMode(false); }}
             />
           )}
 
