@@ -14,15 +14,27 @@
  * NOTE: Apple PencilKit native brushes are not available in web browsers.
  * This layer implements custom pressure-sensitive brushes via Canvas 2D API.
  *
- * Architecture:
- *  · committedCanvas  — all finished strokes (redrawn on strokes/pan/zoom change)
- *  · liveCanvas       — current in-progress stroke (cleared/redrawn each frame)
+ * ── Performance architecture ───────────────────────────────────────────────────
+ *  · committedCanvas  — all finished strokes.
+ *                       Redraws use a Path2D CACHE so all geometry (Catmull-Rom,
+ *                       smoothing, outline polygon) is computed ONCE at commit
+ *                       time, not on every pan/zoom frame.
+ *                       Each stroke = 1 ctx.fill() call (pen) or 1 ctx.stroke()
+ *                       call (marker), regardless of point count.
+ *  · liveCanvas       — current in-progress stroke (cleared/redrawn each rAF).
+ *                       Uses a fast single-bezier preview (no smoothing, 1 draw
+ *                       call).  Full quality kicks in when the stroke is committed.
  *  · Hover div        — cursor preview driven by React state (pointer pressure=0)
  */
 
 import { useRef, useEffect, useCallback, useState } from "react";
 import type { PencilTool, StrokePoint, Stroke } from "@/lib/moodboard/types";
-import { drawStroke } from "@/lib/moodboard/pencil";
+import {
+  buildCachedStroke,
+  drawCachedStroke,
+  drawStrokeLive,
+  type CachedStroke,
+} from "@/lib/moodboard/pencil";
 
 // Re-export for consumers that import from this file
 export type { PencilTool, StrokePoint, Stroke };
@@ -83,21 +95,39 @@ function applyCanvasTransform(
 }
 
 
-/** Redraw all strokes onto the committed canvas. */
+/**
+ * Redraw all committed strokes using pre-built Path2D cache.
+ *
+ * Each stroke is O(1) GPU draw call (fill or stroke with cached Path2D).
+ * Cache is lazy-built on first encounter and pruned of stale entries.
+ */
 function redrawCommittedCanvas(
   canvas: HTMLCanvasElement,
   strokes: Stroke[],
   pan: { x: number; y: number },
   zoom: number,
+  cache: Map<string, CachedStroke>,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx || canvas.width === 0) return;
   const dpr = window.devicePixelRatio || 1;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   applyCanvasTransform(ctx, pan, zoom, dpr);
-  for (const stroke of strokes) {
-    drawStroke(ctx, stroke);
+
+  // Prune stale cache entries (strokes that were deleted by undo/erase)
+  const currentIds = new Set(strokes.map((s) => s.id));
+  for (const id of cache.keys()) {
+    if (!currentIds.has(id)) cache.delete(id);
   }
+
+  for (const stroke of strokes) {
+    // Lazy build: compute Path2D only on first draw after commit
+    if (!cache.has(stroke.id)) {
+      cache.set(stroke.id, buildCachedStroke(stroke));
+    }
+    drawCachedStroke(ctx, cache.get(stroke.id)!);
+  }
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
@@ -144,6 +174,13 @@ export function PencilLayer({
   // Prevents the toggle firing multiple times per single Pencil Pro squeeze / double-tap
   const squeezeFiredRef = useRef(false);
 
+  /**
+   * Path2D cache: stroke.id → CachedStroke (pre-built outline polygon / bezier path).
+   * Populated lazily in redrawCommittedCanvas; pruned when strokes are removed.
+   * Avoids re-running Catmull-Rom + smoothing on every pan/zoom redraw.
+   */
+  const strokeCacheRef = useRef<Map<string, CachedStroke>>(new Map());
+
   // Hover cursor state: viewport coords (already offset by rect)
   const [hoverVP, setHoverVP] = useState<{ vx: number; vy: number } | null>(null);
 
@@ -171,7 +208,7 @@ export function PencilLayer({
       resizeToViewport();
       // Redraw after resize
       if (committedRef.current) {
-        redrawCommittedCanvas(committedRef.current, strokesRef.current, panRef.current, zoomRef.current);
+        redrawCommittedCanvas(committedRef.current, strokesRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
       }
     });
     ro.observe(vp);
@@ -182,7 +219,7 @@ export function PencilLayer({
 
   useEffect(() => {
     if (committedRef.current) {
-      redrawCommittedCanvas(committedRef.current, strokes, pan, zoom);
+      redrawCommittedCanvas(committedRef.current, strokes, pan, zoom, strokeCacheRef.current);
     }
   }, [strokes, pan, zoom]);
 
@@ -198,7 +235,8 @@ export function PencilLayer({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!currentStroke.current) return;
     applyCanvasTransform(ctx, panRef.current, zoomRef.current, dpr);
-    drawStroke(ctx, currentStroke.current);
+    // Fast preview path: single quadratic-bezier, 1 draw call, no heavy processing
+    drawStrokeLive(ctx, currentStroke.current);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }, []);
 
@@ -329,6 +367,10 @@ export function PencilLayer({
       }
 
       if (stroke && stroke.points.length > 0 && stroke.tool !== "eraser") {
+        // Pre-warm the cache synchronously before calling onStrokeAdd.
+        // This way the Path2D is ready before the committed canvas redraws,
+        // so the first post-commit redraw costs O(1) draw calls, not O(N_points).
+        strokeCacheRef.current.set(stroke.id, buildCachedStroke(stroke));
         onStrokeAdd(stroke);
       }
     };
