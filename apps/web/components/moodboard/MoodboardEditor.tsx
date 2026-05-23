@@ -21,6 +21,8 @@ import type {
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
 import { SharePanel } from "@/components/moodboard/SharePanel";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
+import { PencilLayer, type Stroke, type PencilTool } from "@/components/moodboard/PencilLayer";
+import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
 import { AI_IMPORT_KEY } from "@/components/settings/GeneralSettings";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
 
@@ -113,6 +115,15 @@ export function MoodboardEditor({ initialData }: Props) {
   const [cursor, setCursor] = useState("default");
   // Detected after mount — avoids SSR mismatch
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  // ── Apple Pencil drawing mode ──
+  const [drawingMode,  setDrawingMode]  = useState(false);
+  const [pencilTool,   setPencilTool]   = useState<PencilTool>("pen");
+  const [pencilColor,  setPencilColor]  = useState("#ffffff");
+  const [pencilSize,   setPencilSize]   = useState(5);
+  const [strokes,      setStrokes]      = useState<Stroke[]>([]);
+  // History for per-stroke undo (independent of canvas element history)
+  const strokeHistoryRef = useRef<Stroke[][]>([[]]);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -439,7 +450,7 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // Toolbar buttons: let React synthetic handlers run uninterrupted.
       // Also set the "started on element" flag so onTouchEnd doesn't deselect.
-      if (target.closest('[data-role="toolbar"]')) {
+      if (target.closest('[data-role="toolbar"]') || target.closest('[data-role="pencil-toolbar"]')) {
         touchStartedOnElementRef.current = true;
         return;
       }
@@ -1332,6 +1343,59 @@ export function MoodboardEditor({ initialData }: Props) {
     [updateElements]
   );
 
+  // ── Pencil stroke handlers ──
+
+  /** Stroke distance check for eraser */
+  const distPointToSegment = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  };
+
+  const handleStrokeAdd = useCallback((stroke: Stroke) => {
+    setStrokes((prev) => {
+      const next = [...prev, stroke];
+      strokeHistoryRef.current = [...strokeHistoryRef.current, next];
+      return next;
+    });
+  }, []);
+
+  const handleEraseAt = useCallback((cx: number, cy: number, radius: number) => {
+    setStrokes((prev) => {
+      const next = prev.filter((stroke) => {
+        const { points } = stroke;
+        if (points.length === 0) return false;
+        if (points.length === 1) {
+          return Math.hypot(cx - points[0].x, cy - points[0].y) > radius;
+        }
+        for (let i = 1; i < points.length; i++) {
+          const d = distPointToSegment(cx, cy, points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
+          if (d <= radius) return false;
+        }
+        return true;
+      });
+      if (next.length !== prev.length) {
+        strokeHistoryRef.current = [...strokeHistoryRef.current, next];
+      }
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handlePencilUndo = useCallback(() => {
+    const hist = strokeHistoryRef.current;
+    if (hist.length <= 1) return;
+    strokeHistoryRef.current = hist.slice(0, -1);
+    setStrokes(strokeHistoryRef.current[strokeHistoryRef.current.length - 1]);
+  }, []);
+
+  const handlePencilClear = useCallback(() => {
+    strokeHistoryRef.current = [[]];
+    setStrokes([]);
+  }, []);
+
   // ── Export PNG ──
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -1793,6 +1857,19 @@ export function MoodboardEditor({ initialData }: Props) {
         >
           Partager
         </button>
+
+        {/* Apple Pencil drawing mode toggle */}
+        <button
+          onClick={() => setDrawingMode((v) => !v)}
+          title={drawingMode ? "Quitter le mode dessin" : "Mode dessin Apple Pencil"}
+          className={`flex-shrink-0 transition-colors px-2 py-1 rounded border text-xs ${
+            drawingMode
+              ? "bg-[var(--accent,#a78bfa)]/15 border-[var(--accent,#a78bfa)]/50 text-[var(--accent,#a78bfa)]"
+              : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]"
+          }`}
+        >
+          ✒
+        </button>
       </div>
 
       {/* ── Body ── */}
@@ -1897,6 +1974,37 @@ export function MoodboardEditor({ initialData }: Props) {
                 }}
               />
             )}
+
+          {/* Apple Pencil drawing layer — always mounted so canvas state persists */}
+          <PencilLayer
+            active={drawingMode}
+            pan={pan}
+            zoom={zoom}
+            tool={pencilTool}
+            color={pencilColor}
+            width={pencilSize}
+            strokes={strokes}
+            onStrokeAdd={handleStrokeAdd}
+            onEraseAt={handleEraseAt}
+            viewportRef={viewportRef}
+          />
+
+          {/* Pencil floating toolbar — only shown in drawing mode */}
+          {drawingMode && (
+            <PencilToolbar
+              tool={pencilTool}
+              color={pencilColor}
+              size={pencilSize}
+              canUndo={strokes.length > 0}
+              canClear={strokes.length > 0}
+              onToolChange={setPencilTool}
+              onColorChange={setPencilColor}
+              onSizeChange={setPencilSize}
+              onUndo={handlePencilUndo}
+              onClear={handlePencilClear}
+              onClose={() => setDrawingMode(false)}
+            />
+          )}
 
           {/* Context menu */}
           {contextMenu && (() => {

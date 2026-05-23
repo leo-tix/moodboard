@@ -1,0 +1,243 @@
+"use client";
+
+import { useState } from "react";
+import type { PencilTool } from "./PencilLayer";
+
+// ── Preset palettes ─────────────────────────────────────────────────────────
+
+const COLORS = [
+  "#ffffff", // blanc
+  "#f0e6d2", // beige chaud
+  "#a78bfa", // violet accent
+  "#60a5fa", // bleu
+  "#34d399", // vert menthe
+  "#fbbf24", // ambre
+  "#f87171", // rouge corail
+  "#000000", // noir
+];
+
+const SIZES: { label: string; value: number }[] = [
+  { label: "S",  value: 2  },
+  { label: "M",  value: 5  },
+  { label: "L",  value: 12 },
+];
+
+// ── Icons ───────────────────────────────────────────────────────────────────
+
+const PenIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 2.5l2.5 2.5L5 13.5 2 14l.5-3L11 2.5z"/>
+    <path d="M9.5 4l2.5 2.5"/>
+  </svg>
+);
+
+const MarkerIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 13l2-5L12 3l1 1-7 7-5 2z"/>
+    <path d="M9 5l2 2"/>
+    <path d="M3 13l1-1"/>
+  </svg>
+);
+
+const EraserIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 14h12"/>
+    <path d="M12.5 3.5L14 5 7.5 11.5 4 12 3.5 8.5 10 2l2.5 1.5z"/>
+    <path d="M3.5 8.5L7.5 12"/>
+  </svg>
+);
+
+const UndoIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 5h6a3 3 0 0 1 0 6H5"/>
+    <path d="M2 5l3-3M2 5l3 3"/>
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 3.5h9"/>
+    <path d="M5 3.5V2.5h3v1"/>
+    <rect x="3" y="3.5" width="7" height="8" rx="1"/>
+    <path d="M5.5 6v3.5M7.5 6v3.5"/>
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+    <path d="M1 1l9 9M10 1L1 10"/>
+  </svg>
+);
+
+// ── Component ───────────────────────────────────────────────────────────────
+
+interface Props {
+  tool: PencilTool;
+  color: string;
+  size: number;
+  canUndo: boolean;
+  canClear: boolean;
+  onToolChange: (t: PencilTool) => void;
+  onColorChange: (c: string) => void;
+  onSizeChange: (s: number) => void;
+  onUndo: () => void;
+  onClear: () => void;
+  onClose: () => void;
+}
+
+export function PencilToolbar({
+  tool,
+  color,
+  size,
+  canUndo,
+  canClear,
+  onToolChange,
+  onColorChange,
+  onSizeChange,
+  onUndo,
+  onClear,
+  onClose,
+}: Props) {
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const handleClear = () => {
+    if (!confirmClear) { setConfirmClear(true); return; }
+    onClear();
+    setConfirmClear(false);
+  };
+
+  return (
+    // Floating palette — left side, vertically centered
+    // z-index below ContextualToolbar (200) but above canvas elements
+    <div
+      className="absolute left-3 top-1/2 -translate-y-1/2 z-[160] flex flex-col items-center gap-1.5
+                 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)]
+                 rounded-2xl shadow-2xl px-2 py-3 select-none"
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      data-role="pencil-toolbar"
+    >
+      {/* ── Close drawing mode ── */}
+      <button
+        onClick={onClose}
+        title="Quitter le mode dessin"
+        className="w-9 h-9 flex items-center justify-center rounded-xl
+                   text-[var(--text-tertiary)] hover:text-[var(--text-primary)]
+                   hover:bg-[var(--bg-surface)] transition-colors"
+      >
+        <CloseIcon />
+      </button>
+
+      <div className="w-5 h-px bg-[var(--border-subtle)]" />
+
+      {/* ── Tools ── */}
+      {(
+        [
+          { t: "pen"    as PencilTool, icon: <PenIcon />,    label: "Stylo"    },
+          { t: "marker" as PencilTool, icon: <MarkerIcon />, label: "Marqueur" },
+          { t: "eraser" as PencilTool, icon: <EraserIcon />, label: "Gomme"    },
+        ] as const
+      ).map(({ t, icon, label }) => (
+        <button
+          key={t}
+          onClick={() => onToolChange(t)}
+          title={label}
+          className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors ${
+            tool === t
+              ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+          }`}
+        >
+          {icon}
+        </button>
+      ))}
+
+      <div className="w-5 h-px bg-[var(--border-subtle)]" />
+
+      {/* ── Colors ── */}
+      <div className="flex flex-col gap-1">
+        {COLORS.map((c) => (
+          <button
+            key={c}
+            onClick={() => onColorChange(c)}
+            title={c}
+            className="w-6 h-6 rounded-full transition-transform hover:scale-110 flex-shrink-0"
+            style={{
+              backgroundColor: c,
+              border: color === c
+                ? "2px solid var(--accent, #a78bfa)"
+                : c === "#ffffff"
+                ? "1.5px solid rgba(255,255,255,0.2)"
+                : "1.5px solid transparent",
+              boxShadow: color === c ? "0 0 0 1px rgba(0,0,0,0.3)" : undefined,
+              outline: c === "#000000" ? "1px solid rgba(255,255,255,0.12)" : undefined,
+            }}
+          />
+        ))}
+        {/* Custom color picker */}
+        <label
+          className="w-6 h-6 rounded-full cursor-pointer flex items-center justify-center
+                     bg-[var(--bg-surface)] border border-[var(--border-default)]
+                     hover:border-[var(--border-strong)] transition-colors relative overflow-hidden"
+          title="Couleur personnalisée"
+        >
+          <span className="text-[8px] text-[var(--text-tertiary)] font-bold leading-none">+</span>
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => onColorChange(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+          />
+        </label>
+      </div>
+
+      <div className="w-5 h-px bg-[var(--border-subtle)]" />
+
+      {/* ── Size ── */}
+      {SIZES.map(({ label, value }) => (
+        <button
+          key={value}
+          onClick={() => onSizeChange(value)}
+          title={`Taille ${label}`}
+          className={`w-9 h-9 flex items-center justify-center rounded-xl text-[10px] font-medium transition-colors ${
+            size === value
+              ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+              : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+
+      <div className="w-5 h-px bg-[var(--border-subtle)]" />
+
+      {/* ── Undo ── */}
+      <button
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Annuler le dernier trait"
+        className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors
+                   text-[var(--text-secondary)] hover:text-[var(--text-primary)]
+                   hover:bg-[var(--bg-surface)] disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <UndoIcon />
+      </button>
+
+      {/* ── Clear all ── */}
+      <button
+        onClick={handleClear}
+        onBlur={() => setConfirmClear(false)}
+        disabled={!canClear}
+        title={confirmClear ? "Confirmer l'effacement" : "Tout effacer"}
+        className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors
+                    disabled:opacity-30 disabled:cursor-not-allowed ${
+          confirmClear
+            ? "bg-red-500/20 text-red-400"
+            : "text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10"
+        }`}
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+}
