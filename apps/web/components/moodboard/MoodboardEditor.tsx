@@ -124,6 +124,9 @@ export function MoodboardEditor({ initialData }: Props) {
   const [strokes,      setStrokes]      = useState<Stroke[]>([]);
   // History for per-stroke undo (independent of canvas element history)
   const strokeHistoryRef = useRef<Stroke[][]>([[]]);
+  // Stable ref so native touch handlers can read drawingMode without being recreated
+  const drawingModeRef = useRef(drawingMode);
+  useEffect(() => { drawingModeRef.current = drawingMode; }, [drawingMode]);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -455,6 +458,14 @@ export function MoodboardEditor({ initialData }: Props) {
         return;
       }
 
+      // In drawing mode the Apple Pencil contact fires touchstart (stylus touch type
+      // on iPadOS) — prevent these from starting pan / rubber-band / element drag.
+      // The PencilLayer handles all pen input independently via pointer events.
+      if (drawingModeRef.current) {
+        e.preventDefault(); // block synthetic mouse events from pencil contact
+        return;
+      }
+
       clearLongPress();
 
       // ── 3-finger: redo tap (track and wait for touchend) ──
@@ -578,6 +589,9 @@ export function MoodboardEditor({ initialData }: Props) {
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      // Drawing mode: block all touch-driven movement (pen events handled by PencilLayer)
+      if (drawingModeRef.current) { e.preventDefault(); return; }
+
       // ── 2-finger: pinch-zoom + translate simultaneously ──
       if (e.touches.length === 2 && pinchRef.current) {
         e.preventDefault();
@@ -651,6 +665,9 @@ export function MoodboardEditor({ initialData }: Props) {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      // Drawing mode: ignore all touch end events
+      if (drawingModeRef.current) return;
+
       // ── Multi-finger tap: undo (2 fingers) / redo (3 fingers) ──
       // Evaluate when the last finger lifts.
       let wasMultiTap = false;
@@ -1015,6 +1032,9 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Viewport mouse handlers (pan + rubber band) ──
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Ignore synthetic mouse events that originate from Apple Pencil in drawing mode
+    if (drawingModeRef.current) return;
+
     if (e.button === 1 || (e.button === 0 && isSpaceDown.current)) {
       // Pan
       e.preventDefault();
