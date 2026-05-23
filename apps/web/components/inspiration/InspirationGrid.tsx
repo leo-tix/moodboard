@@ -72,9 +72,9 @@ export function InspirationGrid({
           <motion.div
             key={item.id}
             className="mb-2 break-inside-avoid"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.6) }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2, delay: Math.min(i * 0.015, 0.12) }}
           >
             <InspirationCard
               id={item.id}

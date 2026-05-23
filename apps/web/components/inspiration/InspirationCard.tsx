@@ -32,7 +32,7 @@ export function InspirationCard({
   blurHash: _blurHash,
   width,
   height,
-  isAnimated = false,
+  isAnimated: _isAnimated = false,
   category,
   tags = [],
   year,
@@ -42,7 +42,6 @@ export function InspirationCard({
   onSelect,
   onBeforeNavigate,
 }: InspirationCardProps) {
-  const [loaded, setLoaded] = useState(false);
   const [hovered, setHovered] = useState(false);
 
   const thumbUrl = thumbnailKey ? getThumbnailUrl(thumbnailKey) : null;
@@ -60,38 +59,16 @@ export function InspirationCard({
       whileHover={{ scale: selectable ? 1 : 1.005 }}
       transition={{ duration: 0.2 }}
     >
-      {/* Placeholder */}
-      <div
-        className={cn("absolute inset-0 transition-opacity duration-500", loaded ? "opacity-0" : "opacity-100")}
-        style={{ backgroundColor: "var(--bg-elevated)" }}
-      />
-
-      {/* Image — <img> natif pour les animés (Next.js <Image> supprime l'animation) */}
+      {/* Image — <img> natif pour les animés (Next.js <Image> supprime l'animation GIF) */}
       {thumbUrl ? (
-        isAnimated ? (
-          <img
-            src={thumbUrl}
-            alt={title}
-            className={cn(
-              "absolute inset-0 w-full h-full object-cover transition-all duration-500",
-              loaded ? "opacity-100" : "opacity-0",
-              hovered && !selectable ? "scale-[1.02]" : "scale-100"
-            )}
-            onLoad={() => setLoaded(true)}
-          />
-        ) : (
-          <img
-            src={thumbUrl}
-            alt={title}
-            loading="lazy"
-            className={cn(
-              "absolute inset-0 w-full h-full object-cover transition-all duration-500",
-              loaded ? "opacity-100" : "opacity-0",
-              hovered && !selectable ? "scale-[1.02]" : "scale-100"
-            )}
-            onLoad={() => setLoaded(true)}
-          />
-        )
+        <img
+          src={thumbUrl}
+          alt={title}
+          className={cn(
+            "absolute inset-0 w-full h-full object-cover transition-transform duration-300",
+            hovered && !selectable ? "scale-[1.02]" : "scale-100"
+          )}
+        />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="text-[var(--text-tertiary)] text-xs">Sans image</span>
