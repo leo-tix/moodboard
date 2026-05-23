@@ -8,7 +8,9 @@ import type {
   TextElement,
   ColorElement,
   StickyElement,
+  StrokeElement,
 } from "@/lib/moodboard/types";
+import { buildCachedStroke, drawCachedStroke } from "@/lib/moodboard/pencil";
 
 interface Props {
   data: {
@@ -110,6 +112,89 @@ function NavigationGuide({ onClose }: { onClose: () => void }) {
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Stroke canvas overlay ─────────────────────────────────────────────────────
+// Renders all StrokeElements onto an offscreen canvas that is positioned exactly
+// over the viewport.  Uses the same per-element matrix transform as PencilLayer
+// so stroke positions match perfectly.
+
+function StrokeCanvas({
+  strokeElements,
+  pan,
+  zoom,
+}: {
+  strokeElements: StrokeElement[];
+  pan: { x: number; y: number };
+  zoom: number;
+}) {
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const cacheRef   = useRef(new Map<string, ReturnType<typeof buildCachedStroke>>());
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    const dpr = window.devicePixelRatio || 1;
+
+    const draw = () => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const sorted = [...strokeElements].sort((a, b) => a.zIndex - b.zIndex);
+      for (const el of sorted) {
+        const sid = el.stroke.id;
+        if (!cacheRef.current.has(sid)) {
+          cacheRef.current.set(sid, buildCachedStroke(el.stroke));
+        }
+        const cached = cacheRef.current.get(sid)!;
+
+        const sx = el.originW > 0 ? el.w / el.originW : 1;
+        const sy = el.originH > 0 ? el.h / el.originH : 1;
+        const tx = el.x - el.originX * sx;
+        const ty = el.y - el.originY * sy;
+
+        ctx.save();
+        ctx.globalAlpha = el.opacity ?? 1;
+        ctx.setTransform(
+          zoom * dpr * sx, 0,
+          0, zoom * dpr * sy,
+          (pan.x + tx * zoom) * dpr,
+          (pan.y + ty * zoom) * dpr,
+        );
+        drawCachedStroke(ctx, cached);
+        ctx.restore();
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    };
+
+    const resize = () => {
+      const w = parent.clientWidth;
+      const h = parent.clientHeight;
+      canvas.width  = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width  = `${w}px`;
+      canvas.style.height = `${h}px`;
+      draw();
+    };
+
+    const ro = new ResizeObserver(resize);
+    ro.observe(parent);
+    resize();
+
+    return () => ro.disconnect();
+  }, [strokeElements, pan, zoom]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 pointer-events-none"
+      style={{ zIndex: 148 }}
+    />
   );
 }
 
@@ -516,24 +601,35 @@ export function MoodboardViewer({ data }: Props) {
             height: 0,
           }}
         >
-          {data.canvasData.map((el) => (
-            <div
-              key={el.id}
-              className="absolute pointer-events-none"
-              style={{
-                left:    el.x,
-                top:     el.y,
-                width:   el.w,
-                height:  el.h,
-                // Sticky notes always render above images/colors/text (purely visual).
-                zIndex:  el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
-                opacity: el.opacity ?? 1,
-              }}
-            >
-              <ViewerElement element={el} />
-            </div>
-          ))}
+          {data.canvasData
+            .filter((el) => el.type !== "stroke")
+            .map((el) => (
+              <div
+                key={el.id}
+                className="absolute pointer-events-none"
+                style={{
+                  left:    el.x,
+                  top:     el.y,
+                  width:   el.w,
+                  height:  el.h,
+                  // Sticky notes always render above images/colors/text (purely visual).
+                  zIndex:  el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
+                  opacity: el.opacity ?? 1,
+                }}
+              >
+                <ViewerElement element={el} />
+              </div>
+            ))}
         </div>
+
+        {/* Stroke canvas overlay — pencil drawings rendered at viewport coords */}
+        {data.canvasData.some((el) => el.type === "stroke") && (
+          <StrokeCanvas
+            strokeElements={data.canvasData.filter((el) => el.type === "stroke") as StrokeElement[]}
+            pan={pan}
+            zoom={zoom}
+          />
+        )}
 
         {/* Space-hold hint — hidden on touch (no keyboard) */}
         {cursor === "grab" && !isTouchDevice && (

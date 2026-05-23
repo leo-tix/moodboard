@@ -289,6 +289,10 @@ export function PencilLayer({
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
 
+      // ── Toolbar interaction: let pencil tap toolbar buttons naturally ────
+      // Don't intercept pointer events that target the drawing toolbar.
+      if ((e.target as HTMLElement).closest('[data-role="pencil-toolbar"]')) return;
+
       // ── Apple Pencil Pro barrel / squeeze / double-tap button ────────────
       // Any non-primary button on a pen device triggers the eraser toggle.
       // Apple Pencil Pro squeeze fires as button 2 or 5 depending on
@@ -331,6 +335,12 @@ export function PencilLayer({
     const onPointerMove = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
       if (!activeRef.current) return;
+
+      // Don't draw / show cursor when hovering over toolbar buttons
+      if ((e.target as HTMLElement).closest('[data-role="pencil-toolbar"]')) {
+        setHoverVP(null);
+        return;
+      }
 
       // ── Apple Pencil Pro double-tap (hover + side button) ─────────────────
       // Some iPadOS/Safari versions fire pointermove with pressure===0 and
@@ -402,11 +412,27 @@ export function PencilLayer({
 
     const onPointerLeave = () => setHoverVP(null);
 
+    // ── Apple Pencil Pro squeeze → contextmenu (Safari 17.4+) ───────────────
+    // Starting with Safari 17.4 / iPadOS 17.4, the Apple Pencil Pro squeeze
+    // gesture fires a `contextmenu` event on the target element.  We suppress
+    // the browser menu and use it to toggle the eraser, same as the button
+    // detection above.  Guard with activeRef so this only fires in drawing mode.
+    const onContextMenuPen = (e: Event) => {
+      if (!activeRef.current) return;
+      e.preventDefault();
+      if (!squeezeFiredRef.current) {
+        squeezeFiredRef.current = true;
+        onToggleEraserRef.current();
+        setTimeout(() => { squeezeFiredRef.current = false; }, 600);
+      }
+    };
+
     vp.addEventListener("pointerdown",  onPointerDown,  { passive: false });
     vp.addEventListener("pointermove",  onPointerMove,  { passive: false });
     vp.addEventListener("pointerup",    onPointerUp);
     vp.addEventListener("pointercancel", onPointerUp);
     vp.addEventListener("pointerleave", onPointerLeave);
+    vp.addEventListener("contextmenu",  onContextMenuPen);
 
     return () => {
       vp.removeEventListener("pointerdown",  onPointerDown);
@@ -414,6 +440,7 @@ export function PencilLayer({
       vp.removeEventListener("pointerup",    onPointerUp);
       vp.removeEventListener("pointercancel", onPointerUp);
       vp.removeEventListener("pointerleave", onPointerLeave);
+      vp.removeEventListener("contextmenu",  onContextMenuPen);
     };
   }, [viewportRef, onStrokeAdd, onEraseAt, scheduleLiveRedraw]);
 

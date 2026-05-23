@@ -467,6 +467,9 @@ export function MoodboardEditor({ initialData }: Props) {
         return;
       }
 
+      // Resize handles manage their own touch event handlers — don't pan.
+      if (target.closest('[data-role="resize-handle"]')) return;
+
       // ── Drawing mode touch handling ───────────────────────────────────────
       // The PencilLayer handles all pen (stylus) input via pointer events.
       // Finger gestures supported in drawing mode:
@@ -503,8 +506,13 @@ export function MoodboardEditor({ initialData }: Props) {
         }
 
         if (e.touches.length === 1) {
-          // 1-finger pan — Apple Pencil uses pointer events so no stream conflict
+          // 1-finger pan — Apple Pencil uses pointer events (separate stream).
+          // However, on some iPadOS/browser combinations the Pencil also fires
+          // touch events with touchType === "stylus".  Skip pan for stylus
+          // touches so drawing doesn't simultaneously move the canvas.
           const t = e.touches[0];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if ((t as any).touchType === "stylus") return;
           touchPanRef.current = {
             startX : t.clientX,
             startY : t.clientY,
@@ -1372,17 +1380,26 @@ export function MoodboardEditor({ initialData }: Props) {
       }
     }
 
-    // Follower visual update only applies during multi-selection
-    if (!ids.includes(id) || ids.length <= 1) return;
-
     if (dragAxisRef.current === "h") dy = 0;
     if (dragAxisRef.current === "v") dx = 0;
 
+    // Update ALL selected elements (including the leader) so the group selection
+    // overlay stays visually in sync during drag.  React-rnd also has position
+    // controlled by element.x/y — since it already moved there visually, setting
+    // the prop to the same value causes no stutter.
+    if (!ids.includes(id) || ids.length <= 1) {
+      // Single-element drag: just keep leader in sync for group overlay
+      setElements((prev) => prev.map((el) =>
+        el.id === id ? { ...el, x: newX, y: newY } : el
+      ));
+      return;
+    }
+
     setElements((prev) =>
       prev.map((el) => {
-        if (el.id === id) return el; // leader: react-rnd handles its visual position
         if (!ids.includes(el.id)) return el;
         if (el.locked) return el; // locked elements never move
+        if (el.id === id) return { ...el, x: newX, y: newY }; // leader: sync state to rnd position
         const s = multiDragStartPositions.current.get(el.id);
         if (!s) return el;
         return { ...el, x: s.x + dx, y: s.y + dy };
@@ -1729,6 +1746,39 @@ export function MoodboardEditor({ initialData }: Props) {
     return () => window.removeEventListener("paste", handler);
   }, [uploadFile, getViewportCenter]);
 
+  // ── Library touch-drag add (long-press from LibraryPanel → drop on canvas) ──
+  const handleLibraryTouchAdd = useCallback(
+    (item: {
+      inspirationId: string;
+      storageKey: string;
+      title: string;
+      width?: number | null;
+      height?: number | null;
+      isAnimated?: boolean;
+    }, clientX: number, clientY: number) => {
+      const { x, y } = screenToCanvas(clientX, clientY);
+      const ratio = item.width && item.height ? item.width / item.height : 16 / 9;
+      const W = Math.min(480, Math.max(160, item.width ?? 400));
+      const H = Math.round(W / ratio);
+      const el: ImageElement = {
+        id:            makeId(),
+        type:          "image",
+        x:             snap(x - W / 2),
+        y:             snap(y - H / 2),
+        w:             W,
+        h:             H,
+        zIndex:        ++nextZRef.current,
+        inspirationId: item.inspirationId,
+        storageKey:    item.storageKey,
+        title:         item.title,
+        aspectRatio:   ratio,
+        isAnimated:    item.isAnimated ?? false,
+      };
+      updateElements((prev) => [...prev, el]);
+    },
+    [screenToCanvas, updateElements, snap]
+  );
+
   // ── Drop handlers ──
   const handleLibraryDrop = useCallback(
     (e: React.DragEvent): boolean => {
@@ -2013,7 +2063,10 @@ export function MoodboardEditor({ initialData }: Props) {
         {/* Library panel */}
         {showLibrary && (
           <div className="flex-shrink-0 w-64 border-r border-[var(--border-subtle)] overflow-y-auto bg-[var(--bg-base)]">
-            <LibraryPanel onAdd={addImage} />
+            <LibraryPanel
+              onAdd={addImage}
+              onTouchAdd={isTouchDevice ? handleLibraryTouchAdd : undefined}
+            />
           </div>
         )}
 
@@ -2079,6 +2132,7 @@ export function MoodboardEditor({ initialData }: Props) {
                 dragAxis={el.id === draggingId ? dragAxisState : "both"}
                 // Touch: drag only allowed if the element is already selected
                 forceDragDisabled={isTouchDevice && !selectedIds.includes(el.id)}
+                isTouchDevice={isTouchDevice}
                 onSelect={(shift) => handleSelect(el.id, shift)}
                 onContextMenu={(cx, cy) => {
                   const vp = viewportRef.current;
@@ -2205,8 +2259,9 @@ export function MoodboardEditor({ initialData }: Props) {
             );
           })()}
 
-          {/* Group resize overlay */}
-          {selectedIds.length > 1 && (
+          {/* Group resize overlay — also shown for single elements on touch
+              (react-rnd handles use mouse events which are unreliable on iPad) */}
+          {selectedIds.length > 0 && (selectedIds.length > 1 || isTouchDevice) && (
             <GroupResizeOverlay
               selectedElements={elements.filter((el) => selectedIds.includes(el.id))}
               pan={pan}
@@ -2366,6 +2421,8 @@ interface CanvasItemProps {
   dragAxis: "both" | "x" | "y";
   /** On touch devices, drag is disabled for unselected elements (tap first to select). */
   forceDragDisabled?: boolean;
+  /** On touch devices react-rnd resize handles are replaced by GroupResizeOverlay. */
+  isTouchDevice?: boolean;
   onSelect: (shift: boolean) => void;
   onContextMenu: (clientX: number, clientY: number) => void;
   onChange: (el: CanvasElement) => void;
@@ -2392,6 +2449,7 @@ function CanvasItem({
   spaceHeld,
   dragAxis,
   forceDragDisabled,
+  isTouchDevice,
   onSelect,
   onContextMenu,
   onChange,
@@ -2469,7 +2527,7 @@ function CanvasItem({
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
       dragAxis={dragAxis}
-      enableResizing={selected && !element.locked}
+      enableResizing={selected && !element.locked && !isTouchDevice}
       disableDragging={!!element.locked || !!forceDragDisabled}
       className="canvas-item group"
     >
@@ -2742,8 +2800,10 @@ function ElementContent({
   return null;
 }
 
-// ── Group Resize Overlay ─────────────────────────────────────────────────────
-// Renders a dashed bounding box with 8 resize handles around the multi-selection.
+// ── Group/Selection Resize Overlay ──────────────────────────────────────────
+// Renders a dashed bounding box with 8 resize handles around any selection.
+// On desktop: shown for multi-selection only (react-rnd handles single elements).
+// On touch: shown for single AND multi-selection (react-rnd handles don't work well).
 // Handles are in viewport coords; drag deltas are converted to canvas units.
 
 type ResizePatch = { x: number; y: number; w: number; h: number };
@@ -2765,7 +2825,7 @@ function GroupResizeOverlay({
   onUpdate,
   onCommit,
 }: GroupResizeOverlayProps) {
-  if (selectedElements.length < 2) return null;
+  if (selectedElements.length < 1) return null;
 
   const gx  = Math.min(...selectedElements.map((el) => el.x));
   const gy  = Math.min(...selectedElements.map((el) => el.y));
@@ -2900,18 +2960,17 @@ function GroupResizeOverlay({
       {handles.map(({ dir, cx, cy, cursor }) => (
         <div
           key={dir}
+          data-role="resize-handle"
           className="absolute pointer-events-auto"
           style={{
             left: cx - HANDLE / 2,
             top:  cy - HANDLE / 2,
-            // Larger hit area on touch for comfortable finger tapping
             width: HANDLE,
             height: HANDLE,
             background: "white",
             border: "1px solid rgba(0,0,0,0.35)",
             borderRadius: 1,
             cursor,
-            // Increase touch target without affecting visual size
             touchAction: "none",
           }}
           onMouseDown={(e) => onHandleMouseDown(dir, e)}
