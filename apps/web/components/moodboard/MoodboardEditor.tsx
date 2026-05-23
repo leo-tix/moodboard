@@ -1533,6 +1533,7 @@ export function MoodboardEditor({ initialData }: Props) {
     try {
       await exportMoodboardAsPng(elementsRef.current, background, title, {
         transparent: exportTransparent,
+        strokes: currentStrokesRef.current,
       });
     } finally {
       setExporting(false);

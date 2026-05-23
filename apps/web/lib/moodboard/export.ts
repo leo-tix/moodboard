@@ -1,4 +1,5 @@
-import type { CanvasElement } from "./types";
+import type { CanvasElement, Stroke } from "./types";
+import { drawStroke } from "./pencil";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -20,12 +21,15 @@ export async function exportMoodboardAsPng(
   elements: CanvasElement[],
   background: string,
   title: string,
-  { transparent = false }: { transparent?: boolean } = {},
+  { transparent = false, strokes = [] }: { transparent?: boolean; strokes?: Stroke[] } = {},
 ): Promise<void> {
   if (typeof window === "undefined") return;
 
-  // ── Bounding box ──────────────────────────────────────────────────────────
-  if (elements.length === 0) {
+  // ── Bounding box (elements + pencil stroke points) ────────────────────────
+  const strokePoints = strokes.flatMap((s) => s.points);
+  const hasContent   = elements.length > 0 || strokePoints.length > 0;
+
+  if (!hasContent) {
     const c = makeCanvas(800, 600);
     if (!transparent) {
       const ctx = c.getContext("2d")!;
@@ -36,10 +40,27 @@ export async function exportMoodboardAsPng(
     return;
   }
 
-  const minX = Math.min(...elements.map((e) => e.x)) - PAD;
-  const minY = Math.min(...elements.map((e) => e.y)) - PAD;
-  const maxX = Math.max(...elements.map((e) => e.x + e.w)) + PAD;
-  const maxY = Math.max(...elements.map((e) => e.y + e.h)) + PAD;
+  // Max stroke width used in rendering (pen: width*2, marker: width*5*tiltScale≈width*10)
+  // Add a generous pad so thick strokes aren't clipped at the edges.
+  const strokePad = strokes.length > 0
+    ? Math.max(...strokes.map((s) => s.width)) * 12
+    : 0;
+
+  const allXs = [
+    ...elements.map((e) => e.x),
+    ...elements.map((e) => e.x + e.w),
+    ...strokePoints.map((p) => p.x),
+  ];
+  const allYs = [
+    ...elements.map((e) => e.y),
+    ...elements.map((e) => e.y + e.h),
+    ...strokePoints.map((p) => p.y),
+  ];
+
+  const minX = Math.min(...allXs) - PAD - strokePad;
+  const minY = Math.min(...allYs) - PAD - strokePad;
+  const maxX = Math.max(...allXs) + PAD + strokePad;
+  const maxY = Math.max(...allYs) + PAD + strokePad;
   const bw = maxX - minX;
   const bh = maxY - minY;
 
@@ -118,6 +139,19 @@ export async function exportMoodboardAsPng(
       }
     }
 
+    ctx.restore();
+  }
+
+  // ── Pencil strokes ────────────────────────────────────────────────────────
+  // Apply the same offset+scale transform as the elements so strokes land
+  // exactly where the user drew them relative to the canvas content.
+  if (strokes.length > 0) {
+    ctx.save();
+    ctx.setTransform(scale, 0, 0, scale, -minX * scale, -minY * scale);
+    for (const stroke of strokes) {
+      drawStroke(ctx, stroke);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.restore();
   }
 

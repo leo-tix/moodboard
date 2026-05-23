@@ -22,6 +22,7 @@
 
 import { useRef, useEffect, useCallback, useState } from "react";
 import type { PencilTool, StrokePoint, Stroke } from "@/lib/moodboard/types";
+import { drawStroke } from "@/lib/moodboard/pencil";
 
 // Re-export for consumers that import from this file
 export type { PencilTool, StrokePoint, Stroke };
@@ -76,79 +77,6 @@ function applyCanvasTransform(
   ctx.setTransform(zoom * dpr, 0, 0, zoom * dpr, pan.x * dpr, pan.y * dpr);
 }
 
-/** Render a single stroke onto a canvas context (already transformed to canvas space). */
-function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-  const { points, tool, color, width } = stroke;
-  if (points.length === 0) return;
-
-  ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  // ── Pen: pressure-sensitive variable-width segments ──────────────────────
-  if (tool === "pen") {
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = color;
-
-    if (points.length === 1) {
-      // Single dot
-      ctx.beginPath();
-      ctx.arc(
-        points[0].x,
-        points[0].y,
-        (width * Math.max(0.2, points[0].pressure)) / 2,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fillStyle = color;
-      ctx.fill();
-    } else {
-      // Each segment drawn independently so lineWidth can vary with pressure
-      for (let i = 1; i < points.length; i++) {
-        const a = points[i - 1];
-        const b = points[i];
-        const p = Math.max(0.08, (a.pressure + b.pressure) / 2);
-        ctx.beginPath();
-        ctx.lineWidth = width * p * 2;
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-    }
-
-  // ── Marker: semi-transparent constant-width smooth bezier path ────────────
-  } else if (tool === "marker") {
-    // Draw the path first at full opacity, then composite at marker alpha.
-    // Using a single path prevents opacity accumulation at stroke overlaps.
-    ctx.globalAlpha = 0.38;
-    ctx.strokeStyle = color;
-    ctx.lineCap = "square";
-
-    // Width scaled by tilt (flatter = wider, like a real marker nib)
-    const tilt = points[0]?.tiltX ?? 0;
-    const tiltScale = 1 + Math.abs(tilt) / 90;
-    ctx.lineWidth = width * 5 * tiltScale;
-
-    if (points.length === 1) {
-      ctx.beginPath();
-      ctx.arc(points[0].x, points[0].y, width * 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length - 1; i++) {
-        const mx = (points[i].x + points[i + 1].x) / 2;
-        const my = (points[i].y + points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-      }
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-      ctx.stroke();
-    }
-  }
-
-  ctx.restore();
-}
 
 /** Redraw all strokes onto the committed canvas. */
 function redrawCommittedCanvas(
