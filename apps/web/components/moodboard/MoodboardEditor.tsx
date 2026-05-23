@@ -153,6 +153,8 @@ export function MoodboardEditor({ initialData }: Props) {
   // Touch tap vs pan tracking
   const touchStartedOnElementRef = useRef(false); // was the touch on an element?
   const touchDidPanRef           = useRef(false);  // did the touch produce a significant pan movement?
+  // Multi-finger tap: 2 fingers = undo, 3 fingers = redo
+  const multiTapRef = useRef<{ count: number; startTime: number; didMove: boolean } | null>(null);
 
   // ── Smooth zoom (rAF lerp) ──
   // zoomTargetRef / panTargetRef hold the *desired* state.
@@ -292,6 +294,12 @@ export function MoodboardEditor({ initialData }: Props) {
     setSelectedIds([]);
   }, [scheduleSave]);
 
+  // Refs so the touch useEffect (empty dep array) always calls the latest undo/redo
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
+  useEffect(() => { undoRef.current = undo; }, [undo]);
+  useEffect(() => { redoRef.current = redo; }, [redo]);
+
   // ── Delete selected ──
   const deleteSelected = useCallback(() => {
     const ids = selectedIdsRef.current;
@@ -429,11 +437,29 @@ export function MoodboardEditor({ initialData }: Props) {
       const target = e.target as HTMLElement;
       if (!target.closest('[data-role="context-menu"]')) setContextMenu(null);
 
+      // Toolbar buttons: let React synthetic handlers run uninterrupted
+      if (target.closest('[data-role="toolbar"]')) return;
+
       clearLongPress();
+
+      // ── 3-finger: redo tap (track and wait for touchend) ──
+      if (e.touches.length === 3) {
+        e.preventDefault();
+        multiTapRef.current = { count: 3, startTime: Date.now(), didMove: false };
+        return;
+      }
 
       // ── 2-finger: init pinch/zoom + pan ──
       if (e.touches.length === 2) {
         e.preventDefault();
+        // Cancel any in-progress react-rnd drag so the selected element doesn't
+        // jump when a second finger lands (react-rnd tracks finger 1 as a drag).
+        document.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true, cancelable: true,
+          clientX: e.touches[0].clientX, clientY: e.touches[0].clientY,
+        }));
+        // Track for 2-finger undo tap
+        multiTapRef.current = { count: 2, startTime: Date.now(), didMove: false };
         touchPanRef.current = null;
         clearTouchRubberBand();
         setRubberBand(null);
@@ -540,6 +566,8 @@ export function MoodboardEditor({ initialData }: Props) {
       // ── 2-finger: pinch-zoom + translate simultaneously ──
       if (e.touches.length === 2 && pinchRef.current) {
         e.preventDefault();
+        // Any 2-finger movement = not a tap
+        if (multiTapRef.current) multiTapRef.current.didMove = true;
         const p  = pinchRef.current;
         const t0 = e.touches[0], t1 = e.touches[1];
         const dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
@@ -607,7 +635,30 @@ export function MoodboardEditor({ initialData }: Props) {
       }
     };
 
-    const onTouchEnd = () => {
+    const onTouchEnd = (e: TouchEvent) => {
+      // ── Multi-finger tap: undo (2 fingers) / redo (3 fingers) ──
+      // Evaluate when the last finger lifts.
+      let wasMultiTap = false;
+      if (e.touches.length === 0 && multiTapRef.current && !multiTapRef.current.didMove) {
+        const elapsed = Date.now() - multiTapRef.current.startTime;
+        if (elapsed < 350) {
+          wasMultiTap = true;
+          if (multiTapRef.current.count === 2) undoRef.current();
+          else if (multiTapRef.current.count === 3) redoRef.current();
+        }
+      }
+      if (e.touches.length === 0) multiTapRef.current = null;
+      // If it was a multi-tap gesture, skip all other end-of-touch logic
+      if (wasMultiTap) {
+        clearTouchRubberBand();
+        touchPanRef.current = null;
+        pinchRef.current     = null;
+        touchDidPanRef.current = false;
+        touchStartedOnElementRef.current = false;
+        clearLongPress();
+        return;
+      }
+
       // Finalise rubber band: select elements that intersect the rect
       if (touchRubberBandRef.current && touchRubberBandRectRef.current) {
         const { sx, sy, ex, ey } = touchRubberBandRectRef.current;
@@ -1912,6 +1963,7 @@ export function MoodboardEditor({ initialData }: Props) {
               selectedElements={elements.filter((el) => selectedIds.includes(el.id))}
               pan={pan}
               zoom={zoom}
+              isTouchDevice={isTouchDevice}
               onUpdate={handleGroupResizeUpdate}
               onCommit={handleGroupResizeCommit}
             />
@@ -2442,6 +2494,7 @@ interface GroupResizeOverlayProps {
   selectedElements: CanvasElement[];
   pan: { x: number; y: number };
   zoom: number;
+  isTouchDevice: boolean;
   onUpdate: (updates: Array<{ id: string; patch: ResizePatch }>) => void;
   onCommit: (updates: Array<{ id: string; patch: ResizePatch }>) => void;
 }
@@ -2450,6 +2503,7 @@ function GroupResizeOverlay({
   selectedElements,
   pan,
   zoom,
+  isTouchDevice,
   onUpdate,
   onCommit,
 }: GroupResizeOverlayProps) {
@@ -2468,7 +2522,7 @@ function GroupResizeOverlay({
   const vw = gw * zoom;
   const vh = gh * zoom;
 
-  const HANDLE = 7;
+  const HANDLE = isTouchDevice ? 20 : 7;
 
   const handles: Array<{ dir: string; cx: number; cy: number; cursor: string }> = [
     { dir: "nw", cx: 0,    cy: 0,    cursor: "nw-resize" },
@@ -2481,13 +2535,9 @@ function GroupResizeOverlay({
     { dir: "w",  cx: 0,    cy: vh/2, cursor: "w-resize"  },
   ];
 
-  const onHandleMouseDown = (dir: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const startMX = e.clientX;
-    const startMY = e.clientY;
-    // Capture at drag-start time
+  // Shared resize logic — called by both mouse and touch handlers
+  const startResize = (dir: string, startMX: number, startMY: number, isTouch: boolean) => {
+    // Capture bounding box at drag-start time
     const origGx = gx, origGy = gy, origGw = gw, origGh = gh;
     const capturedZoom = zoom;
 
@@ -2501,7 +2551,7 @@ function GroupResizeOverlay({
 
     const AR = origGw / Math.max(1, origGh);
 
-    // free = false → maintain aspect ratio (default); free = true → Shift held
+    // free = false → maintain aspect ratio; free = true → Shift held (mouse only)
     const compute = (clientX: number, clientY: number, free: boolean) => {
       const dx = (clientX - startMX) / capturedZoom;
       const dy = (clientY - startMY) / capturedZoom;
@@ -2518,18 +2568,16 @@ function GroupResizeOverlay({
       let ngh = Math.max(40, ngy2 - ngy);
 
       if (!free) {
-        // Maintain aspect ratio — width drives except for N/S handles
         if (dir === "n" || dir === "s") {
           ngw = Math.max(80, ngh * AR);
-          ngx = origGx + origGw / 2 - ngw / 2; // keep horizontal center
+          ngx = origGx + origGw / 2 - ngw / 2;
         } else if (dir === "e" || dir === "w") {
           ngh = Math.max(40, ngw / AR);
-          ngy = origGy + origGh / 2 - ngh / 2; // keep vertical center
+          ngy = origGy + origGh / 2 - ngh / 2;
         } else {
-          // Corners: width drives, anchor the opposite corner
           ngh = Math.max(40, ngw / AR);
-          if (dir === "nw" || dir === "ne") ngy = (origGy + origGh) - ngh; // bottom fixed
-          if (dir === "nw" || dir === "sw") ngx = (origGx + origGw) - ngw; // right fixed
+          if (dir === "nw" || dir === "ne") ngy = (origGy + origGh) - ngh;
+          if (dir === "nw" || dir === "sw") ngx = (origGx + origGw) - ngw;
         }
       }
 
@@ -2544,14 +2592,45 @@ function GroupResizeOverlay({
       }));
     };
 
-    const onMove = (ev: MouseEvent) => onUpdate(compute(ev.clientX, ev.clientY, ev.shiftKey));
-    const onUp   = (ev: MouseEvent) => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup",   onUp);
-      onCommit(compute(ev.clientX, ev.clientY, ev.shiftKey));
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup",   onUp);
+    if (isTouch) {
+      const onMove = (ev: TouchEvent) => {
+        ev.preventDefault();
+        if (ev.touches.length > 0)
+          onUpdate(compute(ev.touches[0].clientX, ev.touches[0].clientY, false));
+      };
+      const onEnd = (ev: TouchEvent) => {
+        document.removeEventListener("touchmove",  onMove);
+        document.removeEventListener("touchend",   onEnd);
+        document.removeEventListener("touchcancel", onEnd);
+        const t = ev.changedTouches[0];
+        if (t) onCommit(compute(t.clientX, t.clientY, false));
+      };
+      document.addEventListener("touchmove",  onMove,  { passive: false });
+      document.addEventListener("touchend",   onEnd);
+      document.addEventListener("touchcancel", onEnd);
+    } else {
+      const onMove = (ev: MouseEvent) => onUpdate(compute(ev.clientX, ev.clientY, ev.shiftKey));
+      const onUp   = (ev: MouseEvent) => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup",   onUp);
+        onCommit(compute(ev.clientX, ev.clientY, ev.shiftKey));
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup",   onUp);
+    }
+  };
+
+  const onHandleMouseDown = (dir: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startResize(dir, e.clientX, e.clientY, false);
+  };
+
+  const onHandleTouchStart = (dir: string, e: React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const t = e.touches[0];
+    if (t) startResize(dir, t.clientX, t.clientY, true);
   };
 
   return (
@@ -2567,14 +2646,18 @@ function GroupResizeOverlay({
           style={{
             left: cx - HANDLE / 2,
             top:  cy - HANDLE / 2,
+            // Larger hit area on touch for comfortable finger tapping
             width: HANDLE,
             height: HANDLE,
             background: "white",
             border: "1px solid rgba(0,0,0,0.35)",
             borderRadius: 1,
             cursor,
+            // Increase touch target without affecting visual size
+            touchAction: "none",
           }}
           onMouseDown={(e) => onHandleMouseDown(dir, e)}
+          onTouchStart={(e) => onHandleTouchStart(dir, e)}
         />
       ))}
     </div>
