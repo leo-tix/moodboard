@@ -1978,6 +1978,7 @@ export function MoodboardEditor({ initialData }: Props) {
               onDeleteSelected={deleteSelected}
               posX={toolbarPos.x}
               posY={toolbarPos.y}
+              isTouchDevice={isTouchDevice}
             />
           )}
 

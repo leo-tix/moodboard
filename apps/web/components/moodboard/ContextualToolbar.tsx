@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import type {
   CanvasElement,
   ImageElement,
@@ -22,9 +22,15 @@ interface Props {
   posX: number;
   /** Top-Y of selection in viewport coordinates (toolbar renders above) */
   posY: number;
+  /** Enlarge buttons/hit areas for touch devices */
+  isTouchDevice?: boolean;
 }
 
 // ── Primitives ──────────────────────────────────────────────────────────────
+
+// Context passed down to all primitives so they can adapt to touch without
+// prop-drilling through every call site.
+const TouchCtx = React.createContext(false);
 
 function ToolBtn({
   title,
@@ -39,11 +45,16 @@ function ToolBtn({
   active?: boolean;
   danger?: boolean;
 }) {
+  const isTouch = React.useContext(TouchCtx);
   return (
     <button
       title={title}
       onClick={onClick}
-      className={`min-w-[22px] h-[22px] px-1 text-[11px] rounded transition-colors flex items-center justify-center gap-0.5 ${
+      className={`rounded transition-colors flex items-center justify-center gap-0.5 flex-shrink-0 ${
+        isTouch
+          ? "min-w-[40px] h-[40px] px-2.5 text-[13px]"
+          : "min-w-[22px] h-[22px] px-1 text-[11px]"
+      } ${
         active
           ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
           : danger
@@ -57,7 +68,14 @@ function ToolBtn({
 }
 
 function Sep() {
-  return <div className="w-px h-3 bg-[var(--border-subtle)] mx-0.5 flex-shrink-0" />;
+  const isTouch = React.useContext(TouchCtx);
+  return (
+    <div
+      className={`bg-[var(--border-subtle)] flex-shrink-0 ${
+        isTouch ? "w-px h-6 mx-1" : "w-px h-3 mx-0.5"
+      }`}
+    />
+  );
 }
 
 // Mini lock/unlock SVG icons for the toolbar
@@ -86,9 +104,11 @@ function ColorSwatch({
   label?: string;
 }) {
   return (
-    <label className="relative cursor-pointer flex items-center" title={title}>
+    <label className="relative cursor-pointer flex items-center flex-shrink-0" title={title}>
       <div
-        className="w-5 h-5 rounded border border-[var(--border-default)] flex items-center justify-center text-[8px] font-bold overflow-hidden"
+        className={`rounded border border-[var(--border-default)] flex items-center justify-center overflow-hidden ${
+          React.useContext(TouchCtx) ? "w-9 h-9 text-[10px]" : "w-5 h-5 text-[8px]"
+        } font-bold`}
         style={{ backgroundColor: value }}
       >
         {label && <span style={{ color: value === "#ffffff" ? "#000" : "#fff", mixBlendMode: "difference" }}>{label}</span>}
@@ -106,12 +126,15 @@ function ColorSwatch({
 
 function OpacitySlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const [open, setOpen] = useState(false);
+  const isTouch = React.useContext(TouchCtx);
   return (
-    <div className="relative">
+    <div className="relative flex-shrink-0">
       <button
         title="Opacité"
         onClick={() => setOpen((v) => !v)}
-        className="h-[22px] px-1.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors"
+        className={`rounded transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] ${
+          isTouch ? "h-[40px] px-3 text-[13px]" : "h-[22px] px-1.5 text-[11px]"
+        }`}
       >
         {Math.round(value * 100)}%
       </button>
@@ -297,6 +320,7 @@ export function ContextualToolbar({
   onDeleteSelected,
   posX,
   posY,
+  isTouchDevice = false,
 }: Props) {
   const selected = elements.filter((el) => selectedIds.includes(el.id));
   if (selected.length === 0) return null;
@@ -442,13 +466,17 @@ export function ContextualToolbar({
     );
   };
 
+  // Height of the toolbar bar: ~44px on touch, ~32px on desktop
+  const toolbarH = isTouchDevice ? 52 : 36;
+
   return (
+    <TouchCtx.Provider value={isTouchDevice}>
     <div
       data-role="toolbar"
-      className="absolute z-[200] flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-xl px-1.5 py-1"
+      className="absolute z-[200] flex items-center gap-0.5 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-xl px-2 py-1"
       style={{
         left: posX,
-        top: Math.max(4, posY - 42),
+        top: Math.max(4, posY - toolbarH - 4),
         transform: "translateX(-50%)",
         pointerEvents: "all",
         whiteSpace: "nowrap",
@@ -590,5 +618,6 @@ export function ContextualToolbar({
         ✕
       </ToolBtn>
     </div>
+    </TouchCtx.Provider>
   );
 }
