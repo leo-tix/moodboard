@@ -100,12 +100,6 @@ export function PencilToolbar({
 }: Props) {
   const [confirmClear, setConfirmClear] = useState(false);
 
-  const handleClear = () => {
-    if (!confirmClear) { setConfirmClear(true); return; }
-    onClear();
-    setConfirmClear(false);
-  };
-
   return (
     // Floating palette — left side, vertically centered
     // z-index below ContextualToolbar (200) but above canvas elements
@@ -224,20 +218,59 @@ export function PencilToolbar({
       </button>
 
       {/* ── Clear all ── */}
-      <button
-        onClick={handleClear}
-        onBlur={() => setConfirmClear(false)}
-        disabled={!canClear}
-        title={confirmClear ? "Confirmer l'effacement" : "Tout effacer"}
-        className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors
-                    disabled:opacity-30 disabled:cursor-not-allowed ${
-          confirmClear
-            ? "bg-red-500/20 text-red-400"
-            : "text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10"
-        }`}
-      >
-        <TrashIcon />
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => canClear && setConfirmClear(true)}
+          disabled={!canClear}
+          title="Tout effacer"
+          className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors
+                     text-[var(--text-tertiary)] hover:text-red-400 hover:bg-red-500/10
+                     disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <TrashIcon />
+        </button>
+
+        {/* Inline confirmation panel — appears to the right of the toolbar */}
+        {confirmClear && (
+          <div
+            className="absolute left-full ml-3 top-1/2 -translate-y-1/2
+                       bg-[var(--bg-elevated)] border border-red-500/30 rounded-2xl
+                       shadow-2xl p-3 w-52 z-[170]"
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            {/* Warning icon + message */}
+            <div className="flex items-start gap-2 mb-3">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 mt-0.5 text-red-400" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 2L14.5 13.5H1.5L8 2z"/>
+                <path d="M8 6.5v3"/>
+                <circle cx="8" cy="11.5" r="0.5" fill="currentColor"/>
+              </svg>
+              <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                Effacer <strong>tous les dessins</strong> ? Cette action est irréversible.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { onClear(); setConfirmClear(false); }}
+                className="flex-1 text-xs py-2 rounded-xl bg-red-500/20 text-red-400
+                           hover:bg-red-500/30 active:bg-red-500/40 transition-colors font-medium"
+              >
+                Effacer
+              </button>
+              <button
+                onClick={() => setConfirmClear(false)}
+                className="flex-1 text-xs py-2 rounded-xl
+                           bg-[var(--bg-surface)] text-[var(--text-secondary)]
+                           hover:bg-[var(--bg-hover)] active:bg-[var(--border-subtle)]
+                           transition-colors"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -571,15 +571,17 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // ── Drawing mode touch handling ───────────────────────────────────────
       // The PencilLayer handles all pen (stylus) input via pointer events.
-      // We still need to support finger gestures for navigation:
-      //   1 finger → block (palm rejection: wrist resting on screen)
+      // Finger gestures supported in drawing mode:
+      //   1 finger → pan (Pencil is a separate pointer stream — no conflict)
       //   2 fingers → pinch-zoom + pan, or 2-finger tap = pencil undo
       //   3 fingers → 3-finger tap = redo
       if (drawingModeRef.current) {
         e.preventDefault();
-        if (e.touches.length === 1) return; // palm/wrist — ignore
 
         if (e.touches.length >= 3) {
+          // 3-finger: clear pinch so move handler doesn't mistake it for 2-finger
+          pinchRef.current    = null;
+          touchPanRef.current = null;
           multiTapRef.current = { count: 3, startTime: Date.now(), didMove: false };
           return;
         }
@@ -599,6 +601,19 @@ export function MoodboardEditor({ initialData }: Props) {
             originPanX   : panRef.current.x,
             originPanY   : panRef.current.y,
           };
+          return;
+        }
+
+        if (e.touches.length === 1) {
+          // 1-finger pan — Apple Pencil uses pointer events so no stream conflict
+          const t = e.touches[0];
+          touchPanRef.current = {
+            startX : t.clientX,
+            startY : t.clientY,
+            originX: panRef.current.x,
+            originY: panRef.current.y,
+          };
+          multiTapRef.current = null;
           return;
         }
         return;
@@ -729,9 +744,12 @@ export function MoodboardEditor({ initialData }: Props) {
     const onTouchMove = (e: TouchEvent) => {
       e.preventDefault();
 
-      // Drawing mode: only allow 2-finger pinch/pan (1-finger is palm rejection)
+      // Drawing mode: allow 1-finger pan and 2-finger pinch/pan
       if (drawingModeRef.current) {
-        if (e.touches.length === 2 && pinchRef.current) {
+        if (e.touches.length >= 3) {
+          // 3-finger move invalidates the redo tap
+          if (multiTapRef.current) multiTapRef.current.didMove = true;
+        } else if (e.touches.length === 2 && pinchRef.current) {
           if (multiTapRef.current) multiTapRef.current.didMove = true;
           const p   = pinchRef.current;
           const t0  = e.touches[0], t1 = e.touches[1];
@@ -751,6 +769,15 @@ export function MoodboardEditor({ initialData }: Props) {
           panTargetRef.current  = { x: newPanX, y: newPanY };
           setZoom(newZoom);
           setPan({ x: newPanX, y: newPanY });
+        } else if (e.touches.length === 1 && touchPanRef.current) {
+          const touch = e.touches[0];
+          const p  = touchPanRef.current;
+          const dx = touch.clientX - p.startX;
+          const dy = touch.clientY - p.startY;
+          const np = { x: p.originX + dx, y: p.originY + dy };
+          setPan(np);
+          panRef.current       = np;
+          panTargetRef.current = np;
         }
         return;
       }
@@ -827,7 +854,7 @@ export function MoodboardEditor({ initialData }: Props) {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      // Drawing mode: handle multi-finger taps (undo/redo), skip everything else
+      // Drawing mode: handle 1-finger pan end + multi-finger taps (undo/redo)
       if (drawingModeRef.current) {
         if (e.touches.length === 0 && multiTapRef.current && !multiTapRef.current.didMove) {
           const elapsed = Date.now() - multiTapRef.current.startTime;
@@ -839,6 +866,7 @@ export function MoodboardEditor({ initialData }: Props) {
         if (e.touches.length === 0) {
           multiTapRef.current = null;
           pinchRef.current    = null;
+          touchPanRef.current = null;
         }
         return;
       }

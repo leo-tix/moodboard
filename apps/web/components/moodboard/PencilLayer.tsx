@@ -141,6 +141,8 @@ export function PencilLayer({
 
   const currentStroke  = useRef<Stroke | null>(null);
   const rafId          = useRef<number | null>(null);
+  // Prevents the toggle firing multiple times per single Pencil Pro squeeze / double-tap
+  const squeezeFiredRef = useRef(false);
 
   // Hover cursor state: viewport coords (already offset by rect)
   const [hoverVP, setHoverVP] = useState<{ vx: number; vy: number } | null>(null);
@@ -224,16 +226,18 @@ export function PencilLayer({
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
 
-      // ── Apple Pencil Pro barrel / squeeze button ──────────────────────────
-      // The W3C spec defines button 5 as the eraser button for pen devices.
-      // Apple Pencil Pro squeeze fires as button 2 (secondary) in some Safari
-      // versions. We intercept any non-primary pen button press and toggle
-      // between the active drawing tool and the eraser, regardless of whether
-      // drawing mode is currently active (so squeeze works to enter eraser mode
-      // even before the first stroke).
-      if (e.button === 2 || e.button === 5) {
+      // ── Apple Pencil Pro barrel / squeeze / double-tap button ────────────
+      // Any non-primary button on a pen device triggers the eraser toggle.
+      // Apple Pencil Pro squeeze fires as button 2 or 5 depending on
+      // iPadOS/Safari version. Using e.button >= 1 catches all cases.
+      if (e.button >= 1) {
         e.preventDefault();
-        onToggleEraserRef.current();
+        if (!squeezeFiredRef.current) {
+          squeezeFiredRef.current = true;
+          onToggleEraserRef.current();
+          // Reset debounce after 600ms so rapid re-fires are treated as new events
+          setTimeout(() => { squeezeFiredRef.current = false; }, 600);
+        }
         return;
       }
 
@@ -264,6 +268,20 @@ export function PencilLayer({
     const onPointerMove = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
       if (!activeRef.current) return;
+
+      // ── Apple Pencil Pro double-tap (hover + side button) ─────────────────
+      // Some iPadOS/Safari versions fire pointermove with pressure===0 and
+      // e.buttons having a non-primary bit set when the double-tap gesture
+      // is detected while the Pencil is hovering above the screen.
+      if (e.pressure === 0 && e.buttons > 1) {
+        e.preventDefault();
+        if (!squeezeFiredRef.current) {
+          squeezeFiredRef.current = true;
+          onToggleEraserRef.current();
+          setTimeout(() => { squeezeFiredRef.current = false; }, 600);
+        }
+        return;
+      }
 
       // Hover (pencil above surface, not touching)
       if (e.pressure === 0) {

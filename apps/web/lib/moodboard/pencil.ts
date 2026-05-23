@@ -9,42 +9,104 @@ import type { Stroke, StrokePoint } from "./types";
 
 /**
  * Bidirectional exponential moving average on pressure values.
- * Forward + backward pass removes sudden spikes and makes width transitions smooth.
+ * Multiple passes + lower alpha produce very gradual, smooth width transitions.
  */
-function smoothPressure(points: StrokePoint[], alpha = 0.3): number[] {
+function smoothPressure(points: StrokePoint[], alpha = 0.2, passes = 3): number[] {
   const raw = points.map((p) => Math.max(0.08, p.pressure));
   const s   = [...raw];
-  for (let i = 1;         i < s.length;     i++) s[i]   = s[i - 1] * (1 - alpha) + s[i] * alpha;
-  for (let i = s.length - 2; i >= 0;        i--) s[i]   = s[i + 1] * (1 - alpha) + s[i] * alpha;
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = 1;             i < s.length;     i++) s[i]   = s[i - 1] * (1 - alpha) + s[i] * alpha;
+    for (let i = s.length - 2;  i >= 0;           i--) s[i]   = s[i + 1] * (1 - alpha) + s[i] * alpha;
+  }
   return s;
 }
 
 /**
- * 3-point moving-average on XY to soften integer-quantization artifacts.
- * Only touches interior points; endpoints are preserved exactly.
+ * Multi-pass 3-point moving-average on XY.
+ * Multiple passes progressively soften quantization artifacts and jitter.
+ * Endpoints preserved exactly on every pass.
  */
-function smoothPositions(points: StrokePoint[]): StrokePoint[] {
-  if (points.length < 3) return points;
-  return points.map((p, i) => {
-    if (i === 0 || i === points.length - 1) return p;
-    return {
-      ...p,
-      x: (points[i - 1].x + p.x + points[i + 1].x) / 3,
-      y: (points[i - 1].y + p.y + points[i + 1].y) / 3,
-    };
-  });
+function smoothPositions(points: StrokePoint[], passes = 3): StrokePoint[] {
+  let pts = [...points];
+  for (let p = 0; p < passes; p++) {
+    if (pts.length < 3) break;
+    pts = pts.map((pt, i) => {
+      if (i === 0 || i === pts.length - 1) return pt;
+      return {
+        ...pt,
+        x: (pts[i - 1].x + pt.x + pts[i + 1].x) / 3,
+        y: (pts[i - 1].y + pt.y + pts[i + 1].y) / 3,
+      };
+    });
+  }
+  return pts;
+}
+
+/**
+ * Catmull-Rom spline interpolation.
+ * Produces a dense set of points that pass through all original points with
+ * C1 continuity (smooth tangents at every joint). The step size is ~2px so
+ * the path is dense enough for seamless round-cap overlapping without the
+ * old per-segment sub-division loop.
+ */
+function catmullRom(points: StrokePoint[]): StrokePoint[] {
+  if (points.length < 2) return points;
+  if (points.length === 2) return points;
+
+  const result: StrokePoint[] = [];
+  const n = points.length;
+
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(n - 1, i + 2)];
+
+    // Adaptive step count: ~2px per step
+    const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const steps  = Math.max(2, Math.ceil(segLen / 2));
+
+    for (let s = 0; s < steps; s++) {
+      const t  = s / steps;
+      const t2 = t * t;
+      const t3 = t2 * t;
+
+      // Standard Catmull-Rom formula
+      const x = 0.5 * (
+        (2 * p1.x) +
+        (-p0.x + p2.x) * t +
+        (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+        (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
+      );
+      const y = 0.5 * (
+        (2 * p1.y) +
+        (-p0.y + p2.y) * t +
+        (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+        (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
+      );
+      // Linearly interpolate pressure between segment endpoints
+      const pressure = p1.pressure + (p2.pressure - p1.pressure) * t;
+
+      result.push({ x, y, pressure });
+    }
+  }
+
+  // Append the final point exactly
+  result.push(points[n - 1]);
+  return result;
 }
 
 // ── Pen tool ─────────────────────────────────────────────────────────────────
 
 /**
- * Draw a pressure-sensitive pen stroke with smooth width transitions.
+ * Draw a pressure-sensitive pen stroke.
  *
- * Approach: sub-segment each point-to-point span into 1px steps, interpolating
- * the lineWidth at the midpoint of each step. With round lineCap the caps of
- * adjacent micro-segments overlap perfectly, eliminating the seams produced by
- * abrupt lineWidth changes. Combined with pressure smoothing this produces
- * calligraphic, velvety strokes.
+ * Pipeline:
+ *  1. Multi-pass position smoothing (3×) removes integer-quantization jitter.
+ *  2. Multi-pass pressure smoothing (3×, α=0.2) gives gradual width changes.
+ *  3. Catmull-Rom spline interpolation → dense, smooth path (~2px steps).
+ *  4. Render each micro-segment with its interpolated lineWidth and round lineCap
+ *     so adjacent caps overlap seamlessly, producing a velvety variable-width stroke.
  */
 function drawPen(
   ctx: CanvasRenderingContext2D,
@@ -66,33 +128,29 @@ function drawPen(
     return;
   }
 
-  const smooth = smoothPositions(points);
-  const sp     = smoothPressure(smooth);
+  // Step 1: smooth positions + pressures
+  const smoothed = smoothPositions(points, 3);
+  const sp       = smoothPressure(smoothed, 0.2, 3);
 
-  for (let i = 1; i < smooth.length; i++) {
-    const a = smooth[i - 1];
-    const b = smooth[i];
-    const pa = sp[i - 1];
-    const pb = sp[i];
+  // Inject smoothed pressures back so catmullRom can interpolate them
+  const withSmoothedPressure: StrokePoint[] = smoothed.map((p, i) => ({
+    ...p,
+    pressure: sp[i],
+  }));
 
-    const dx   = b.x - a.x;
-    const dy   = b.y - a.y;
-    const dist = Math.hypot(dx, dy);
-    // One sub-segment per pixel so round caps overlap seamlessly
-    const steps = Math.max(1, Math.ceil(dist));
+  // Step 2: Catmull-Rom interpolation → dense smooth path
+  const dense = catmullRom(withSmoothedPressure);
 
-    for (let s = 0; s < steps; s++) {
-      const t0  = s       / steps;
-      const t1  = (s + 1) / steps;
-      const tm  = (t0 + t1) / 2;
-      // Interpolate lineWidth at mid-step for smooth gradient
-      const lw  = (pa + (pb - pa) * tm) * width * 2;
-      ctx.beginPath();
-      ctx.lineWidth = Math.max(0.5, lw);
-      ctx.moveTo(a.x + dx * t0, a.y + dy * t0);
-      ctx.lineTo(a.x + dx * t1, a.y + dy * t1);
-      ctx.stroke();
-    }
+  // Step 3: render
+  for (let i = 1; i < dense.length; i++) {
+    const a  = dense[i - 1];
+    const b  = dense[i];
+    const lw = ((a.pressure + b.pressure) / 2) * width * 2;
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(0.5, lw);
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
   }
 }
 
@@ -125,7 +183,7 @@ function drawMarker(
     return;
   }
 
-  const smooth = smoothPositions(points);
+  const smooth = smoothPositions(points, 3);
 
   ctx.beginPath();
   ctx.moveTo(smooth[0].x, smooth[0].y);
