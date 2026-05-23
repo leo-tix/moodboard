@@ -409,10 +409,21 @@ export function MoodboardEditor({ initialData }: Props) {
   }, [scheduleSave]);
 
   // Refs so the touch useEffect (empty dep array) always calls the latest undo/redo
-  const undoRef = useRef(undo);
-  const redoRef = useRef(redo);
+  const undoRef       = useRef(undo);
+  const redoRef       = useRef(redo);
   useEffect(() => { undoRef.current = undo; }, [undo]);
   useEffect(() => { redoRef.current = redo; }, [redo]);
+
+  // ── Pencil Pro eraser toggle ──
+  // Remembers the last non-eraser tool so squeeze switches back to it.
+  const prevPencilToolRef = useRef<Exclude<PencilTool, "eraser">>("pen");
+  const handleToggleEraser = useCallback(() => {
+    setPencilTool((prev) => {
+      if (prev === "eraser") return prevPencilToolRef.current;
+      prevPencilToolRef.current = prev as Exclude<PencilTool, "eraser">;
+      return "eraser";
+    });
+  }, []);
 
   // ── Delete selected ──
   const deleteSelected = useCallback(() => {
@@ -558,11 +569,38 @@ export function MoodboardEditor({ initialData }: Props) {
         return;
       }
 
-      // In drawing mode the Apple Pencil contact fires touchstart (stylus touch type
-      // on iPadOS) — prevent these from starting pan / rubber-band / element drag.
-      // The PencilLayer handles all pen input independently via pointer events.
+      // ── Drawing mode touch handling ───────────────────────────────────────
+      // The PencilLayer handles all pen (stylus) input via pointer events.
+      // We still need to support finger gestures for navigation:
+      //   1 finger → block (palm rejection: wrist resting on screen)
+      //   2 fingers → pinch-zoom + pan, or 2-finger tap = pencil undo
+      //   3 fingers → 3-finger tap = redo
       if (drawingModeRef.current) {
-        e.preventDefault(); // block synthetic mouse events from pencil contact
+        e.preventDefault();
+        if (e.touches.length === 1) return; // palm/wrist — ignore
+
+        if (e.touches.length >= 3) {
+          multiTapRef.current = { count: 3, startTime: Date.now(), didMove: false };
+          return;
+        }
+
+        if (e.touches.length === 2) {
+          multiTapRef.current = { count: 2, startTime: Date.now(), didMove: false };
+          touchPanRef.current = null;
+          const t0 = e.touches[0], t1 = e.touches[1];
+          const ddx = t0.clientX - t1.clientX, ddy = t0.clientY - t1.clientY;
+          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+          const rect = viewport.getBoundingClientRect();
+          pinchRef.current = {
+            startDist    : dist,
+            startZoom    : zoomRef.current,
+            startMidViewX: (t0.clientX + t1.clientX) / 2 - rect.left,
+            startMidViewY: (t0.clientY + t1.clientY) / 2 - rect.top,
+            originPanX   : panRef.current.x,
+            originPanY   : panRef.current.y,
+          };
+          return;
+        }
         return;
       }
 
@@ -689,12 +727,36 @@ export function MoodboardEditor({ initialData }: Props) {
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // Drawing mode: block all touch-driven movement (pen events handled by PencilLayer)
-      if (drawingModeRef.current) { e.preventDefault(); return; }
+      e.preventDefault();
+
+      // Drawing mode: only allow 2-finger pinch/pan (1-finger is palm rejection)
+      if (drawingModeRef.current) {
+        if (e.touches.length === 2 && pinchRef.current) {
+          if (multiTapRef.current) multiTapRef.current.didMove = true;
+          const p   = pinchRef.current;
+          const t0  = e.touches[0], t1 = e.touches[1];
+          const ddx = t0.clientX - t1.clientX, ddy = t0.clientY - t1.clientY;
+          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+          const rect = viewport.getBoundingClientRect();
+          const curMidX = (t0.clientX + t1.clientX) / 2 - rect.left;
+          const curMidY = (t0.clientY + t1.clientY) / 2 - rect.top;
+          const newZoom    = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, p.startZoom * (dist / p.startDist)));
+          const canvasMidX = (p.startMidViewX - p.originPanX) / p.startZoom;
+          const canvasMidY = (p.startMidViewY - p.originPanY) / p.startZoom;
+          const newPanX    = curMidX - canvasMidX * newZoom;
+          const newPanY    = curMidY - canvasMidY * newZoom;
+          zoomRef.current       = newZoom;
+          panRef.current        = { x: newPanX, y: newPanY };
+          zoomTargetRef.current = newZoom;
+          panTargetRef.current  = { x: newPanX, y: newPanY };
+          setZoom(newZoom);
+          setPan({ x: newPanX, y: newPanY });
+        }
+        return;
+      }
 
       // ── 2-finger: pinch-zoom + translate simultaneously ──
       if (e.touches.length === 2 && pinchRef.current) {
-        e.preventDefault();
         // Any 2-finger movement = not a tap
         if (multiTapRef.current) multiTapRef.current.didMove = true;
         const p  = pinchRef.current;
@@ -765,8 +827,21 @@ export function MoodboardEditor({ initialData }: Props) {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      // Drawing mode: ignore all touch end events
-      if (drawingModeRef.current) return;
+      // Drawing mode: handle multi-finger taps (undo/redo), skip everything else
+      if (drawingModeRef.current) {
+        if (e.touches.length === 0 && multiTapRef.current && !multiTapRef.current.didMove) {
+          const elapsed = Date.now() - multiTapRef.current.startTime;
+          if (elapsed < 350) {
+            if (multiTapRef.current.count === 2) pencilUndoRef.current();
+            else if (multiTapRef.current.count === 3) redoRef.current();
+          }
+        }
+        if (e.touches.length === 0) {
+          multiTapRef.current = null;
+          pinchRef.current    = null;
+        }
+        return;
+      }
 
       // ── Multi-finger tap: undo (2 fingers) / redo (3 fingers) ──
       // Evaluate when the last finger lifts.
@@ -1527,6 +1602,10 @@ export function MoodboardEditor({ initialData }: Props) {
     scheduleStrokeSave("replace");
   }, [scheduleStrokeSave]);
 
+  // Stable ref so native touch handler (empty dep array) always calls latest undo
+  const pencilUndoRef = useRef(handlePencilUndo);
+  useEffect(() => { pencilUndoRef.current = handlePencilUndo; }, [handlePencilUndo]);
+
   // ── Export PNG ──
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -1990,18 +2069,20 @@ export function MoodboardEditor({ initialData }: Props) {
           Partager
         </button>
 
-        {/* Apple Pencil drawing mode toggle */}
-        <button
-          onClick={() => { if (drawingMode) flushStrokesSave(); setDrawingMode((v) => !v); }}
-          title={drawingMode ? "Quitter le mode dessin" : "Mode dessin Apple Pencil"}
-          className={`flex-shrink-0 transition-colors px-2 py-1 rounded border text-xs ${
-            drawingMode
-              ? "bg-[var(--accent,#a78bfa)]/15 border-[var(--accent,#a78bfa)]/50 text-[var(--accent,#a78bfa)]"
-              : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]"
-          }`}
-        >
-          ✒
-        </button>
+        {/* Apple Pencil drawing mode toggle — touch/iPad only */}
+        {isTouchDevice && (
+          <button
+            onClick={() => { if (drawingMode) flushStrokesSave(); setDrawingMode((v) => !v); }}
+            title={drawingMode ? "Quitter le mode dessin" : "Mode dessin Apple Pencil"}
+            className={`flex-shrink-0 transition-colors px-2 py-1 rounded border text-xs ${
+              drawingMode
+                ? "bg-[var(--accent,#a78bfa)]/15 border-[var(--accent,#a78bfa)]/50 text-[var(--accent,#a78bfa)]"
+                : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]"
+            }`}
+          >
+            ✒
+          </button>
+        )}
       </div>
 
       {/* ── Body ── */}
@@ -2118,6 +2199,7 @@ export function MoodboardEditor({ initialData }: Props) {
             strokes={strokes}
             onStrokeAdd={handleStrokeAdd}
             onEraseAt={handleEraseAt}
+            onToggleEraser={handleToggleEraser}
             viewportRef={viewportRef}
           />
 

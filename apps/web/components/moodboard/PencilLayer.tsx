@@ -40,6 +40,11 @@ interface Props {
   onStrokeAdd: (stroke: Stroke) => void;
   /** Called continuously while eraser moves over the canvas */
   onEraseAt: (canvasX: number, canvasY: number, radius: number) => void;
+  /**
+   * Called when the Apple Pencil Pro barrel button / squeeze is detected.
+   * Use this to toggle between the active tool and the eraser.
+   */
+  onToggleEraser: () => void;
   /** The viewport element to attach pointer listeners to */
   viewportRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -108,6 +113,7 @@ export function PencilLayer({
   strokes,
   onStrokeAdd,
   onEraseAt,
+  onToggleEraser,
   viewportRef,
 }: Props) {
   const committedRef = useRef<HTMLCanvasElement>(null);
@@ -120,16 +126,18 @@ export function PencilLayer({
   const toolRef    = useRef(tool);
   const colorRef   = useRef(color);
   const widthRef   = useRef(width);
-  const strokesRef = useRef(strokes);
-  const activeRef  = useRef(active);
+  const strokesRef        = useRef(strokes);
+  const activeRef         = useRef(active);
+  const onToggleEraserRef = useRef(onToggleEraser);
 
-  useEffect(() => { panRef.current    = pan;     }, [pan]);
-  useEffect(() => { zoomRef.current   = zoom;    }, [zoom]);
-  useEffect(() => { toolRef.current   = tool;    }, [tool]);
-  useEffect(() => { colorRef.current  = color;   }, [color]);
-  useEffect(() => { widthRef.current  = width;   }, [width]);
-  useEffect(() => { strokesRef.current = strokes; }, [strokes]);
-  useEffect(() => { activeRef.current  = active;  }, [active]);
+  useEffect(() => { panRef.current           = pan;             }, [pan]);
+  useEffect(() => { zoomRef.current          = zoom;            }, [zoom]);
+  useEffect(() => { toolRef.current          = tool;            }, [tool]);
+  useEffect(() => { colorRef.current         = color;           }, [color]);
+  useEffect(() => { widthRef.current         = width;           }, [width]);
+  useEffect(() => { strokesRef.current       = strokes;         }, [strokes]);
+  useEffect(() => { activeRef.current        = active;          }, [active]);
+  useEffect(() => { onToggleEraserRef.current = onToggleEraser; }, [onToggleEraser]);
 
   const currentStroke  = useRef<Stroke | null>(null);
   const rafId          = useRef<number | null>(null);
@@ -215,6 +223,20 @@ export function PencilLayer({
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
+
+      // ── Apple Pencil Pro barrel / squeeze button ──────────────────────────
+      // The W3C spec defines button 5 as the eraser button for pen devices.
+      // Apple Pencil Pro squeeze fires as button 2 (secondary) in some Safari
+      // versions. We intercept any non-primary pen button press and toggle
+      // between the active drawing tool and the eraser, regardless of whether
+      // drawing mode is currently active (so squeeze works to enter eraser mode
+      // even before the first stroke).
+      if (e.button === 2 || e.button === 5) {
+        e.preventDefault();
+        onToggleEraserRef.current();
+        return;
+      }
+
       if (!activeRef.current) return;
       e.preventDefault();
       e.stopPropagation();
