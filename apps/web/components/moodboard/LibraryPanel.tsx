@@ -241,9 +241,8 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
                   <img
                     src={getThumbnailUrl(item.thumbnailKey)}
                     alt={item.title}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "1"; }}
-                    style={{ opacity: 0, transition: "opacity 0.2s" }}
+                    className="absolute inset-0 w-full h-full object-cover lib-img-fade"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.15"; }}
                   />
                 ) : (
                   <div className="absolute inset-0 bg-[var(--bg-elevated)]" />

@@ -104,3 +104,17 @@ body {
   outline: 1px solid var(--border-strong);
   outline-offset: 2px;
 }
+
+
+/* ============================================================
+   LIBRARY PANEL — image fade-in
+   CSS animation fires once on DOM insertion, unaffected by
+   React re-renders (unlike style={{ opacity }} DOM mutations).
+   ============================================================ */
+@keyframes lib-img-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.lib-img-fade {
+  animation: lib-img-appear 0.2s ease-out both;
+}
