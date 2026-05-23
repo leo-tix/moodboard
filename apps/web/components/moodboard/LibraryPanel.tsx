@@ -3,6 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 
+// Note: IntersectionObserver-based lazy loading is unreliable on iOS Safari
+// when the root is a custom element — the observer may never fire if the
+// container's clientHeight is 0 during the first render cycle.
+// Strategy: load all thumbnails eagerly (200 × ~5KB ≈ 1 MB) with a CSS fade-in.
+// The browser natively prioritises in-viewport images; off-screen images download
+// after the visible ones without any custom JS needed.
+
 interface LibraryItem {
   id: string;
   title: string;
@@ -28,67 +35,12 @@ interface Props {
   onTouchAdd?: (item: AddPayload, clientX: number, clientY: number) => void;
 }
 
-// ── Lazy image via IntersectionObserver ───────────────────────────────────────
-// Native loading="lazy" doesn't fire reliably inside overflow:scroll containers.
-// We use IntersectionObserver with the scroll container as root instead.
-
-function LazyImage({
-  src,
-  alt,
-  className,
-  scrollRoot,
-}: {
-  src: string;
-  alt: string;
-  className: string;
-  scrollRoot: HTMLElement | null;
-}) {
-  const imgRef  = useRef<HTMLImageElement>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    const img = imgRef.current;
-    if (!img) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          img.src = src;
-          observer.disconnect();
-        }
-      },
-      { root: scrollRoot, rootMargin: "400px" }
-    );
-    observer.observe(img);
-    return () => observer.disconnect();
-  // scrollRoot reference is stable after mount; re-running on src change is
-  // harmless (observer disconnects immediately if already visible)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, scrollRoot]);
-
-  return (
-    <img
-      ref={imgRef}
-      alt={alt}
-      className={className}
-      onLoad={() => setLoaded(true)}
-      style={{ opacity: loaded ? 1 : 0, transition: "opacity 0.25s" }}
-    />
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
   const [items,   setItems]   = useState<LibraryItem[]>([]);
   const [search,  setSearch]  = useState("");
   const [loading, setLoading] = useState(true);
-
-  // Scroll container as state (not ref) so LazyImage children re-render with the
-  // correct IntersectionObserver root the moment the div mounts.
-  // useRef doesn't trigger re-renders, so children created during the first render
-  // would receive null and fall back to viewport-root — causing intermittent failures.
-  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
 
   // ── Drag ghost (touch long-press drag) ────────────────────────────────────
   const [dragGhost, setDragGhost] = useState<{
@@ -229,7 +181,7 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
       </div>
 
       {/* Scrollable grid */}
-      <div ref={setScrollEl} className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2">
         {loading ? (
           <div className="grid grid-cols-2 gap-1.5">
             {Array.from({ length: 12 }).map((_, i) => (
@@ -286,21 +238,13 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
                 title={`${item.title} — glisser ou cliquer pour ajouter`}
               >
                 {item.thumbnailKey ? (
-                  item.isAnimated ? (
-                    // Animated GIFs: load immediately (always visible, small file)
-                    <img
-                      src={getThumbnailUrl(item.thumbnailKey)}
-                      alt={item.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  ) : (
-                    <LazyImage
-                      src={getThumbnailUrl(item.thumbnailKey)}
-                      alt={item.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                      scrollRoot={scrollEl}
-                    />
-                  )
+                  <img
+                    src={getThumbnailUrl(item.thumbnailKey)}
+                    alt={item.title}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onLoad={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "1"; }}
+                    style={{ opacity: 0, transition: "opacity 0.2s" }}
+                  />
                 ) : (
                   <div className="absolute inset-0 bg-[var(--bg-elevated)]" />
                 )}
