@@ -1,6 +1,6 @@
 export default function ModalLoading() {
   return (
-    <div className="fixed inset-0 md:left-14 lg:left-56 z-[100] bg-[var(--bg-base)] flex flex-col">
+    <div className="fixed inset-0 md:left-14 xl:left-56 z-[100] bg-[var(--bg-base)] flex flex-col">
       <div className="flex-shrink-0 h-11 border-b border-[var(--border-subtle)]" />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 bg-[var(--bg-surface)]" />

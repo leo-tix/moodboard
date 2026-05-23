@@ -23,7 +23,7 @@ export function DetailModal({ data }: Props) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="fixed inset-0 md:left-14 lg:left-56 z-[100] bg-[var(--bg-base)]">
+    <div className="fixed inset-0 md:left-14 xl:left-56 z-[100] bg-[var(--bg-base)]">
       <DetailPageClient data={data} onClose={close} isModal />
     </div>
   );

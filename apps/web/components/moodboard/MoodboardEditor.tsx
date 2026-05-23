@@ -1990,7 +1990,10 @@ export function MoodboardEditor({ initialData }: Props) {
           {!isTouchDevice && <KeyboardShortcutsPanel />}
 
           {/* Zoom controls (bottom-right) — buttons are 40px on touch for easy tapping */}
-          <div className="absolute bottom-4 right-4 z-50 flex items-center gap-1 bg-[var(--bg-elevated)]/90 backdrop-blur border border-[var(--border-default)] rounded-lg px-2 py-1 shadow select-none">
+          <div
+            className="absolute right-4 z-50 flex items-center gap-1 bg-[var(--bg-elevated)]/90 backdrop-blur border border-[var(--border-default)] rounded-lg px-2 py-1 shadow select-none"
+            style={{ bottom: "max(1rem, env(safe-area-inset-bottom) + 0.5rem)" }}
+          >
             <button
               onClick={() => {
                 const vp = viewportRef.current;
@@ -2305,7 +2308,7 @@ function KeyboardShortcutsPanel() {
   return (
     <div
       className="absolute right-4 z-50 flex flex-col items-end gap-2"
-      style={{ bottom: "3.5rem" }}
+      style={{ bottom: "max(3.5rem, env(safe-area-inset-bottom) + 3rem)" }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Panel */}
