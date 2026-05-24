@@ -375,15 +375,39 @@ function generateLinePoints(a: StrokePoint, b: StrokePoint): StrokePoint[] {
 }
 
 function generateRectPoints(minX: number, minY: number, maxX: number, maxY: number): StrokePoint[] {
-  // 10 interpolated points per edge keeps Catmull-Rom from rounding corners
-  const STEPS = 10;
   const w = maxX - minX, h = maxY - minY;
+  // Very light border radius: 7% of the shorter side, max 14 px
+  const r     = Math.min(14, Math.min(w, h) * 0.07);
+  const STEPS = 10; // straight-edge interpolation points
+  const ARC   = 4;  // points per quarter-circle corner arc
   const pts: StrokePoint[] = [];
-  for (let i = 0; i <= STEPS; i++) pts.push({ x: minX + w * i / STEPS, y: minY,              pressure: 1 });
-  for (let i = 1; i <= STEPS; i++) pts.push({ x: maxX,                  y: minY + h * i / STEPS, pressure: 1 });
-  for (let i = 1; i <= STEPS; i++) pts.push({ x: maxX - w * i / STEPS,  y: maxY,              pressure: 1 });
-  for (let i = 1; i <= STEPS; i++) pts.push({ x: minX,                  y: maxY - h * i / STEPS, pressure: 1 });
-  pts.push({ x: minX, y: minY, pressure: 1 });
+
+  /** Append a quarter-circle arc (clockwise) centred at (cx,cy) from startAngle to startAngle+π/2 */
+  const arc = (cx: number, cy: number, startAngle: number) => {
+    for (let i = 0; i <= ARC; i++) {
+      const a = startAngle + (Math.PI / 2) * (i / ARC);
+      pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), pressure: 1 });
+    }
+  };
+
+  // Top edge →
+  for (let i = 0; i <= STEPS; i++) pts.push({ x: minX + r + (w - 2 * r) * i / STEPS, y: minY, pressure: 1 });
+  // Top-right corner  (arc center: maxX-r, minY+r)  -π/2 → 0
+  arc(maxX - r, minY + r, -Math.PI / 2);
+  // Right edge ↓
+  for (let i = 1; i <= STEPS; i++) pts.push({ x: maxX, y: minY + r + (h - 2 * r) * i / STEPS, pressure: 1 });
+  // Bottom-right corner  (maxX-r, maxY-r)  0 → π/2
+  arc(maxX - r, maxY - r, 0);
+  // Bottom edge ←
+  for (let i = 1; i <= STEPS; i++) pts.push({ x: maxX - r - (w - 2 * r) * i / STEPS, y: maxY, pressure: 1 });
+  // Bottom-left corner  (minX+r, maxY-r)  π/2 → π
+  arc(minX + r, maxY - r, Math.PI / 2);
+  // Left edge ↑
+  for (let i = 1; i <= STEPS; i++) pts.push({ x: minX, y: maxY - r - (h - 2 * r) * i / STEPS, pressure: 1 });
+  // Top-left corner  (minX+r, minY+r)  π → 3π/2
+  arc(minX + r, minY + r, Math.PI);
+  // Close
+  pts.push({ x: minX + r, y: minY, pressure: 1 });
   return pts;
 }
 
