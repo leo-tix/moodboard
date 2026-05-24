@@ -466,26 +466,19 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
   const closeDist = Math.hypot(start.x - end.x, start.y - end.y);
   if (closeDist > Math.max(50, arcLen * 0.15) || bboxW < 30 || bboxH < 30) return null;
 
-  // ── Ellipse ────────────────────────────────────────────────────────────────
-  const cx   = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const dists = points.map((p) => Math.hypot(p.x - cx, p.y - cy));
-  const mean  = dists.reduce((a, b) => a + b) / dists.length;
-  const std   = Math.sqrt(dists.reduce((s, d) => s + (d - mean) ** 2, 0) / dists.length);
-  if (std / mean < 0.22) {
-    return { type: "ellipse", points: generateEllipsePoints(cx, cy, bboxW / 2, bboxH / 2) };
-  }
+  // Compute once — reused by both rectangle and ellipse branches.
+  // Squares have std/mean ≈ 0.15–0.18 which would falsely trigger the ellipse
+  // threshold (0.22), so rectangle corner detection must run first.
+  const perim   = 2 * (bboxW + bboxH);
+  const corners = countCorners(points, 55);
 
-  // ── Rectangle ──────────────────────────────────────────────────────────────
-  // Arc length must be broadly compatible with a bbox-sized perimeter.
-  const perim = 2 * (bboxW + bboxH);
+  // ── Rectangle (before ellipse) ─────────────────────────────────────────────
   if (arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
-    // Primary: 3–5 sharp direction changes ≥ 55° = rectangle corners.
-    // This catches freehand rects regardless of how rounded the corners are.
-    const corners = countCorners(points, 55);
+    // Primary: 3–5 sharp corners ≥ 55° = rectangle.
     if (corners >= 3 && corners <= 5) {
       return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
     }
-    // Fallback: most points near the bounding-box edges (very clean strokes).
+    // Fallback: most points cluster near the bounding-box edges.
     const tol      = Math.max(22, Math.max(bboxW, bboxH) * 0.16);
     const nearEdge = points.filter(
       (p) =>
@@ -494,6 +487,17 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
     ).length;
     if (nearEdge / points.length > 0.62) {
       return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
+    }
+  }
+
+  // ── Ellipse (only for smooth closed curves with no sharp corners) ──────────
+  if (corners < 3) {
+    const cx    = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const dists = points.map((p) => Math.hypot(p.x - cx, p.y - cy));
+    const mean  = dists.reduce((a, b) => a + b) / dists.length;
+    const std   = Math.sqrt(dists.reduce((s, d) => s + (d - mean) ** 2, 0) / dists.length);
+    if (std / mean < 0.22) {
+      return { type: "ellipse", points: generateEllipsePoints(cx, cy, bboxW / 2, bboxH / 2) };
     }
   }
 
