@@ -27,7 +27,7 @@
  *  · Hover div        — cursor preview driven by React state (pointer pressure=0)
  */
 
-import { useRef, useEffect, useLayoutEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import type { PencilTool, StrokePoint, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import {
   buildCachedStroke,
@@ -194,8 +194,9 @@ export function PencilLayer({
   useEffect(() => { activeRef.current           = active;         }, [active]);
   useEffect(() => { onToggleEraserRef.current   = onToggleEraser; }, [onToggleEraser]);
 
-  const currentStroke  = useRef<Stroke | null>(null);
-  const rafId          = useRef<number | null>(null);
+  const currentStroke    = useRef<Stroke | null>(null);
+  const rafId            = useRef<number | null>(null);   // live canvas rAF
+  const committedRafRef  = useRef<number | null>(null);   // committed canvas rAF
   // Prevents the toggle firing multiple times per single Pencil Pro squeeze / double-tap
   const squeezeFiredRef = useRef(false);
 
@@ -241,15 +242,52 @@ export function PencilLayer({
   }, [viewportRef, resizeToViewport]);
 
   // ── Committed canvas redraw ──────────────────────────────────────────────
-  // useLayoutEffect fires synchronously BEFORE the browser paint, in the same
-  // cycle as React's DOM updates. This ensures the canvas and the DOM elements
-  // (which also depend on pan/zoom) are painted together in one frame.
-  // Using useEffect would fire AFTER paint: canvas lags 1 frame behind DOM → flicker.
+  //
+  // Strategy: rAF-throttled useEffect.
+  //
+  // • useEffect (not useLayoutEffect): avoids blocking the main thread before
+  //   every paint. useLayoutEffect ran synchronously on every pan event and
+  //   stalled the frame budget with many strokes.
+  //
+  // • rAF coalescing: if multiple React renders happen inside one frame (rapid
+  //   pan events), we cancel the pending rAF and reschedule — so only ONE
+  //   redraw fires per frame, always with the freshest pan/zoom/strokes via refs.
+  //
+  // • Cache pre-warming: build Path2D for any new stroke BEFORE the rAF fires
+  //   so redrawCommittedCanvas never has to run buildCachedStroke mid-draw.
 
-  useLayoutEffect(() => {
-    if (committedRef.current) {
-      redrawCommittedCanvas(committedRef.current, strokeElements, pan, zoom, strokeCacheRef.current);
+  // Pre-warm cache whenever strokeElements change (outside the draw hot-path).
+  useEffect(() => {
+    for (const el of strokeElements) {
+      if (!strokeCacheRef.current.has(el.stroke.id)) {
+        strokeCacheRef.current.set(el.stroke.id, buildCachedStroke(el.stroke));
+      }
     }
+  }, [strokeElements]);
+
+  useEffect(() => {
+    // Cancel any frame already queued so we coalesce rapid updates
+    if (committedRafRef.current !== null) {
+      cancelAnimationFrame(committedRafRef.current);
+    }
+    committedRafRef.current = requestAnimationFrame(() => {
+      committedRafRef.current = null;
+      if (committedRef.current) {
+        redrawCommittedCanvas(
+          committedRef.current,
+          strokeElementsRef.current,
+          panRef.current,
+          zoomRef.current,
+          strokeCacheRef.current,
+        );
+      }
+    });
+    return () => {
+      if (committedRafRef.current !== null) {
+        cancelAnimationFrame(committedRafRef.current);
+        committedRafRef.current = null;
+      }
+    };
   }, [strokeElements, pan, zoom]);
 
   // ── Live canvas helpers (rAF-throttled) ──────────────────────────────────
