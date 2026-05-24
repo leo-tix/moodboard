@@ -481,8 +481,10 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
   const perim   = 2 * (bboxW + bboxH);
   const corners = countCorners(points, 55);
 
-  // ── Rectangle primary: 3–5 sharp corners ≥ 55° ────────────────────────────
-  if (corners >= 3 && corners <= 5 && arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
+  // ── Rectangle primary: 3–8 sharp corners ≥ 55° ────────────────────────────
+  // Upper bound is 8 (not 5) to tolerate wobbly freehand strokes that may
+  // produce a few extra fake corners along imperfect edges.
+  if (corners >= 3 && corners <= 8 && arcLen > 0.55 * perim && arcLen < 3.0 * perim) {
     return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
   }
 
@@ -498,9 +500,10 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
   }
 
   // ── Rectangle fallback: most points near the bounding-box edges ────────────
-  // Catches very rounded rectangles that the corner detector missed.
+  // Catches rounded rects that missed the corner check (corners > 8 from wobble,
+  // or very rounded corners). Upper bound is 3.0× perim so wobbly strokes pass.
   // Runs after ellipse so circles (all points near bbox edges too) are not caught.
-  if (arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
+  if (arcLen > 0.55 * perim && arcLen < 3.0 * perim) {
     const tol      = Math.max(22, Math.max(bboxW, bboxH) * 0.16);
     const nearEdge = points.filter(
       (p) =>
