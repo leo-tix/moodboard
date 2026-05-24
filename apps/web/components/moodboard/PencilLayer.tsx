@@ -33,6 +33,7 @@ import {
   buildCachedStroke,
   drawCachedStroke,
   drawStrokeLive,
+  detectShape,
   type CachedStroke,
 } from "@/lib/moodboard/pencil";
 
@@ -199,6 +200,9 @@ export function PencilLayer({
   const committedRafRef  = useRef<number | null>(null);   // committed canvas rAF
   // Prevents the toggle firing multiple times per single Pencil Pro squeeze / double-tap
   const squeezeFiredRef = useRef(false);
+  // Shape hold-to-snap: timer fires after 600ms stationary, snappedRef prevents double-commit
+  const shapeHoldTimerRef = useRef<number | null>(null);
+  const snappedRef        = useRef(false);
 
   /**
    * Path2D cache: stroke.id → CachedStroke (pre-built outline polygon / bezier path).
@@ -428,11 +432,55 @@ export function PencilLayer({
       }
 
       scheduleLiveRedraw();
+
+      // ── Shape hold-to-snap ──────────────────────────────────────────────────
+      // If the pencil stays stationary (< 3px movement) for 600ms at the end of
+      // a stroke, detect a geometric shape and snap to it.
+      const pts = currentStroke.current.points;
+      if (pts.length >= 2) {
+        const last = pts[pts.length - 1];
+        const prev = pts[pts.length - 2];
+        if (Math.hypot(last.x - prev.x, last.y - prev.y) < 3) {
+          if (shapeHoldTimerRef.current === null) {
+            shapeHoldTimerRef.current = window.setTimeout(() => {
+              shapeHoldTimerRef.current = null;
+              const stroke = currentStroke.current;
+              if (!stroke || stroke.points.length < 4) return;
+              const detected = detectShape(stroke);
+              if (!detected) return; // ambiguous — let user lift normally
+              const shaped: Stroke = { ...stroke, points: detected.points };
+              // Clear live canvas immediately
+              const lc = liveRef.current;
+              if (lc) lc.getContext("2d")?.clearRect(0, 0, lc.width, lc.height);
+              // Pre-warm cache then commit (committed canvas redraws on next rAF)
+              strokeCacheRef.current.set(shaped.id, buildCachedStroke(shaped));
+              onStrokeAdd(shaped);
+              currentStroke.current = null;
+              snappedRef.current = true;
+            }, 600);
+          }
+        } else if (shapeHoldTimerRef.current !== null) {
+          clearTimeout(shapeHoldTimerRef.current);
+          shapeHoldTimerRef.current = null;
+        }
+      }
     };
 
     const onPointerUp = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
       setHoverVP(null);
+
+      // Cancel any pending shape-hold timer
+      if (shapeHoldTimerRef.current !== null) {
+        clearTimeout(shapeHoldTimerRef.current);
+        shapeHoldTimerRef.current = null;
+      }
+
+      // Shape was already committed during the hold — pencil-up is a no-op
+      if (snappedRef.current) {
+        snappedRef.current = false;
+        return;
+      }
 
       const stroke = currentStroke.current;
       currentStroke.current = null;

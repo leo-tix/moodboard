@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { PencilTool } from "./PencilLayer";
 
 // ── Preset palettes ─────────────────────────────────────────────────────────
@@ -69,6 +69,18 @@ const CloseIcon = () => (
   </svg>
 );
 
+// Drag handle: 2×3 grid of dots
+const GripIcon = () => (
+  <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+    <circle cx="2.5" cy="2.5" r="1.5"/>
+    <circle cx="7.5" cy="2.5" r="1.5"/>
+    <circle cx="2.5" cy="7"   r="1.5"/>
+    <circle cx="7.5" cy="7"   r="1.5"/>
+    <circle cx="2.5" cy="11.5" r="1.5"/>
+    <circle cx="7.5" cy="11.5" r="1.5"/>
+  </svg>
+);
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 interface Props {
@@ -100,17 +112,67 @@ export function PencilToolbar({
 }: Props) {
   const [confirmClear, setConfirmClear] = useState(false);
 
+  // ── Draggable position ──────────────────────────────────────────────────────
+  // Initial position: left edge, vertically centered (adjusted on mount)
+  const [pos, setPos] = useState({ x: 12, y: 200 });
+  useEffect(() => {
+    setPos({ x: 12, y: Math.max(12, Math.round(window.innerHeight / 2) - 220) });
+  }, []);
+
+  const isDragging  = useRef(false);
+  const dragStart   = useRef({ mx: 0, my: 0, tx: 0, ty: 0 });
+
+  const onGripPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragging.current = true;
+    dragStart.current  = { mx: e.clientX, my: e.clientY, tx: pos.x, ty: pos.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, [pos]);
+
+  const onGripPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const newX = Math.max(0, dragStart.current.tx + e.clientX - dragStart.current.mx);
+    const newY = Math.max(0, dragStart.current.ty + e.clientY - dragStart.current.my);
+    setPos({ x: newX, y: newY });
+  }, []);
+
+  const onGripPointerUp = useCallback((e: React.PointerEvent) => {
+    isDragging.current = false;
+    e.stopPropagation();
+  }, []);
+
   return (
-    // Floating palette — left side, vertically centered
-    // z-index below ContextualToolbar (200) but above canvas elements
+    // Floating palette — positioned via drag state, defaults to left side vertically centered.
+    // z-index below ContextualToolbar (200) but above canvas elements.
+    // onPointerDown stopPropagation: ensures the Apple Pencil can tap toolbar buttons
+    // without the PencilLayer's viewport listener intercepting the event.
     <div
-      className="absolute left-3 top-1/2 -translate-y-1/2 z-[160] flex flex-col items-center gap-1.5
+      className="absolute z-[160] flex flex-col items-center gap-1.5
                  bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)]
-                 rounded-2xl shadow-2xl px-2 py-3 select-none"
+                 rounded-2xl shadow-2xl px-2 py-2 select-none"
+      style={{ left: pos.x, top: pos.y }}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       data-role="pencil-toolbar"
     >
+      {/* ── Drag handle ── */}
+      <div
+        className="w-9 h-6 flex items-center justify-center rounded-xl
+                   text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]
+                   hover:bg-[var(--bg-surface)] transition-colors cursor-grab active:cursor-grabbing touch-none"
+        title="Déplacer la palette"
+        onPointerDown={onGripPointerDown}
+        onPointerMove={onGripPointerMove}
+        onPointerUp={onGripPointerUp}
+        onPointerCancel={onGripPointerUp}
+      >
+        <GripIcon />
+      </div>
+
       {/* ── Close drawing mode ── */}
       <button
         onClick={onClose}
@@ -128,7 +190,7 @@ export function PencilToolbar({
       {(
         [
           { t: "pen"    as PencilTool, icon: <PenIcon />,    label: "Stylo"    },
-          { t: "marker" as PencilTool, icon: <MarkerIcon />, label: "Marqueur" },
+          { t: "marker" as PencilTool, icon: <MarkerIcon />, label: "Surligneur" },
           { t: "eraser" as PencilTool, icon: <EraserIcon />, label: "Gomme"    },
         ] as const
       ).map(({ t, icon, label }) => (
@@ -239,7 +301,6 @@ export function PencilToolbar({
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            {/* Warning icon + message */}
             <div className="flex items-start gap-2 mb-3">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 mt-0.5 text-red-400" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M8 2L14.5 13.5H1.5L8 2z"/>

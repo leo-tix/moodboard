@@ -285,9 +285,14 @@ export function drawCachedStroke(ctx: CanvasRenderingContext2D, cached: CachedSt
 }
 
 /**
- * Fast live preview: single quadratic-bezier stroke, no smoothing, one draw call.
- * Used for the in-progress stroke on the live canvas.
- * Full quality is applied when the stroke is committed and cached.
+ * Live preview: visually matches the committed result as closely as possible.
+ *
+ * Pen: 1-pass position + pressure smooth → filled outline polygon.
+ *      Matches the committed appearance without the full Catmull-Rom pipeline cost.
+ *
+ * Marker: fixed width (width × 5 × tiltScale), matching buildMarkerPath exactly.
+ *         The previous version used avgPressure × width × 5, which was consistently
+ *         thinner than the committed stroke (pressure < 1).
  */
 export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
   const { points, tool, color, width } = stroke;
@@ -295,33 +300,41 @@ export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): v
 
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineCap     = "round";
-  ctx.lineJoin    = "round";
+  ctx.fillStyle   = color;
   ctx.globalAlpha = tool === "marker" ? 0.38 : 1;
 
   if (points.length === 1) {
-    const r = Math.max(0.5, points[0].pressure * width);
+    const r = tool === "marker" ? width * 2.5 : Math.max(0.5, points[0].pressure * width);
     ctx.beginPath();
     ctx.arc(points[0].x, points[0].y, r, 0, Math.PI * 2);
-    ctx.fillStyle = color;
     ctx.fill();
     ctx.restore();
     return;
   }
 
-  // Average pressure → stable uniform lineWidth (avoids flickering during drawing)
-  const avgPressure = points.reduce((s, p) => s + p.pressure, 0) / points.length;
-  ctx.lineWidth = Math.max(0.5, avgPressure * width * (tool === "marker" ? 5 : 2));
-
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+  if (tool === "pen") {
+    // 1-pass smooth → outline polygon (no Catmull-Rom densification for speed)
+    const smoothed = smoothPositions(points, 1);
+    const sp       = smoothPressure(smoothed, 0.2, 1);
+    const withSP   = smoothed.map((p, i) => ({ ...p, pressure: sp[i] }));
+    ctx.fill(buildPenOutline(withSP, width));
+  } else {
+    // Marker: width matches committed result exactly
+    const tilt      = points[0]?.tiltX ?? 0;
+    const tiltScale = 1 + Math.abs(tilt) / 90;
+    ctx.lineWidth = width * 5 * tiltScale;
+    ctx.lineCap   = "round";
+    ctx.lineJoin  = "round";
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length - 1; i++) {
+      const mx = (points[i].x + points[i + 1].x) / 2;
+      const my = (points[i].y + points[i + 1].y) / 2;
+      ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+    }
+    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+    ctx.stroke();
   }
-  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-  ctx.stroke();
 
   ctx.restore();
 }
@@ -333,6 +346,119 @@ export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): v
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke): void {
   const cached = buildCachedStroke(stroke);
   drawCachedStroke(ctx, cached);
+}
+
+// ── Shape detection (hold-to-snap) ────────────────────────────────────────────
+
+export type SnappedShape =
+  | { type: "line";    points: StrokePoint[] }
+  | { type: "rect";    points: StrokePoint[] }
+  | { type: "ellipse"; points: StrokePoint[] };
+
+function ptToSegDist(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+): number {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function generateLinePoints(a: StrokePoint, b: StrokePoint): StrokePoint[] {
+  return [
+    { x: a.x, y: a.y, pressure: 1 },
+    { x: b.x, y: b.y, pressure: 1 },
+  ];
+}
+
+function generateRectPoints(minX: number, minY: number, maxX: number, maxY: number): StrokePoint[] {
+  // 10 interpolated points per edge keeps Catmull-Rom from rounding corners
+  const STEPS = 10;
+  const w = maxX - minX, h = maxY - minY;
+  const pts: StrokePoint[] = [];
+  for (let i = 0; i <= STEPS; i++) pts.push({ x: minX + w * i / STEPS, y: minY,              pressure: 1 });
+  for (let i = 1; i <= STEPS; i++) pts.push({ x: maxX,                  y: minY + h * i / STEPS, pressure: 1 });
+  for (let i = 1; i <= STEPS; i++) pts.push({ x: maxX - w * i / STEPS,  y: maxY,              pressure: 1 });
+  for (let i = 1; i <= STEPS; i++) pts.push({ x: minX,                  y: maxY - h * i / STEPS, pressure: 1 });
+  pts.push({ x: minX, y: minY, pressure: 1 });
+  return pts;
+}
+
+function generateEllipsePoints(cx: number, cy: number, rx: number, ry: number): StrokePoint[] {
+  const N = 48;
+  const pts: StrokePoint[] = [];
+  for (let i = 0; i <= N; i++) {
+    const a = (2 * Math.PI * i) / N;
+    pts.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a), pressure: 1 });
+  }
+  return pts;
+}
+
+/**
+ * Analyse a stroke and return a snapped geometric shape if one is clearly recognised.
+ * Returns null if the stroke is ambiguous — the caller should commit it as-is.
+ *
+ * Detection order: line → ellipse → rectangle.
+ * Thresholds are intentionally conservative so only clearly-intended shapes snap.
+ */
+export function detectShape(stroke: Stroke): SnappedShape | null {
+  const { points } = stroke;
+  if (points.length < 4) return null;
+
+  const start = points[0];
+  const end   = points[points.length - 1];
+
+  const xs    = points.map((p) => p.x);
+  const ys    = points.map((p) => p.y);
+  const minX  = Math.min(...xs), maxX = Math.max(...xs);
+  const minY  = Math.min(...ys), maxY = Math.max(...ys);
+  const bboxW = maxX - minX,    bboxH = maxY - minY;
+
+  let arcLen = 0;
+  for (let i = 1; i < points.length; i++) {
+    arcLen += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  if (arcLen < 30) return null;
+
+  // ── Line ───────────────────────────────────────────────────────────────────
+  const maxDev = Math.max(
+    ...points.map((p) => ptToSegDist(p.x, p.y, start.x, start.y, end.x, end.y))
+  );
+  if (maxDev < Math.max(15, arcLen * 0.07)) {
+    return { type: "line", points: generateLinePoints(start, end) };
+  }
+
+  // ── Closed shape check ─────────────────────────────────────────────────────
+  const closeDist = Math.hypot(start.x - end.x, start.y - end.y);
+  if (closeDist > Math.max(50, arcLen * 0.15) || bboxW < 30 || bboxH < 30) return null;
+
+  // ── Ellipse ────────────────────────────────────────────────────────────────
+  const cx   = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const dists = points.map((p) => Math.hypot(p.x - cx, p.y - cy));
+  const mean  = dists.reduce((a, b) => a + b) / dists.length;
+  const std   = Math.sqrt(dists.reduce((s, d) => s + (d - mean) ** 2, 0) / dists.length);
+  if (std / mean < 0.22) {
+    return { type: "ellipse", points: generateEllipsePoints(cx, cy, bboxW / 2, bboxH / 2) };
+  }
+
+  // ── Rectangle ──────────────────────────────────────────────────────────────
+  const perim = 2 * (bboxW + bboxH);
+  if (arcLen > 0.65 * perim && arcLen < 1.6 * perim) {
+    const tol      = Math.max(18, Math.max(bboxW, bboxH) * 0.12);
+    const nearEdge = points.filter(
+      (p) =>
+        Math.abs(p.x - minX) < tol || Math.abs(p.x - maxX) < tol ||
+        Math.abs(p.y - minY) < tol || Math.abs(p.y - maxY) < tol,
+    ).length;
+    if (nearEdge / points.length > 0.72) {
+      return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
+    }
+  }
+
+  return null;
 }
 
 // ── StrokeElement helpers ─────────────────────────────────────────────────────
