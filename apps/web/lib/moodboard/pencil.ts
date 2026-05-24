@@ -406,6 +406,12 @@ function generateEllipsePoints(cx: number, cy: number, rx: number, ry: number): 
 function countCorners(points: StrokePoint[], thresholdDeg: number): number {
   if (points.length < 5) return 0;
   const WIN = Math.max(3, Math.floor(points.length / 25));
+  // The vectors (i→i-WIN) and (i→i+WIN) form a "V" shape.
+  // Straight line  → both vectors anti-parallel → angle ≈ 180°
+  // Smooth curve   → angle ≈ 165–175° (barely off anti-parallel)
+  // 90° corner     → vectors perpendicular       → angle ≈ 90°
+  // A sharp corner is detected when this angle is small, i.e. < (180 - thresholdDeg).
+  const limitAngle = 180 - thresholdDeg; // e.g. 125° for thresholdDeg=55°
   let corners = 0;
   let i = WIN;
   while (i < points.length - WIN) {
@@ -417,7 +423,7 @@ function countCorners(points: StrokePoint[], thresholdDeg: number): number {
     if (la > 4 && lb > 4) {
       const dot   = (ax * bx + ay * by) / (la * lb);
       const angle = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
-      if (angle > thresholdDeg) {
+      if (angle < limitAngle) {
         corners++;
         i += WIN; // jump past the corner to avoid double-counting
         continue;
