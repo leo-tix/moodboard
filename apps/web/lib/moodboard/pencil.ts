@@ -137,15 +137,17 @@ function buildPenOutline(dense: StrokePoint[], width: number): Path2D {
   }
 
   // ── Pass 2: smooth tangent angles (2 iterations, vector averaging) ──────────
-  // Prevents consecutive normals from pointing in nearly-opposite directions,
-  // which would cause the outline polygon to self-intersect and produce
-  // triangular fill artifacts under the nonzero winding rule.
+  // Prevents consecutive normals from oscillating in opposite directions.
+  // Uses a TEMP array so each pass is a true Jacobi step (symmetric), not a
+  // progressive Gauss-Seidel that would drift the tangents toward one end.
   for (let pass = 0; pass < 2; pass++) {
+    const tmp = ta.slice(); // snapshot before this pass
     for (let i = 1; i < n - 1; i++) {
       const dx = (Math.cos(ta[i - 1]) + Math.cos(ta[i]) + Math.cos(ta[i + 1])) / 3;
       const dy = (Math.sin(ta[i - 1]) + Math.sin(ta[i]) + Math.sin(ta[i + 1])) / 3;
-      if (dx * dx + dy * dy > 1e-12) ta[i] = Math.atan2(dy, dx);
+      if (dx * dx + dy * dy > 1e-12) tmp[i] = Math.atan2(dy, dx);
     }
+    for (let i = 1; i < n - 1; i++) ta[i] = tmp[i];
   }
 
   // ── Pass 3: build left/right profile points using smoothed tangents ──────────
@@ -285,7 +287,10 @@ export function drawCachedStroke(ctx: CanvasRenderingContext2D, cached: CachedSt
   ctx.fillStyle    = cached.strokeStyle;
 
   if (cached.fillPath) {
-    ctx.fill(cached.fillPath);
+    // evenodd fills all enclosed regions regardless of winding direction.
+    // This eliminates transparent "holes" caused by residual self-intersections
+    // in the outline polygon (e.g. at sharp curves or direction reversals).
+    ctx.fill(cached.fillPath, "evenodd");
   } else if (cached.strokePath) {
     ctx.lineCap    = "square";
     ctx.lineJoin   = "round";
@@ -329,7 +334,7 @@ export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): v
     const smoothed = smoothPositions(points, 1);
     const sp       = smoothPressure(smoothed, 0.2, 1);
     const withSP   = smoothed.map((p, i) => ({ ...p, pressure: sp[i] }));
-    ctx.fill(buildPenOutline(withSP, width));
+    ctx.fill(buildPenOutline(withSP, width), "evenodd");
   } else {
     // Marker: width matches committed result exactly
     const tilt      = points[0]?.tiltX ?? 0;
