@@ -203,6 +203,10 @@ export function PencilLayer({
   // Shape hold-to-snap: timer fires after 600ms stationary, snappedRef prevents double-commit
   const shapeHoldTimerRef = useRef<number | null>(null);
   const snappedRef        = useRef(false);
+  // Toolbar tap via Pencil: track the element where pointerdown landed so we can
+  // fire a synthetic click on pointerup (browser click synthesis can be unreliable
+  // for pen events inside a viewport with touch-action:none / preventDefault calls).
+  const penToolbarDownRef = useRef<HTMLElement | null>(null);
 
   /**
    * Path2D cache: stroke.id → CachedStroke (pre-built outline polygon / bezier path).
@@ -335,9 +339,16 @@ export function PencilLayer({
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
 
-      // ── Toolbar interaction: let pencil tap toolbar buttons naturally ────
-      // Don't intercept pointer events that target the drawing toolbar.
-      if ((e.target as HTMLElement).closest('[data-role="pencil-toolbar"]')) return;
+      // ── Toolbar interaction: pencil tap on toolbar buttons ──────────────
+      // Browser click synthesis for pen events inside a touch-action:none viewport
+      // can be unreliable on iPadOS Safari. We take over: preventDefault to suppress
+      // the native click, store the target, and fire a synthetic MouseEvent on pointerup.
+      if ((e.target as HTMLElement).closest('[data-role="pencil-toolbar"]')) {
+        penToolbarDownRef.current = e.target as HTMLElement;
+        e.preventDefault(); // suppress browser click synthesis; we'll fire it manually
+        return;
+      }
+      penToolbarDownRef.current = null;
 
       // ── Apple Pencil Pro barrel / squeeze / double-tap button ────────────
       // Any non-primary button on a pen device triggers the eraser toggle.
@@ -469,6 +480,19 @@ export function PencilLayer({
     const onPointerUp = (e: PointerEvent) => {
       if (e.pointerType !== "pen") return;
       setHoverVP(null);
+
+      // ── Toolbar tap: fire synthetic click on the button/label ────────────
+      // pointerdown on toolbar called preventDefault, so we dispatch the click here.
+      const toolbarDown = penToolbarDownRef.current;
+      penToolbarDownRef.current = null;
+      if (toolbarDown) {
+        // Only fire if pen is still inside the toolbar on pointerup
+        if ((e.target as HTMLElement).closest('[data-role="pencil-toolbar"]')) {
+          const interactive = toolbarDown.closest('button, label') as HTMLElement | null;
+          if (interactive) interactive.click();
+        }
+        return;
+      }
 
       // Cancel any pending shape-hold timer
       if (shapeHoldTimerRef.current !== null) {

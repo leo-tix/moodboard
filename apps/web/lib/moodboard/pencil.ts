@@ -398,6 +398,37 @@ function generateEllipsePoints(cx: number, cy: number, rx: number, ry: number): 
 }
 
 /**
+ * Count the number of sharp direction changes (corners) in a stroke.
+ * thresholdDeg: minimum angle (degrees) at which a bend is counted as a corner.
+ * WIN: look-ahead/behind window as a fraction of the point array length.
+ * A rectangle should produce 3–5 corners; a smooth curve should produce 0.
+ */
+function countCorners(points: StrokePoint[], thresholdDeg: number): number {
+  if (points.length < 5) return 0;
+  const WIN = Math.max(3, Math.floor(points.length / 25));
+  let corners = 0;
+  let i = WIN;
+  while (i < points.length - WIN) {
+    const ax = points[i - WIN].x - points[i].x;
+    const ay = points[i - WIN].y - points[i].y;
+    const bx = points[i + WIN].x - points[i].x;
+    const by = points[i + WIN].y - points[i].y;
+    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+    if (la > 4 && lb > 4) {
+      const dot   = (ax * bx + ay * by) / (la * lb);
+      const angle = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
+      if (angle > thresholdDeg) {
+        corners++;
+        i += WIN; // jump past the corner to avoid double-counting
+        continue;
+      }
+    }
+    i++;
+  }
+  return corners;
+}
+
+/**
  * Analyse a stroke and return a snapped geometric shape if one is clearly recognised.
  * Returns null if the stroke is ambiguous — the caller should commit it as-is.
  *
@@ -445,15 +476,23 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
   }
 
   // ── Rectangle ──────────────────────────────────────────────────────────────
+  // Arc length must be broadly compatible with a bbox-sized perimeter.
   const perim = 2 * (bboxW + bboxH);
-  if (arcLen > 0.65 * perim && arcLen < 1.6 * perim) {
-    const tol      = Math.max(18, Math.max(bboxW, bboxH) * 0.12);
+  if (arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
+    // Primary: 3–5 sharp direction changes ≥ 55° = rectangle corners.
+    // This catches freehand rects regardless of how rounded the corners are.
+    const corners = countCorners(points, 55);
+    if (corners >= 3 && corners <= 5) {
+      return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
+    }
+    // Fallback: most points near the bounding-box edges (very clean strokes).
+    const tol      = Math.max(22, Math.max(bboxW, bboxH) * 0.16);
     const nearEdge = points.filter(
       (p) =>
         Math.abs(p.x - minX) < tol || Math.abs(p.x - maxX) < tol ||
         Math.abs(p.y - minY) < tol || Math.abs(p.y - maxY) < tol,
     ).length;
-    if (nearEdge / points.length > 0.72) {
+    if (nearEdge / points.length > 0.62) {
       return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
     }
   }
