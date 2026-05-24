@@ -466,19 +466,35 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
   const closeDist = Math.hypot(start.x - end.x, start.y - end.y);
   if (closeDist > Math.max(50, arcLen * 0.15) || bboxW < 30 || bboxH < 30) return null;
 
-  // Compute once — reused by both rectangle and ellipse branches.
+  // Corner count drives the detection order below.
   // Squares have std/mean ≈ 0.15–0.18 which would falsely trigger the ellipse
-  // threshold (0.22), so rectangle corner detection must run first.
+  // threshold (0.22), so the sharp-corner rectangle check must run before ellipse.
+  // However the nearEdge fallback (for very rounded rects) must run AFTER ellipse,
+  // because every point on a circle is within ~16% of its bounding box from some
+  // edge — nearEdge would otherwise catch circles as rectangles.
   const perim   = 2 * (bboxW + bboxH);
   const corners = countCorners(points, 55);
 
-  // ── Rectangle (before ellipse) ─────────────────────────────────────────────
-  if (arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
-    // Primary: 3–5 sharp corners ≥ 55° = rectangle.
-    if (corners >= 3 && corners <= 5) {
-      return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
+  // ── Rectangle primary: 3–5 sharp corners ≥ 55° ────────────────────────────
+  if (corners >= 3 && corners <= 5 && arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
+    return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
+  }
+
+  // ── Ellipse: smooth closed curve (no sharp corners) ────────────────────────
+  if (corners < 3) {
+    const cx    = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const dists = points.map((p) => Math.hypot(p.x - cx, p.y - cy));
+    const mean  = dists.reduce((a, b) => a + b) / dists.length;
+    const std   = Math.sqrt(dists.reduce((s, d) => s + (d - mean) ** 2, 0) / dists.length);
+    if (std / mean < 0.22) {
+      return { type: "ellipse", points: generateEllipsePoints(cx, cy, bboxW / 2, bboxH / 2) };
     }
-    // Fallback: most points cluster near the bounding-box edges.
+  }
+
+  // ── Rectangle fallback: most points near the bounding-box edges ────────────
+  // Catches very rounded rectangles that the corner detector missed.
+  // Runs after ellipse so circles (all points near bbox edges too) are not caught.
+  if (arcLen > 0.55 * perim && arcLen < 1.9 * perim) {
     const tol      = Math.max(22, Math.max(bboxW, bboxH) * 0.16);
     const nearEdge = points.filter(
       (p) =>
@@ -487,17 +503,6 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
     ).length;
     if (nearEdge / points.length > 0.62) {
       return { type: "rect", points: generateRectPoints(minX, minY, maxX, maxY) };
-    }
-  }
-
-  // ── Ellipse (only for smooth closed curves with no sharp corners) ──────────
-  if (corners < 3) {
-    const cx    = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    const dists = points.map((p) => Math.hypot(p.x - cx, p.y - cy));
-    const mean  = dists.reduce((a, b) => a + b) / dists.length;
-    const std   = Math.sqrt(dists.reduce((s, d) => s + (d - mean) ** 2, 0) / dists.length);
-    if (std / mean < 0.22) {
-      return { type: "ellipse", points: generateEllipsePoints(cx, cy, bboxW / 2, bboxH / 2) };
     }
   }
 
