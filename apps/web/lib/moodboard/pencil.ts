@@ -125,24 +125,36 @@ function buildPenOutline(dense: StrokePoint[], width: number): Path2D {
   const hw: number[] = new Array(n);
   const ta: number[] = new Array(n);
 
+  // ── Pass 1: raw central-difference tangent angle at each point ──────────────
   for (let i = 0; i < n; i++) {
-    const p  = dense[i];
-    const h  = Math.max(0.3, p.pressure * width);
-    hw[i] = h;
-
-    // Central-difference tangent
     const ax = i > 0     ? dense[i - 1].x : dense[0].x;
     const ay = i > 0     ? dense[i - 1].y : dense[0].y;
     const bx = i < n - 1 ? dense[i + 1].x : dense[n - 1].x;
     const by = i < n - 1 ? dense[i + 1].y : dense[n - 1].y;
-    let tx = bx - ax, ty = by - ay;
+    const tx = bx - ax, ty = by - ay;
     const tlen = Math.hypot(tx, ty);
-    if (tlen < 1e-6) { tx = 1; ty = 0; } else { tx /= tlen; ty /= tlen; }
+    ta[i] = tlen < 1e-6 ? (i > 0 ? ta[i - 1] : 0) : Math.atan2(ty / tlen, tx / tlen);
+  }
 
-    ta[i] = Math.atan2(ty, tx);
+  // ── Pass 2: smooth tangent angles (2 iterations, vector averaging) ──────────
+  // Prevents consecutive normals from pointing in nearly-opposite directions,
+  // which would cause the outline polygon to self-intersect and produce
+  // triangular fill artifacts under the nonzero winding rule.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 1; i < n - 1; i++) {
+      const dx = (Math.cos(ta[i - 1]) + Math.cos(ta[i]) + Math.cos(ta[i + 1])) / 3;
+      const dy = (Math.sin(ta[i - 1]) + Math.sin(ta[i]) + Math.sin(ta[i + 1])) / 3;
+      if (dx * dx + dy * dy > 1e-12) ta[i] = Math.atan2(dy, dx);
+    }
+  }
 
-    // Normal: 90° CCW from tangent = (-ty, tx)
-    const nx = -ty, ny = tx;
+  // ── Pass 3: build left/right profile points using smoothed tangents ──────────
+  for (let i = 0; i < n; i++) {
+    const p  = dense[i];
+    const h  = Math.max(0.3, p.pressure * width);
+    hw[i] = h;
+    // Normal: 90° CCW from tangent direction ta[i]
+    const nx = -Math.sin(ta[i]), ny = Math.cos(ta[i]);
     left[i]  = { x: p.x + nx * h, y: p.y + ny * h };
     right[i] = { x: p.x - nx * h, y: p.y - ny * h };
   }
