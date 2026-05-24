@@ -27,7 +27,7 @@
  *  · Hover div        — cursor preview driven by React state (pointer pressure=0)
  */
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback, useState } from "react";
 import type { PencilTool, StrokePoint, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import {
   buildCachedStroke,
@@ -241,8 +241,12 @@ export function PencilLayer({
   }, [viewportRef, resizeToViewport]);
 
   // ── Committed canvas redraw ──────────────────────────────────────────────
+  // useLayoutEffect fires synchronously BEFORE the browser paint, in the same
+  // cycle as React's DOM updates. This ensures the canvas and the DOM elements
+  // (which also depend on pan/zoom) are painted together in one frame.
+  // Using useEffect would fire AFTER paint: canvas lags 1 frame behind DOM → flicker.
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (committedRef.current) {
       redrawCommittedCanvas(committedRef.current, strokeElements, pan, zoom, strokeCacheRef.current);
     }
