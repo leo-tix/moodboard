@@ -2550,10 +2550,14 @@ function CanvasItem({
   const dragGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
   const resizeGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
 
-  // Aspect ratio lock: images lock by default, Shift unlocks
+  // Aspect ratio lock: images and strokes lock by default, Shift unlocks
   let lockAspectRatio: boolean | number = false;
-  if (element.type === "image" && !shiftHeld) {
-    lockAspectRatio = (element as ImageElement).aspectRatio ?? (element.w / element.h);
+  if (!shiftHeld) {
+    if (element.type === "image") {
+      lockAspectRatio = (element as ImageElement).aspectRatio ?? (element.w / element.h);
+    } else if (element.type === "stroke") {
+      lockAspectRatio = element.w / element.h;
+    }
   }
 
   return (
