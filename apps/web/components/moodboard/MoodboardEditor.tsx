@@ -1187,6 +1187,11 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // ── Escape ──
       if (e.key === "Escape") {
+        // Commit any active text editing (safety net for stuck state)
+        if (textEditingIdRef.current) {
+          commitTextEdit();
+          return;
+        }
         // Cancel in-progress drawing first
         if (linearInProgressRef.current) {
           linearInProgressRef.current = null;
@@ -1252,21 +1257,19 @@ export function MoodboardEditor({ initialData }: Props) {
     };
   }, [undo, redo, deleteSelected, handleGroup, handleUngroup, duplicateElements, updateElements, zoomToFit, applyZoom]);
 
-  // ── Auto-focus textarea when text editing starts ──
-  useEffect(() => {
-    if (textEditingId && textareaRef.current) {
-      const ta = textareaRef.current;
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-    }
-  }, [textEditingId]);
+  // NOTE: textarea focus is handled via ref callback (see JSX below) — no useEffect needed.
 
   // ── Viewport mouse handlers (pan + rubber band) ──
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Ignore synthetic mouse events that originate from Apple Pencil in drawing mode
     if (drawingModeRef.current) return;
-    // Block new canvas operations while a text element is being edited
-    if (textEditingIdRef.current) return;
+    // If a text element is being edited, commit it first.
+    // Then continue only if the active tool is "text" (so the user can chain-place new text);
+    // for every other tool, just commit and swallow the click.
+    if (textEditingIdRef.current) {
+      commitTextEdit();
+      if (activeToolRef.current !== "text") return;
+    }
 
     if (e.button === 1 || (e.button === 0 && isSpaceDown.current)) {
       // Pan
@@ -2586,8 +2589,14 @@ export function MoodboardEditor({ initialData }: Props) {
               return (
                 <textarea
                   key={textEditingId}
-                  ref={textareaRef}
-                  autoFocus
+                  ref={(el) => {
+                    textareaRef.current = el;
+                    if (el) {
+                      // Reliable focus: ref callback fires synchronously after DOM insertion.
+                      el.focus();
+                      el.setSelectionRange(el.value.length, el.value.length);
+                    }
+                  }}
                   defaultValue={editEl.content}
                   style={{
                     position: "absolute",
