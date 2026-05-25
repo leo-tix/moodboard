@@ -53,8 +53,17 @@ function smoothPressure(points: StrokePoint[], alpha = 0.2, passes = 3): number[
 }
 
 /**
- * Catmull-Rom spline — densifies the point array to ~2px spacing, giving
- * smooth curves through every original sample point.
+ * Centripetal Catmull-Rom spline (α = 0.5) — densifies the point array to
+ * ~2 px spacing, interpolating smoothly through every original sample point.
+ *
+ * WHY centripetal instead of uniform:
+ *   Uniform CR parameterises knot spacing by chord length, which can produce
+ *   cusps and local self-intersections near abrupt direction changes (the path
+ *   "overshoots" and doubles back).  Centripetal CR uses √(chord length) as the
+ *   knot spacing, which is mathematically proven to prevent cusps and loops.
+ *   The result: no micro-direction-reversals → no bowtie quads → no artefacts.
+ *
+ * Uses the Barry-Goldman algorithm for non-uniform Catmull-Rom evaluation.
  * Runs at commit time; result is stored in the Path2D cache.
  */
 function catmullRom(points: StrokePoint[]): StrokePoint[] {
@@ -62,32 +71,40 @@ function catmullRom(points: StrokePoint[]): StrokePoint[] {
   const result: StrokePoint[] = [];
   const n = points.length;
 
+  /** Non-uniform linear interpolation at parameter t in [ta, tb]. */
+  const nlerp = (ta: number, va: number, tb: number, vb: number, t: number) =>
+    Math.abs(tb - ta) < 1e-10 ? (va + vb) * 0.5 : va + (vb - va) * (t - ta) / (tb - ta);
+
   for (let i = 0; i < n - 1; i++) {
     const p0 = points[Math.max(0, i - 1)];
     const p1 = points[i];
     const p2 = points[i + 1];
     const p3 = points[Math.min(n - 1, i + 2)];
 
+    // Centripetal knot spacing: t_{i+1} = t_i + |P_{i+1} - P_i|^0.5
+    const t0 = 0;
+    const t1 = t0 + Math.sqrt(Math.hypot(p1.x - p0.x, p1.y - p0.y));
+    const t2 = t1 + Math.sqrt(Math.hypot(p2.x - p1.x, p2.y - p1.y));
+    const t3 = t2 + Math.sqrt(Math.hypot(p3.x - p2.x, p3.y - p2.y));
+
     const steps = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2));
 
     for (let s = 0; s < steps; s++) {
-      const t  = s / steps;
-      const t2 = t * t;
-      const t3 = t2 * t;
+      const t = t1 + (t2 - t1) * (s / steps);
 
-      const x = 0.5 * (
-        (2 * p1.x) +
-        (-p0.x + p2.x) * t +
-        (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-        (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
-      );
-      const y = 0.5 * (
-        (2 * p1.y) +
-        (-p0.y + p2.y) * t +
-        (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-        (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
-      );
-      result.push({ x, y, pressure: p1.pressure + (p2.pressure - p1.pressure) * t });
+      // Barry-Goldman recursive evaluation (3 levels of linear interpolation)
+      const A1x = nlerp(t0, p0.x, t1, p1.x, t), A1y = nlerp(t0, p0.y, t1, p1.y, t);
+      const A2x = nlerp(t1, p1.x, t2, p2.x, t), A2y = nlerp(t1, p1.y, t2, p2.y, t);
+      const A3x = nlerp(t2, p2.x, t3, p3.x, t), A3y = nlerp(t2, p2.y, t3, p3.y, t);
+
+      const B1x = nlerp(t0, A1x, t2, A2x, t),   B1y = nlerp(t0, A1y, t2, A2y, t);
+      const B2x = nlerp(t1, A2x, t3, A3x, t),   B2y = nlerp(t1, A2y, t3, A3y, t);
+
+      const x   = nlerp(t1, B1x, t2, B2x, t);
+      const y   = nlerp(t1, B1y, t2, B2y, t);
+
+      const frac = (t - t1) / Math.max(t2 - t1, 1e-10);
+      result.push({ x, y, pressure: p1.pressure + (p2.pressure - p1.pressure) * frac });
     }
   }
 
