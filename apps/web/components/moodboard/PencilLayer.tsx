@@ -128,10 +128,24 @@ function redrawCommittedCanvas(
     if (!currentIds.has(id)) cache.delete(id);
   }
 
+  // Visible region in canvas coordinates — used for viewport culling below.
+  // Small padding avoids edge-popping when a stroke's bbox grazes the viewport.
+  const PAD   = 64;
+  const vpW   = canvas.width  / dpr;
+  const vpH   = canvas.height / dpr;
+  const visX1 = (-pan.x - PAD) / zoom;
+  const visY1 = (-pan.y - PAD) / zoom;
+  const visX2 = (vpW - pan.x + PAD) / zoom;
+  const visY2 = (vpH - pan.y + PAD) / zoom;
+
   // Sort by zIndex so strokes respect layering order
   const sorted = [...strokeElements].sort((a, b) => a.zIndex - b.zIndex);
 
   for (const el of sorted) {
+    // Viewport culling: skip strokes whose bbox is entirely outside the visible region.
+    // el.x/y/w/h is the stroke's bbox in canvas coords — same space as visX1…visY2.
+    if (el.x + el.w < visX1 || el.x > visX2 || el.y + el.h < visY1 || el.y > visY2) continue;
+
     const sid = el.stroke.id;
     // Lazy build: compute Path2D only on first draw after commit
     if (!cache.has(sid)) {
