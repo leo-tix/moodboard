@@ -20,11 +20,12 @@
  *      stroke is committed and cached.
  */
 
+import getStroke from "perfect-freehand";
 import type { Stroke, StrokePoint, StrokeElement } from "./types";
 
-// ── Smoothing / interpolation helpers (commit-time only) ──────────────────────
+// ── Marker smoothing helper (commit-time only) ────────────────────────────────
 
-/** Multi-pass 3-point moving-average — runs at commit time only. */
+/** Multi-pass 3-point moving-average — used by the marker path only. */
 function smoothPositions(points: StrokePoint[], passes = 3): StrokePoint[] {
   let pts = [...points];
   for (let p = 0; p < passes; p++) {
@@ -41,103 +42,35 @@ function smoothPositions(points: StrokePoint[], passes = 3): StrokePoint[] {
   return pts;
 }
 
-/** Multi-pass bidirectional EMA on pressure — runs at commit time only. */
-function smoothPressure(points: StrokePoint[], alpha = 0.2, passes = 3): number[] {
-  const raw = points.map((p) => Math.max(0.08, p.pressure));
-  const s   = [...raw];
-  for (let pass = 0; pass < passes; pass++) {
-    for (let i = 1;            i < s.length;  i++) s[i]   = s[i - 1] * (1 - alpha) + s[i] * alpha;
-    for (let i = s.length - 2; i >= 0;        i--) s[i]   = s[i + 1] * (1 - alpha) + s[i] * alpha;
-  }
-  return s;
-}
-
-/** Catmull-Rom spline — densifies to ~2 px spacing. Runs at commit time only. */
-function catmullRom(points: StrokePoint[]): StrokePoint[] {
-  if (points.length < 2) return points;
-  const result: StrokePoint[] = [];
-  const n = points.length;
-
-  for (let i = 0; i < n - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(n - 1, i + 2)];
-
-    const steps = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2));
-
-    for (let s = 0; s < steps; s++) {
-      const t  = s / steps;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      const x  = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-      const y  = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-      result.push({ x, y, pressure: p1.pressure + (p2.pressure - p1.pressure) * t });
-    }
-  }
-
-  result.push(points[n - 1]);
-  return result;
-}
-
-// ── Pen: variable-width filled outline ───────────────────────────────────────
+// ── Pen: perfect-freehand outline ────────────────────────────────────────────
 
 /**
- * Build a single closed Path2D for a pen stroke:
- * start-cap (polygon semicircle) → left outline → end-cap → right outline.
- * One ctx.fill() call renders the entire stroke.
+ * Build a Path2D for a pen stroke using perfect-freehand.
+ *
+ * perfect-freehand handles smoothing, pressure-sensitive width, and caps
+ * internally — no manual Catmull-Rom or polygon-outline code needed.
+ * It is specifically designed to never produce cusps or self-intersections.
+ *
+ * @param last  true for committed strokes (closed end cap),
+ *              false for live preview (open end, no premature taper).
  */
-function buildPenOutline(dense: StrokePoint[], width: number): Path2D {
+function buildPenPath(points: StrokePoint[], width: number, last: boolean): Path2D {
+  const outline = getStroke(
+    points.map((p) => [p.x, p.y, p.pressure] as [number, number, number]),
+    {
+      size:             width * 2,
+      thinning:         0.6,   // pressure varies width from 40 % to 100 % of size
+      smoothing:        0.5,   // outline edge smoothing
+      streamline:       0.5,   // input point streamlining (replaces smoothPositions)
+      simulatePressure: false, // real Apple Pencil pressure provided
+      last,
+    },
+  );
+
   const path = new Path2D();
-  const n    = dense.length;
-  if (n === 0) return path;
-  if (n === 1) {
-    path.arc(dense[0].x, dense[0].y, Math.max(0.3, dense[0].pressure * width), 0, Math.PI * 2);
-    return path;
-  }
-
-  const left:  { x: number; y: number }[] = new Array(n);
-  const right: { x: number; y: number }[] = new Array(n);
-  const hw:    number[] = new Array(n);
-  const ta:    number[] = new Array(n);
-
-  for (let i = 0; i < n; i++) {
-    const p = dense[i];
-    hw[i]   = Math.max(0.3, p.pressure * width);
-    const ax = i > 0     ? dense[i - 1].x : dense[0].x;
-    const ay = i > 0     ? dense[i - 1].y : dense[0].y;
-    const bx = i < n - 1 ? dense[i + 1].x : dense[n - 1].x;
-    const by = i < n - 1 ? dense[i + 1].y : dense[n - 1].y;
-    let tx = bx - ax, ty = by - ay;
-    const tl = Math.hypot(tx, ty);
-    if (tl < 1e-6) { tx = 1; ty = 0; } else { tx /= tl; ty /= tl; }
-    ta[i]    = Math.atan2(ty, tx);
-    const nx = -ty, ny = tx;          // 90° CCW from tangent
-    left[i]  = { x: p.x + nx * hw[i], y: p.y + ny * hw[i] };
-    right[i] = { x: p.x - nx * hw[i], y: p.y - ny * hw[i] };
-  }
-
-  const N_CAP = 8;
-
-  // Start cap: polygon semicircle from right[0] → left[0] going backward
-  path.moveTo(right[0].x, right[0].y);
-  for (let i = 1; i <= N_CAP; i++) {
-    const a = (ta[0] - Math.PI / 2) - (Math.PI * i) / N_CAP;
-    path.lineTo(dense[0].x + Math.cos(a) * hw[0], dense[0].y + Math.sin(a) * hw[0]);
-  }
-
-  // Left outline (forward)
-  for (let i = 0; i < n; i++) path.lineTo(left[i].x, left[i].y);
-
-  // End cap: polygon semicircle from left[n-1] → right[n-1] going forward
-  for (let i = 1; i <= N_CAP; i++) {
-    const a = (ta[n - 1] + Math.PI / 2) - (Math.PI * i) / N_CAP;
-    path.lineTo(dense[n - 1].x + Math.cos(a) * hw[n - 1], dense[n - 1].y + Math.sin(a) * hw[n - 1]);
-  }
-
-  // Right outline (backward)
-  for (let i = n - 2; i >= 0; i--) path.lineTo(right[i].x, right[i].y);
-
+  if (outline.length < 2) return path;
+  path.moveTo(outline[0][0], outline[0][1]);
+  for (let i = 1; i < outline.length; i++) path.lineTo(outline[i][0], outline[i][1]);
   path.closePath();
   return path;
 }
@@ -193,13 +126,8 @@ export function buildCachedStroke(stroke: Stroke): CachedStroke {
   const { points, tool, color, width } = stroke;
 
   if (tool === "pen" && points.length > 0) {
-    // Full-quality pipeline: position smooth → pressure smooth → Catmull-Rom → outline
-    const smoothed = smoothPositions(points, 3);
-    const sp       = smoothPressure(smoothed, 0.2, 3);
-    const withSP   = smoothed.map((p, i) => ({ ...p, pressure: sp[i] }));
-    const dense    = catmullRom(withSP);
     return {
-      fillPath:    buildPenOutline(dense, width),
+      fillPath:    buildPenPath(points, width, true),
       strokePath:  null,
       strokeStyle: color,
       globalAlpha: 1,
@@ -277,11 +205,8 @@ export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): v
   }
 
   if (tool === "pen") {
-    // 1-pass smooth → outline polygon (no Catmull-Rom densification for speed)
-    const smoothed = smoothPositions(points, 1);
-    const sp       = smoothPressure(smoothed, 0.2, 1);
-    const withSP   = smoothed.map((p, i) => ({ ...p, pressure: sp[i] }));
-    ctx.fill(buildPenOutline(withSP, width));
+    // Live preview: last=false keeps end open (no premature taper while drawing)
+    ctx.fill(buildPenPath(points, width, false));
   } else {
     // Marker: width matches committed result exactly
     const tilt      = points[0]?.tiltX ?? 0;
