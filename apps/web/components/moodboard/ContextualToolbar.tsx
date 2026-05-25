@@ -565,6 +565,40 @@ export function ContextualToolbar({
           {/* Text */}
           {single.type === "text" && (
             <>
+              {/* Alignment — L / C / R */}
+              {(["left", "center", "right"] as const).map((align) => (
+                <ToolBtn
+                  key={align}
+                  title={align === "left" ? "Gauche" : align === "center" ? "Centré" : "Droite"}
+                  active={((single as TextElement).textAlign ?? "left") === align}
+                  onClick={() => upd(single.id, { textAlign: align })}
+                >
+                  <svg width="11" height="9" viewBox="0 0 11 9" fill="currentColor" aria-hidden>
+                    {align === "left" && (
+                      <>
+                        <rect x="0" y="0" width="11" height="1.5" rx="0.5"/>
+                        <rect x="0" y="3.5" width="7"  height="1.5" rx="0.5"/>
+                        <rect x="0" y="7"   width="9"  height="1.5" rx="0.5"/>
+                      </>
+                    )}
+                    {align === "center" && (
+                      <>
+                        <rect x="0"   y="0"   width="11" height="1.5" rx="0.5"/>
+                        <rect x="2"   y="3.5" width="7"  height="1.5" rx="0.5"/>
+                        <rect x="1"   y="7"   width="9"  height="1.5" rx="0.5"/>
+                      </>
+                    )}
+                    {align === "right" && (
+                      <>
+                        <rect x="0"   y="0"   width="11" height="1.5" rx="0.5"/>
+                        <rect x="4"   y="3.5" width="7"  height="1.5" rx="0.5"/>
+                        <rect x="2"   y="7"   width="9"  height="1.5" rx="0.5"/>
+                      </>
+                    )}
+                  </svg>
+                </ToolBtn>
+              ))}
+              <Sep />
               <ToolBtn
                 title="Gras"
                 active={(single as TextElement).bold}

@@ -51,6 +51,7 @@ export type TextElement = CanvasElementBase & {
   color: string;
   bold: boolean;
   italic: boolean;
+  textAlign?: "left" | "center" | "right";
 };
 
 export type ColorElement = CanvasElementBase & {

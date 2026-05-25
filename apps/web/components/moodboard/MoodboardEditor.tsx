@@ -147,22 +147,23 @@ export function MoodboardEditor({ initialData }: Props) {
   const [toolArrowEnd,    setToolArrowEnd]    = useState<"none"|"arrow">("arrow");
   const [toolFontSize,    setToolFontSize]    = useState(18);
   const [toolTextColor,   setToolTextColor]   = useState("#ffffff");
+  const [toolTextAlign,   setToolTextAlign]   = useState<"left"|"center"|"right">("left");
   // Ref mirror so document-level handlers always see the latest values
   const toolPropsRef = useRef({
     fillColor: "transparent", strokeColor: "#ffffff", strokeWidth: 2,
     strokeStyle: "solid" as "solid"|"dashed"|"dotted",
     arrowStart: "none" as "none"|"arrow", arrowEnd: "arrow" as "none"|"arrow",
-    fontSize: 18, textColor: "#ffffff",
+    fontSize: 18, textColor: "#ffffff", textAlign: "left" as "left"|"center"|"right",
   });
   useEffect(() => {
     toolPropsRef.current = {
       fillColor: toolFillColor, strokeColor: toolStrokeColor,
       strokeWidth: toolStrokeWidth, strokeStyle: toolStrokeStyle,
       arrowStart: toolArrowStart, arrowEnd: toolArrowEnd,
-      fontSize: toolFontSize, textColor: toolTextColor,
+      fontSize: toolFontSize, textColor: toolTextColor, textAlign: toolTextAlign,
     };
   }, [toolFillColor, toolStrokeColor, toolStrokeWidth, toolStrokeStyle,
-      toolArrowStart, toolArrowEnd, toolFontSize, toolTextColor]);
+      toolArrowStart, toolArrowEnd, toolFontSize, toolTextColor, toolTextAlign]);
 
   // ── Drawing preview states ───────────────────────────────────────────────────
   const [shapeDrawing, setShapeDrawing] = useState<{
@@ -177,6 +178,13 @@ export function MoodboardEditor({ initialData }: Props) {
   const linearLastClickRef  = useRef(0);
   // Linear point being dragged in the edit overlay (live preview only)
   const [linearDragPreview, setLinearDragPreview] = useState<LinearElement | null>(null);
+
+  // ── Text editing (Excalidraw-style floating textarea) ────────────────────────
+  const [textEditingId, setTextEditingId] = useState<string | null>(null);
+  const textEditingIdRef = useRef<string | null>(null);
+  const textareaRef      = useRef<HTMLTextAreaElement | null>(null);
+  /** Captures fontSize/h at resize start for proportional scaling */
+  const resizeStartRef   = useRef<{ id: string; h: number; fontSize: number } | null>(null);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1244,10 +1252,21 @@ export function MoodboardEditor({ initialData }: Props) {
     };
   }, [undo, redo, deleteSelected, handleGroup, handleUngroup, duplicateElements, updateElements, zoomToFit, applyZoom]);
 
+  // ── Auto-focus textarea when text editing starts ──
+  useEffect(() => {
+    if (textEditingId && textareaRef.current) {
+      const ta = textareaRef.current;
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+  }, [textEditingId]);
+
   // ── Viewport mouse handlers (pan + rubber band) ──
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Ignore synthetic mouse events that originate from Apple Pencil in drawing mode
     if (drawingModeRef.current) return;
+    // Block new canvas operations while a text element is being edited
+    if (textEditingIdRef.current) return;
 
     if (e.button === 1 || (e.button === 0 && isSpaceDown.current)) {
       // Pan
@@ -1685,9 +1704,13 @@ export function MoodboardEditor({ initialData }: Props) {
           const newW = Math.max(40, Math.round(w));
           const newH = Math.max(24, Math.round(h));
           const base = { ...el, x: snap(x), y: snap(y), w: newW, h: newH };
-          // Text: font size auto-scales with box height
+          // Text: font size scales proportionally to height (ratio captured at resize start)
           if (el.type === "text") {
-            const autoFontSize = Math.max(8, Math.round(newH * 0.42));
+            const start = resizeStartRef.current;
+            const autoFontSize = (start && start.id === id && start.h > 0)
+              ? Math.max(8, Math.round(start.fontSize * newH / start.h))
+              : Math.max(8, Math.round(newH * 0.55));
+            resizeStartRef.current = null;
             return { ...base, fontSize: autoFontSize } as typeof el;
           }
           return base;
@@ -1712,7 +1735,11 @@ export function MoodboardEditor({ initialData }: Props) {
           if (el.id !== id) return el;
           const base = { ...el, x, y, w: Math.max(20, Math.round(w)), h: Math.max(10, Math.round(h)) };
           if (el.type === "text") {
-            return { ...base, fontSize: Math.max(8, Math.round(base.h * 0.55)) } as typeof el;
+            const start = resizeStartRef.current;
+            const newFontSize = (start && start.id === id && start.h > 0)
+              ? Math.max(8, Math.round(start.fontSize * base.h / start.h))
+              : Math.max(8, Math.round(base.h * 0.55));
+            return { ...base, fontSize: newFontSize } as typeof el;
           }
           return base;
         })
@@ -1940,14 +1967,15 @@ export function MoodboardEditor({ initialData }: Props) {
       const lineH = Math.round(tp.fontSize * 1.4);
       const el: TextElement = {
         id: makeId(), type: "text",
-        x: snap(canvasX), y: snap(canvasY - lineH / 2),
-        w: Math.max(40, tp.fontSize * 5),  // rough initial width
+        x: snap(canvasX), y: snap(canvasY),
+        w: Math.max(120, tp.fontSize * 8),
         h: lineH,
         zIndex: ++nextZRef.current,
         content: "",
         fontSize: tp.fontSize,
         color: tp.textColor,
         bold: false, italic: false,
+        textAlign: tp.textAlign,
       };
       updateElements((prev) => [...prev, el]);
       const nextIds = [el.id];
@@ -1955,9 +1983,39 @@ export function MoodboardEditor({ initialData }: Props) {
       setSelectedIds(nextIds);
       setActiveTool("select");
       activeToolRef.current = "select";
+      // Enter textarea edit mode immediately (Excalidraw-style)
+      setTextEditingId(el.id);
+      textEditingIdRef.current = el.id;
     },
     [snap, updateElements]
   );
+
+  // ── Commit text edit (called on blur / Escape) ──
+  const commitTextEdit = useCallback(() => {
+    const id = textEditingIdRef.current;
+    if (!id) return;
+    // Clear edit state synchronously so viewport handler won't re-enter
+    setTextEditingId(null);
+    textEditingIdRef.current = null;
+
+    const ta = textareaRef.current;
+    const content = ta?.value ?? "";
+    const newH    = ta ? Math.max(10, ta.scrollHeight) : undefined;
+
+    if (!content.trim()) {
+      // Empty text → delete the placeholder element
+      updateElements((prev) => prev.filter((el) => el.id !== id));
+      setSelectedIds((prev) => prev.filter((i) => i !== id));
+      selectedIdsRef.current = selectedIdsRef.current.filter((i) => i !== id);
+    } else {
+      updateElements((prev) =>
+        prev.map((el) => {
+          if (el.id !== id || el.type !== "text") return el;
+          return { ...(el as TextElement), content, ...(newH !== undefined ? { h: newH } : {}) };
+        })
+      );
+    }
+  }, [updateElements]);
 
   // ── Drop position conversion ──
   const screenToCanvas = useCallback(
@@ -2474,6 +2532,20 @@ export function MoodboardEditor({ initialData }: Props) {
                 onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
                 onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
                 onResizeLive={(x, y, w, h) => handleElemResizeLive(el.id, x, y, w, h)}
+                isEditing={el.type === "text" && el.id === textEditingId}
+                onDoubleClick={() => {
+                  if (el.type === "text" && !el.locked) {
+                    setTextEditingId(el.id);
+                    textEditingIdRef.current = el.id;
+                  }
+                }}
+                onResizeStart={() => {
+                  if (el.type === "text") {
+                    resizeStartRef.current = { id: el.id, h: el.h, fontSize: (el as TextElement).fontSize };
+                  } else {
+                    resizeStartRef.current = null;
+                  }
+                }}
               />
             ))}
 
@@ -2504,6 +2576,58 @@ export function MoodboardEditor({ initialData }: Props) {
                     )}
                   </svg>
                 </div>
+              );
+            })()}
+
+            {/* ── Text editing overlay (Excalidraw-style, canvas-space coords) ── */}
+            {textEditingId && (() => {
+              const editEl = elements.find((e) => e.id === textEditingId) as TextElement | undefined;
+              if (!editEl || editEl.type !== "text") return null;
+              return (
+                <textarea
+                  key={textEditingId}
+                  ref={textareaRef}
+                  autoFocus
+                  defaultValue={editEl.content}
+                  style={{
+                    position: "absolute",
+                    left: editEl.x,
+                    top: editEl.y,
+                    width: editEl.w,
+                    minHeight: editEl.h,
+                    fontSize: editEl.fontSize,
+                    color: editEl.color,
+                    textAlign: editEl.textAlign ?? "left",
+                    fontWeight: editEl.bold ? "bold" : "normal",
+                    fontStyle: editEl.italic ? "italic" : "normal",
+                    lineHeight: 1.4,
+                    fontFamily: "inherit",
+                    padding: "2px 4px",
+                    background: "transparent",
+                    border: "2px solid rgba(99,102,241,0.75)",
+                    outline: "none",
+                    resize: "none",
+                    overflow: "hidden",
+                    boxSizing: "border-box",
+                    caretColor: editEl.color,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    zIndex: 999999,
+                    pointerEvents: "all",
+                  }}
+                  onInput={(e) => {
+                    // Auto-grow height to fit content
+                    const ta = e.currentTarget;
+                    ta.style.height = "0px";
+                    ta.style.height = ta.scrollHeight + "px";
+                  }}
+                  onBlur={() => commitTextEdit()}
+                  onKeyDown={(e) => {
+                    e.stopPropagation(); // prevent global shortcuts while typing
+                    if (e.key === "Escape") { e.preventDefault(); commitTextEdit(); }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
               );
             })()}
 
@@ -2697,7 +2821,7 @@ export function MoodboardEditor({ initialData }: Props) {
                     </div>
                   )}
 
-                  {/* Text color + size */}
+                  {/* Text color, size, alignment */}
                   {activeTool === "text" && (
                     <>
                       <div className="flex items-center gap-1.5">
@@ -2717,6 +2841,21 @@ export function MoodboardEditor({ initialData }: Props) {
                           onMouseDown={(e) => e.stopPropagation()}
                           className="w-14 bg-transparent text-[10px] text-[var(--text-primary)] text-center outline-none border border-[var(--border-subtle)] rounded h-5"
                         />
+                      </div>
+                      {/* Text alignment */}
+                      <div className="flex items-center gap-0.5">
+                        {(["left", "center", "right"] as const).map((a) => (
+                          <button key={a} title={a === "left" ? "Gauche" : a === "center" ? "Centré" : "Droite"}
+                            onClick={() => setToolTextAlign(a)}
+                            className={`flex-1 h-5 rounded text-[10px] border transition-colors ${
+                              toolTextAlign === a
+                                ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
+                                : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:border-[var(--border-default)]"
+                            }`}
+                          >
+                            {a === "left" ? "L" : a === "center" ? "C" : "R"}
+                          </button>
+                        ))}
                       </div>
                     </>
                   )}
@@ -3054,6 +3193,12 @@ interface CanvasItemProps {
   onResize: (x: number, y: number, w: number, h: number) => void;
   /** Fired during resize drag (no history) — used for live text font-size updates */
   onResizeLive?: (x: number, y: number, w: number, h: number) => void;
+  /** True when this text element is currently being edited (hides static content) */
+  isEditing?: boolean;
+  /** Called on double-click — used to enter text edit mode */
+  onDoubleClick?: () => void;
+  /** Called when resize drag starts — used to capture initial state for proportional scaling */
+  onResizeStart?: () => void;
 }
 
 const LockIcon = () => (
@@ -3083,6 +3228,9 @@ function CanvasItem({
   onDragStop,
   onResize,
   onResizeLive,
+  isEditing = false,
+  onDoubleClick,
+  onResizeStart,
 }: CanvasItemProps) {
   // Use inline style for outline — more reliable than Tailwind classes
   // and guarantees "none" on non-selected elements regardless of browser defaults
@@ -3153,6 +3301,8 @@ function CanvasItem({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onDragStop={(_e: any, d: any) => onDragStop(d.x, d.y)}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onResizeStart={() => { if (onResizeStart) onResizeStart(); }}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onResize={(_e: any, _dir: any, ref: any, _delta: any, pos: any) => {
         if (onResizeLive) onResizeLive(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
@@ -3165,7 +3315,7 @@ function CanvasItem({
       disableDragging={!!element.locked || !!forceDragDisabled}
       className="canvas-item group"
     >
-      <ElementContent element={element} selected={selected} onChange={onChange} zoom={zoom} isVisible={isVisible} />
+      <ElementContent element={element} selected={selected} onChange={onChange} zoom={zoom} isVisible={isVisible} isEditing={isEditing} onDoubleClick={onDoubleClick} />
       {/* Lock indicator — fades in on hover (or when selected) to signal the layer is locked.
           Stays hidden otherwise so it doesn't clutter the canvas at a glance. */}
       {element.locked && (
@@ -3321,12 +3471,16 @@ function ElementContent({
   onChange,
   zoom = 1,
   isVisible = true,
+  isEditing = false,
+  onDoubleClick,
 }: {
   element: CanvasElement;
   selected: boolean;
   onChange: (el: CanvasElement) => void;
   zoom?: number;
   isVisible?: boolean;
+  isEditing?: boolean;
+  onDoubleClick?: () => void;
 }) {
   const br = 8; // border radius (design constant)
 
@@ -3372,37 +3526,32 @@ function ElementContent({
     return (
       <div
         className="w-full h-full"
-        style={{ borderRadius: br, display: "flex", alignItems: "flex-start", padding: "2px 4px", boxSizing: "border-box" }}
+        style={{
+          borderRadius: br,
+          padding: "2px 4px",
+          boxSizing: "border-box",
+          // Hide static content while the floating textarea overlay is active
+          visibility: isEditing ? "hidden" : "visible",
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (onDoubleClick) onDoubleClick();
+        }}
       >
         <div
-          contentEditable={selected}
-          suppressContentEditableWarning
-          onMouseDown={(e) => { if (selected) e.stopPropagation(); }}
-          onBlur={(e) => {
-            const content = e.currentTarget.textContent ?? "";
-            // Auto-update w/h to match actual rendered size
-            const rect = e.currentTarget.getBoundingClientRect();
-            const parentRect = e.currentTarget.parentElement?.getBoundingClientRect();
-            onChange({
-              ...el,
-              content,
-              w: Math.max(20, Math.round((parentRect?.width ?? el.w))),
-              h: Math.max(10, Math.round((parentRect?.height ?? el.h))),
-            });
-          }}
-          className="outline-none break-words whitespace-pre-wrap"
           style={{
             fontSize: el.fontSize,
             color: el.color,
             fontWeight: el.bold ? "bold" : "normal",
             fontStyle: el.italic ? "italic" : "normal",
             lineHeight: 1.4,
-            userSelect: selected ? "text" : "none",
-            minWidth: "1em",
-            width: "100%",
+            textAlign: el.textAlign ?? "left",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            userSelect: "none",
           }}
         >
-          {el.content}
+          {el.content || " "}
         </div>
       </div>
     );
