@@ -122,11 +122,15 @@ function redrawCommittedCanvas(
   const dpr = window.devicePixelRatio || 1;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Prune stale cache entries (elements that were deleted by undo/erase)
+  // Prune stale cache entries (composite key format: "${strokeId}:${lod}")
   const currentIds = new Set(strokeElements.map((el) => el.stroke.id));
-  for (const id of cache.keys()) {
-    if (!currentIds.has(id)) cache.delete(id);
+  for (const key of cache.keys()) {
+    if (!currentIds.has(key.split(":")[0])) cache.delete(key);
   }
+
+  // Current LOD level and RDP epsilon for this zoom
+  const lod = lodLevel(zoom);
+  const eps = lodEpsilon(lod, zoom);
 
   // Visible region in canvas coordinates — used for viewport culling below.
   // Small padding avoids edge-popping when a stroke's bbox grazes the viewport.
@@ -146,11 +150,14 @@ function redrawCommittedCanvas(
     // el.x/y/w/h is the stroke's bbox in canvas coords — same space as visX1…visY2.
     if (el.x + el.w < visX1 || el.x > visX2 || el.y + el.h < visY1 || el.y > visY2) continue;
 
-    const sid = el.stroke.id;
-    // Lazy build: compute Path2D only on first draw after commit
-    if (!cache.has(sid)) {
-      cache.set(sid, buildCachedStroke(el.stroke));
+    // Composite cache key: stroke id + LOD level so each quality level is cached
+    // independently. Switching zoom across a LOD boundary costs one rebuild per
+    // newly-visible stroke, then hits cache on all subsequent frames at that level.
+    const cacheKey = `${el.stroke.id}:${lod}`;
+    if (!cache.has(cacheKey)) {
+      cache.set(cacheKey, buildCachedStroke(el.stroke, eps));
     }
+    const sid = cacheKey;
 
     // Per-element transform: scale from origin bbox, then apply pan+zoom
     // sx/sy handle resize; tx/ty handle move (after accounting for scale)
@@ -171,6 +178,29 @@ function redrawCommittedCanvas(
   }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// ── Stroke LOD (zoom-dependent simplification) ────────────────────────────
+
+/**
+ * Three quality levels keyed by zoom:
+ *   0 (full) : zoom ≥ 1.0  — all points, no simplification
+ *   1 (mid)  : 0.3–1.0     — RDP epsilon ≈ 2 screen px
+ *   2 (low)  : < 0.3       — RDP epsilon ≈ 5 screen px
+ *
+ * Epsilon is expressed in canvas units so it scales correctly regardless of
+ * the current zoom (a 2-screen-px tolerance at zoom 0.5 = 4 canvas units).
+ */
+function lodLevel(zoom: number): 0 | 1 | 2 {
+  if (zoom >= 1.0) return 0;
+  if (zoom >= 0.3) return 1;
+  return 2;
+}
+
+function lodEpsilon(lod: 0 | 1 | 2, zoom: number): number {
+  if (lod === 0) return 0;
+  if (lod === 1) return 2 / zoom;   // ≈ 2 screen px
+  return 5 / zoom;                  // ≈ 5 screen px
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -283,11 +313,13 @@ export function PencilLayer({
   // • Cache pre-warming: build Path2D for any new stroke BEFORE the rAF fires
   //   so redrawCommittedCanvas never has to run buildCachedStroke mid-draw.
 
-  // Pre-warm cache whenever strokeElements change (outside the draw hot-path).
+  // Pre-warm full-quality cache (LOD 0) whenever strokeElements change.
+  // Other LOD levels are built lazily in redrawCommittedCanvas on first draw.
   useEffect(() => {
     for (const el of strokeElements) {
-      if (!strokeCacheRef.current.has(el.stroke.id)) {
-        strokeCacheRef.current.set(el.stroke.id, buildCachedStroke(el.stroke));
+      const key = `${el.stroke.id}:0`;
+      if (!strokeCacheRef.current.has(key)) {
+        strokeCacheRef.current.set(key, buildCachedStroke(el.stroke, 0));
       }
     }
   }, [strokeElements]);
@@ -483,7 +515,7 @@ export function PencilLayer({
               const lc = liveRef.current;
               if (lc) lc.getContext("2d")?.clearRect(0, 0, lc.width, lc.height);
               // Pre-warm cache then commit (committed canvas redraws on next rAF)
-              strokeCacheRef.current.set(shaped.id, buildCachedStroke(shaped));
+              strokeCacheRef.current.set(`${shaped.id}:0`, buildCachedStroke(shaped, 0));
               onStrokeAdd(shaped);
               currentStroke.current = null;
               snappedRef.current = true;
@@ -538,7 +570,7 @@ export function PencilLayer({
         // Pre-warm the cache synchronously before calling onStrokeAdd.
         // This way the Path2D is ready before the committed canvas redraws,
         // so the first post-commit redraw costs O(1) draw calls, not O(N_points).
-        strokeCacheRef.current.set(stroke.id, buildCachedStroke(stroke));
+        strokeCacheRef.current.set(`${stroke.id}:0`, buildCachedStroke(stroke, 0));
         onStrokeAdd(stroke);
       } else if (toolRef.current === "eraser") {
         // Eraser gesture ended — signal parent to push one history entry

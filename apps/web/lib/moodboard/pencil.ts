@@ -27,6 +27,34 @@ function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
+// ── Ramer-Douglas-Peucker simplification ──────────────────────────────────────
+
+/**
+ * Reduce a polyline to fewer points while preserving its visual shape.
+ * Points that deviate less than `epsilon` canvas units from the straight line
+ * between their neighbours are dropped.
+ *
+ * Used for stroke LOD: higher epsilon at lower zoom → fewer GPU path commands.
+ * epsilon = 0 disables simplification (full quality).
+ */
+function rdp(points: StrokePoint[], epsilon: number): StrokePoint[] {
+  if (points.length <= 2) return points;
+  const start = points[0];
+  const end   = points[points.length - 1];
+  let maxDist = 0;
+  let maxIdx  = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = ptToSegDist(points[i].x, points[i].y, start.x, start.y, end.x, end.y);
+    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  }
+  if (maxDist > epsilon) {
+    const left  = rdp(points.slice(0, maxIdx + 1), epsilon);
+    const right = rdp(points.slice(maxIdx),         epsilon);
+    return [...left.slice(0, -1), ...right];
+  }
+  return [start, end];
+}
+
 // ── Pen: perfect-freehand outline ────────────────────────────────────────────
 
 /**
@@ -117,8 +145,11 @@ export interface CachedStroke {
  * Pre-compute the full-quality Path2D for a committed stroke.
  * Call once when a stroke is added; cache the result in PencilLayer.
  */
-export function buildCachedStroke(stroke: Stroke): CachedStroke {
-  const { points, tool, color, width } = stroke;
+export function buildCachedStroke(stroke: Stroke, epsilon = 0): CachedStroke {
+  const { tool, color, width } = stroke;
+  const points = epsilon > 0 && stroke.points.length > 2
+    ? rdp(stroke.points, epsilon)
+    : stroke.points;
 
   if (tool === "pen" && points.length > 0) {
     return {
