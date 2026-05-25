@@ -16,6 +16,7 @@ interface LibraryItem {
 type AddPayload = {
   inspirationId: string;
   storageKey: string;
+  thumbnailKey?: string;
   title: string;
   width?: number | null;
   height?: number | null;
@@ -184,6 +185,7 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
   const itemPayload = (item: LibraryItem): AddPayload => ({
     inspirationId: item.id,
     storageKey:    item.storageKey,
+    thumbnailKey:  item.thumbnailKey,
     title:         item.title,
     width:         item.width,
     height:        item.height,

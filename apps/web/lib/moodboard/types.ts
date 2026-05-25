@@ -36,6 +36,8 @@ export type ImageElement = CanvasElementBase & {
   type: "image";
   inspirationId: string;
   storageKey: string;
+  /** WebP thumbnail (max 600 px wide) stored in the "thumbs/" prefix of R2. */
+  thumbnailKey?: string;
   title: string;
   objectFit?: "cover" | "contain"; // default "cover"
   aspectRatio?: number; // naturalWidth / naturalHeight, used for lockAspectRatio

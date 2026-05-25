@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { useRouter } from "next/navigation";
-import { getImageUrl, getResizedImageUrl } from "@/lib/storage/urls";
+import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   MoodboardData,
   CanvasElement,
@@ -1582,6 +1582,7 @@ export function MoodboardEditor({ initialData }: Props) {
     (item: {
       inspirationId: string;
       storageKey: string;
+      thumbnailKey?: string;
       title: string;
       width?: number | null;
       height?: number | null;
@@ -1601,6 +1602,7 @@ export function MoodboardEditor({ initialData }: Props) {
         zIndex: ++nextZRef.current,
         inspirationId: item.inspirationId,
         storageKey: item.storageKey,
+        thumbnailKey: item.thumbnailKey,
         title: item.title,
         aspectRatio: ratio,
         isAnimated: item.isAnimated ?? false,
@@ -1704,7 +1706,7 @@ export function MoodboardEditor({ initialData }: Props) {
       if (!res.ok) return;
       const data = (await res.json()) as {
         inspirationId: string;
-        image: { storageKey: string };
+        image: { storageKey: string; thumbnailKey?: string };
       };
       const title = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
       const W = Math.min(480, Math.max(160, naturalW || 400));
@@ -1719,6 +1721,7 @@ export function MoodboardEditor({ initialData }: Props) {
         zIndex: ++nextZRef.current,
         inspirationId: data.inspirationId,
         storageKey: data.image.storageKey,
+        thumbnailKey: data.image.thumbnailKey,
         title,
         aspectRatio: naturalRatio,
       };
@@ -1760,6 +1763,7 @@ export function MoodboardEditor({ initialData }: Props) {
     (item: {
       inspirationId: string;
       storageKey: string;
+      thumbnailKey?: string;
       title: string;
       width?: number | null;
       height?: number | null;
@@ -1779,6 +1783,7 @@ export function MoodboardEditor({ initialData }: Props) {
         zIndex:        ++nextZRef.current,
         inspirationId: item.inspirationId,
         storageKey:    item.storageKey,
+        thumbnailKey:  item.thumbnailKey,
         title:         item.title,
         aspectRatio:   ratio,
         isAnimated:    item.isAnimated ?? false,
@@ -1796,6 +1801,7 @@ export function MoodboardEditor({ initialData }: Props) {
       const item = JSON.parse(raw) as {
         inspirationId: string;
         storageKey: string;
+        thumbnailKey?: string;
         title: string;
         width?: number | null;
         height?: number | null;
@@ -1815,6 +1821,7 @@ export function MoodboardEditor({ initialData }: Props) {
         zIndex: ++nextZRef.current,
         inspirationId: item.inspirationId,
         storageKey: item.storageKey,
+        thumbnailKey: item.thumbnailKey,
         title: item.title,
         aspectRatio: ratio,
         isAnimated: item.isAnimated ?? false,
@@ -2734,12 +2741,14 @@ function ElementContent({
       return <div className="w-full h-full" style={{ borderRadius: br }} />;
     }
 
-    // Animated GIFs: don't resize — Cloudflare strips animation frames.
-    // Static images: request a zoom-bucketed width via Cloudflare Image Resizing
-    // so zoomed-out views load a small variant instead of the full original.
-    const url = el.isAnimated
-      ? getImageUrl(el.storageKey)
-      : getResizedImageUrl(el.storageKey, el.w, zoom);
+    // LOD: use the 600 px WebP thumbnail when the element is small on screen,
+    // switch to the full original once it needs more pixels.
+    // Threshold: screen px (CSS) = el.w * zoom. Thumbnail is max 600 px wide.
+    const screenPx = el.w * zoom;
+    const url =
+      el.thumbnailKey && screenPx <= 600
+        ? getThumbnailUrl(el.thumbnailKey)
+        : getImageUrl(el.storageKey);
 
     return (
       // pointer-events:none on the visual layer — the Rnd wrapper handles all
