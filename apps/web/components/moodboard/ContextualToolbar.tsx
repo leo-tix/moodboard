@@ -105,20 +105,55 @@ function ColorSwatch({
   title: string;
   label?: string;
 }) {
+  const isTouch = React.useContext(TouchCtx);
+  // Local state for instant swatch preview; committed to parent with ~30 ms debounce
+  // so dragging the color picker doesn't trigger a heavy React re-render on every frame.
+  const [local, setLocal] = useState(value);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastExternal = React.useRef(value);
+
+  // Sync when the selected element changes (external value update)
+  React.useEffect(() => {
+    if (value !== lastExternal.current) {
+      lastExternal.current = value;
+      setLocal(value);
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setLocal(v); // instant local preview
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(v);           // debounced canvas update (~33 fps max)
+      lastExternal.current = v;
+    }, 30);
+  };
+
+  // Ensure final value is committed even if the timer hasn't fired yet
+  const handleBlur = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (local !== lastExternal.current) {
+      onChange(local);
+      lastExternal.current = local;
+    }
+  };
+
   return (
     <label className="relative cursor-pointer flex items-center flex-shrink-0" title={title}>
       <div
         className={`rounded border border-[var(--border-default)] flex items-center justify-center overflow-hidden ${
-          React.useContext(TouchCtx) ? "w-9 h-9 text-[10px]" : "w-5 h-5 text-[8px]"
+          isTouch ? "w-9 h-9 text-[10px]" : "w-5 h-5 text-[8px]"
         } font-bold`}
-        style={{ backgroundColor: value }}
+        style={{ backgroundColor: local }}
       >
-        {label && <span style={{ color: value === "#ffffff" ? "#000" : "#fff", mixBlendMode: "difference" }}>{label}</span>}
+        {label && <span style={{ color: local === "#ffffff" ? "#000" : "#fff", mixBlendMode: "difference" }}>{label}</span>}
       </div>
       <input
         type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={local}
+        onChange={handleChange}
+        onBlur={handleBlur}
         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
         onMouseDown={(e) => e.stopPropagation()}
       />

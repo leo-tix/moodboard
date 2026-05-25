@@ -1210,7 +1210,7 @@ export function MoodboardEditor({ initialData }: Props) {
 
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const toolMap: Record<string, typeof activeToolRef.current> = {
-          v: "select", r: "rectangle", e: "ellipse", d: "diamond",
+          v: "select", r: "rectangle", e: "ellipse",
           l: "line", a: "arrow", t: "text",
         };
         const mapped = toolMap[e.key.toLowerCase()];
@@ -1704,6 +1704,23 @@ export function MoodboardEditor({ initialData }: Props) {
     [updateElements]
   );
 
+  /** Live resize — no history push, no save schedule (called every rAF during drag) */
+  const handleElemResizeLive = useCallback(
+    (id: string, x: number, y: number, w: number, h: number) => {
+      setElements((prev) =>
+        prev.map((el) => {
+          if (el.id !== id) return el;
+          const base = { ...el, x, y, w: Math.max(20, Math.round(w)), h: Math.max(10, Math.round(h)) };
+          if (el.type === "text") {
+            return { ...base, fontSize: Math.max(8, Math.round(base.h * 0.55)) } as typeof el;
+          }
+          return base;
+        })
+      );
+    },
+    []
+  );
+
   // ── Toolbar update handler ──
   const handleUpdateMany = useCallback(
     (updates: Array<{ id: string; patch: Record<string, unknown> }>) => {
@@ -1920,10 +1937,12 @@ export function MoodboardEditor({ initialData }: Props) {
   const placeTextAt = useCallback(
     (canvasX: number, canvasY: number) => {
       const tp = toolPropsRef.current;
+      const lineH = Math.round(tp.fontSize * 1.4);
       const el: TextElement = {
         id: makeId(), type: "text",
-        x: snap(canvasX - 100), y: snap(canvasY - 20),
-        w: 200, h: 60,
+        x: snap(canvasX), y: snap(canvasY - lineH / 2),
+        w: Math.max(40, tp.fontSize * 5),  // rough initial width
+        h: lineH,
         zIndex: ++nextZRef.current,
         content: "",
         fontSize: tp.fontSize,
@@ -2454,8 +2473,76 @@ export function MoodboardEditor({ initialData }: Props) {
                 onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
                 onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
                 onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
+                onResizeLive={(x, y, w, h) => handleElemResizeLive(el.id, x, y, w, h)}
               />
             ))}
+
+            {/* ── Shape drawing live preview (canvas-space coords) ── */}
+            {shapeDrawing && (() => {
+              const x = Math.min(shapeDrawing.startX, shapeDrawing.endX);
+              const y = Math.min(shapeDrawing.startY, shapeDrawing.endY);
+              const w = Math.max(1, Math.abs(shapeDrawing.endX - shapeDrawing.startX));
+              const h = Math.max(1, Math.abs(shapeDrawing.endY - shapeDrawing.startY));
+              const sw = toolStrokeWidth;
+              const fill = toolFillColor === "transparent" ? "none" : toolFillColor;
+              const dash =
+                toolStrokeStyle === "dashed" ? `${sw * 4},${sw * 2}` :
+                toolStrokeStyle === "dotted" ? `${sw},${sw * 2}` : undefined;
+              return (
+                <div style={{ position: "absolute", left: x, top: y, width: w, height: h, pointerEvents: "none", zIndex: 99999 }}>
+                  <svg width="100%" height="100%" style={{ overflow: "visible", display: "block" }}>
+                    {activeTool === "rectangle" && (
+                      <rect x={sw/2} y={sw/2} width={`calc(100% - ${sw}px)`} height={`calc(100% - ${sw}px)`}
+                        fill={fill} stroke={toolStrokeColor} strokeWidth={sw}
+                        strokeDasharray={dash} strokeOpacity={0.75} />
+                    )}
+                    {activeTool === "ellipse" && (
+                      <ellipse cx="50%" cy="50%"
+                        rx={`calc(50% - ${sw/2}px)`} ry={`calc(50% - ${sw/2}px)`}
+                        fill={fill} stroke={toolStrokeColor} strokeWidth={sw}
+                        strokeDasharray={dash} strokeOpacity={0.75} />
+                    )}
+                  </svg>
+                </div>
+              );
+            })()}
+
+            {/* ── Linear drawing live preview (canvas-space coords) ── */}
+            {linearInProgress && (() => {
+              const allPts = [...linearInProgress.points, linearInProgress.cursor];
+              const pathD = allPts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+              const sw = toolStrokeWidth;
+              return (
+                <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 99999 }} width={0} height={0}>
+                  <path d={pathD} fill="none" stroke={toolStrokeColor}
+                    strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
+                    strokeDasharray={`${sw * 4},${sw * 2}`} strokeOpacity={0.85}
+                  />
+                  {linearInProgress.points.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y}
+                      r={4 / rndScale} fill={toolStrokeColor} stroke="white" strokeWidth={1 / rndScale}
+                    />
+                  ))}
+                  {/* Arrow tip preview */}
+                  {activeTool === "arrow" && allPts.length >= 2 && (() => {
+                    const last = allPts[allPts.length - 1];
+                    const prev = allPts[allPts.length - 2];
+                    const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
+                    const aLen = 10 / rndScale;
+                    return (
+                      <g stroke={toolStrokeColor} strokeWidth={sw * 0.85} strokeLinecap="round" fill="none" strokeOpacity={0.85}>
+                        <line x1={last.x} y1={last.y}
+                          x2={last.x - Math.cos(angle - 0.4) * aLen}
+                          y2={last.y - Math.sin(angle - 0.4) * aLen} />
+                        <line x1={last.x} y1={last.y}
+                          x2={last.x - Math.cos(angle + 0.4) * aLen}
+                          y2={last.y - Math.sin(angle + 0.4) * aLen} />
+                      </g>
+                    );
+                  })()}
+                </svg>
+              );
+            })()}
           </div>
 
           {/* Rubber band selection rect */}
@@ -2489,7 +2576,6 @@ export function MoodboardEditor({ initialData }: Props) {
                     null, // sep
                     { tool: "rectangle", icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="11" height="11" rx="1.5"/></svg>, title: "Rectangle (R)" },
                     { tool: "ellipse",   icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4"><ellipse cx="6.5" cy="6.5" rx="5.5" ry="5.5"/></svg>,   title: "Ellipse (E)"   },
-                    { tool: "diamond",   icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4"><polygon points="6.5,1 12,6.5 6.5,12 1,6.5"/></svg>,       title: "Diamant (D)"   },
                     null, // sep
                     { tool: "line",      icon: <svg width="13" height="13" viewBox="0 0 13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="1.5" y1="11.5" x2="11.5" y2="1.5"/></svg>, title: "Ligne (L)" },
                     { tool: "arrow",     icon: <svg width="13" height="13" viewBox="0 0 13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="1.5" y1="11.5" x2="11.5" y2="1.5"/><path d="M7 2l4.5-.5-.5 4.5" fill="none"/></svg>, title: "Flèche (A)" },
@@ -2528,7 +2614,7 @@ export function MoodboardEditor({ initialData }: Props) {
                   <p className="text-[9px] uppercase tracking-widest text-[var(--text-tertiary)] font-semibold">Style</p>
 
                   {/* Fill — shapes only */}
-                  {(activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "diamond") && (
+                  {(activeTool === "rectangle" || activeTool === "ellipse") && (
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] text-[var(--text-tertiary)] w-8">Fill</span>
                       <label className="relative cursor-pointer">
@@ -2638,83 +2724,6 @@ export function MoodboardEditor({ initialData }: Props) {
               )}
             </div>
           )}
-
-          {/* ── Shape drawing live preview ── */}
-          {shapeDrawing && (
-            <div
-              style={{
-                position: "absolute",
-                left: Math.min(shapeDrawing.startX, shapeDrawing.endX) * rndScale + panRef.current.x,
-                top:  Math.min(shapeDrawing.startY, shapeDrawing.endY) * rndScale + panRef.current.y,
-                width:  Math.abs(shapeDrawing.endX - shapeDrawing.startX) * rndScale,
-                height: Math.abs(shapeDrawing.endY - shapeDrawing.startY) * rndScale,
-                pointerEvents: "none",
-                zIndex: 99999,
-              }}
-            >
-              <svg width="100%" height="100%" style={{ overflow: "visible" }}>
-                {activeTool === "rectangle" && (
-                  <rect x={0} y={0} width="100%" height="100%"
-                    fill={toolFillColor === "transparent" ? "none" : toolFillColor}
-                    stroke={toolStrokeColor} strokeWidth={toolStrokeWidth * rndScale}
-                    strokeDasharray={
-                      toolStrokeStyle === "dashed" ? `${toolStrokeWidth * rndScale * 4},${toolStrokeWidth * rndScale * 2}` :
-                      toolStrokeStyle === "dotted" ? `${toolStrokeWidth * rndScale},${toolStrokeWidth * rndScale * 2}` : undefined
-                    }
-                    strokeOpacity={0.7}
-                  />
-                )}
-                {activeTool === "ellipse" && (
-                  <ellipse cx="50%" cy="50%"
-                    rx={`calc(50% - ${toolStrokeWidth * rndScale / 2}px)`}
-                    ry={`calc(50% - ${toolStrokeWidth * rndScale / 2}px)`}
-                    fill={toolFillColor === "transparent" ? "none" : toolFillColor}
-                    stroke={toolStrokeColor} strokeWidth={toolStrokeWidth * rndScale}
-                    strokeOpacity={0.7}
-                  />
-                )}
-                {activeTool === "diamond" && (() => {
-                  const W = Math.abs(shapeDrawing.endX - shapeDrawing.startX) * rndScale;
-                  const H = Math.abs(shapeDrawing.endY - shapeDrawing.startY) * rndScale;
-                  return (
-                    <polygon
-                      points={`${W/2},0 ${W},${H/2} ${W/2},${H} 0,${H/2}`}
-                      fill={toolFillColor === "transparent" ? "none" : toolFillColor}
-                      stroke={toolStrokeColor} strokeWidth={toolStrokeWidth * rndScale}
-                      strokeOpacity={0.7}
-                    />
-                  );
-                })()}
-              </svg>
-            </div>
-          )}
-
-          {/* ── Linear drawing live preview ── */}
-          {linearInProgress && (() => {
-            const allPts = [...linearInProgress.points, linearInProgress.cursor];
-            const pathD = allPts.map((p, i) =>
-              `${i === 0 ? "M" : "L"} ${p.x * rndScale + panRef.current.x} ${p.y * rndScale + panRef.current.y}`
-            ).join(" ");
-            const sw = toolStrokeWidth * rndScale;
-            return (
-              <svg
-                style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 99999 }}
-                width={0} height={0}
-              >
-                <path d={pathD} fill="none" stroke={toolStrokeColor}
-                  strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
-                  strokeDasharray={`${sw * 4},${sw * 2}`} strokeOpacity={0.8}
-                />
-                {linearInProgress.points.map((p, i) => (
-                  <circle key={i}
-                    cx={p.x * rndScale + panRef.current.x}
-                    cy={p.y * rndScale + panRef.current.y}
-                    r={4} fill={toolStrokeColor} stroke="white" strokeWidth={1}
-                  />
-                ))}
-              </svg>
-            );
-          })()}
 
           {/* Apple Pencil drawing layer — always mounted so canvas state persists */}
           <PencilLayer
@@ -3043,6 +3052,8 @@ interface CanvasItemProps {
   onDragMove: (x: number, y: number) => void;
   onDragStop: (x: number, y: number) => void;
   onResize: (x: number, y: number, w: number, h: number) => void;
+  /** Fired during resize drag (no history) — used for live text font-size updates */
+  onResizeLive?: (x: number, y: number, w: number, h: number) => void;
 }
 
 const LockIcon = () => (
@@ -3071,6 +3082,7 @@ function CanvasItem({
   onDragMove,
   onDragStop,
   onResize,
+  onResizeLive,
 }: CanvasItemProps) {
   // Use inline style for outline — more reliable than Tailwind classes
   // and guarantees "none" on non-selected elements regardless of browser defaults
@@ -3140,6 +3152,10 @@ function CanvasItem({
       onDrag={(_e: any, d: any) => onDragMove(d.x, d.y)}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onDragStop={(_e: any, d: any) => onDragStop(d.x, d.y)}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onResize={(_e: any, _dir: any, ref: any, _delta: any, pos: any) => {
+        if (onResizeLive) onResizeLive(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
+      }}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onResizeStop={(_e: any, _dir: any, ref: any, _delta: any, pos: any) => {
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
@@ -3354,15 +3370,27 @@ function ElementContent({
   if (element.type === "text") {
     const el = element as TextElement;
     return (
-      <div className="w-full h-full flex items-start p-1.5" style={{ borderRadius: br }}>
+      <div
+        className="w-full h-full"
+        style={{ borderRadius: br, display: "flex", alignItems: "flex-start", padding: "2px 4px", boxSizing: "border-box" }}
+      >
         <div
           contentEditable={selected}
           suppressContentEditableWarning
           onMouseDown={(e) => { if (selected) e.stopPropagation(); }}
-          onBlur={(e) =>
-            onChange({ ...el, content: e.currentTarget.textContent ?? "" })
-          }
-          className="outline-none w-full break-words"
+          onBlur={(e) => {
+            const content = e.currentTarget.textContent ?? "";
+            // Auto-update w/h to match actual rendered size
+            const rect = e.currentTarget.getBoundingClientRect();
+            const parentRect = e.currentTarget.parentElement?.getBoundingClientRect();
+            onChange({
+              ...el,
+              content,
+              w: Math.max(20, Math.round((parentRect?.width ?? el.w))),
+              h: Math.max(10, Math.round((parentRect?.height ?? el.h))),
+            });
+          }}
+          className="outline-none break-words whitespace-pre-wrap"
           style={{
             fontSize: el.fontSize,
             color: el.color,
@@ -3370,6 +3398,8 @@ function ElementContent({
             fontStyle: el.italic ? "italic" : "normal",
             lineHeight: 1.4,
             userSelect: selected ? "text" : "none",
+            minWidth: "1em",
+            width: "100%",
           }}
         >
           {el.content}
