@@ -112,83 +112,52 @@ function catmullRom(points: StrokePoint[]): StrokePoint[] {
 function buildPenOutline(dense: StrokePoint[], width: number): Path2D {
   const path = new Path2D();
   const n    = dense.length;
-
   if (n === 0) return path;
-
   if (n === 1) {
     path.arc(dense[0].x, dense[0].y, Math.max(0.3, dense[0].pressure * width), 0, Math.PI * 2);
     return path;
   }
 
-  const left:  { x: number; y: number }[] = new Array(n);
-  const right: { x: number; y: number }[] = new Array(n);
-  const hw: number[] = new Array(n);
-  const ta: number[] = new Array(n);
+  // Pre-compute perpendicular offset points (left / right of the stroke centreline).
+  // Using typed arrays avoids GC pressure for long densified strokes.
+  const lx = new Float64Array(n), ly = new Float64Array(n);
+  const rx = new Float64Array(n), ry = new Float64Array(n);
+  const hw = new Float64Array(n);
 
-  // ── Pass 1: raw central-difference tangent angle at each point ──────────────
   for (let i = 0; i < n; i++) {
+    const p  = dense[i];
+    hw[i]    = Math.max(0.3, p.pressure * width);
+    // Central-difference tangent (forward diff at start, backward at end)
     const ax = i > 0     ? dense[i - 1].x : dense[0].x;
     const ay = i > 0     ? dense[i - 1].y : dense[0].y;
     const bx = i < n - 1 ? dense[i + 1].x : dense[n - 1].x;
     const by = i < n - 1 ? dense[i + 1].y : dense[n - 1].y;
-    const tx = bx - ax, ty = by - ay;
-    const tlen = Math.hypot(tx, ty);
-    ta[i] = tlen < 1e-6 ? (i > 0 ? ta[i - 1] : 0) : Math.atan2(ty / tlen, tx / tlen);
+    let tx = bx - ax, ty = by - ay;
+    const tl = Math.hypot(tx, ty);
+    if (tl > 1e-9) { tx /= tl; ty /= tl; } else { tx = 1; ty = 0; }
+    // Normal: 90° CCW = (-ty, tx)
+    lx[i] = p.x - ty * hw[i];  ly[i] = p.y + tx * hw[i];
+    rx[i] = p.x + ty * hw[i];  ry[i] = p.y - tx * hw[i];
   }
 
-  // ── Pass 2: smooth tangent angles (2 iterations, vector averaging) ──────────
-  // Prevents consecutive normals from oscillating in opposite directions.
-  // Uses a TEMP array so each pass is a true Jacobi step (symmetric), not a
-  // progressive Gauss-Seidel that would drift the tangents toward one end.
-  for (let pass = 0; pass < 3; pass++) {
-    const tmp = ta.slice(); // snapshot before this pass (Jacobi, not Gauss-Seidel)
-    for (let i = 1; i < n - 1; i++) {
-      const dx = (Math.cos(ta[i - 1]) + Math.cos(ta[i]) + Math.cos(ta[i + 1])) / 3;
-      const dy = (Math.sin(ta[i - 1]) + Math.sin(ta[i]) + Math.sin(ta[i + 1])) / 3;
-      if (dx * dx + dy * dy > 1e-12) tmp[i] = Math.atan2(dy, dx);
-    }
-    for (let i = 1; i < n - 1; i++) ta[i] = tmp[i];
+  // ── Round caps ──────────────────────────────────────────────────────────────
+  // Simple filled discs at start and end — no polygon-cap winding issues.
+  path.arc(dense[0].x,     dense[0].y,     hw[0],     0, Math.PI * 2);
+  path.arc(dense[n-1].x,   dense[n-1].y,   hw[n-1],   0, Math.PI * 2);
+
+  // ── Per-segment quads ───────────────────────────────────────────────────────
+  // Each segment is an INDEPENDENT closed subpath (moveTo … closePath).
+  // Independent subpaths cannot produce cross-segment self-intersections, which
+  // were the root cause of the triangular "hole" artifacts under the nonzero
+  // winding rule.  Adjacent quads share vertices, so there are no visible gaps.
+  for (let i = 0; i < n - 1; i++) {
+    path.moveTo(lx[i],     ly[i]);
+    path.lineTo(lx[i + 1], ly[i + 1]);
+    path.lineTo(rx[i + 1], ry[i + 1]);
+    path.lineTo(rx[i],     ry[i]);
+    path.closePath();
   }
 
-  // ── Pass 3: build left/right profile points using smoothed tangents ──────────
-  for (let i = 0; i < n; i++) {
-    const p  = dense[i];
-    const h  = Math.max(0.3, p.pressure * width);
-    hw[i] = h;
-    // Normal: 90° CCW from tangent direction ta[i]
-    const nx = -Math.sin(ta[i]), ny = Math.cos(ta[i]);
-    left[i]  = { x: p.x + nx * h, y: p.y + ny * h };
-    right[i] = { x: p.x - nx * h, y: p.y - ny * h };
-  }
-
-  const N_CAP = 8;
-
-  // ── Start cap (backward-facing semicircle) ──
-  // Polygon from right[0] (ta[0]-π/2) going backward (angle decreasing by π total)
-  const startAngle = ta[0] - Math.PI / 2;
-  path.moveTo(right[0].x, right[0].y);
-  for (let i = 1; i <= N_CAP; i++) {
-    const a = startAngle - (Math.PI * i) / N_CAP;
-    path.lineTo(dense[0].x + Math.cos(a) * hw[0], dense[0].y + Math.sin(a) * hw[0]);
-  }
-  // After N_CAP steps we arrive at left[0] (ta[0]+π/2 ≡ startAngle - π)
-
-  // ── Left outline (forward along stroke) ──
-  for (let i = 0; i < n; i++) path.lineTo(left[i].x, left[i].y);
-
-  // ── End cap (forward-facing semicircle) ──
-  // Polygon from left[n-1] (ta[n-1]+π/2) going forward (angle decreasing by π total)
-  const endAngle = ta[n - 1] + Math.PI / 2;
-  for (let i = 1; i <= N_CAP; i++) {
-    const a = endAngle - (Math.PI * i) / N_CAP;
-    path.lineTo(dense[n - 1].x + Math.cos(a) * hw[n - 1], dense[n - 1].y + Math.sin(a) * hw[n - 1]);
-  }
-  // After N_CAP steps we arrive at right[n-1] (ta[n-1]-π/2)
-
-  // ── Right outline (backward along stroke) ──
-  for (let i = n - 2; i >= 0; i--) path.lineTo(right[i].x, right[i].y);
-
-  path.closePath();
   return path;
 }
 
