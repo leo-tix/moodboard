@@ -52,28 +52,11 @@ function smoothPressure(points: StrokePoint[], alpha = 0.2, passes = 3): number[
   return s;
 }
 
-/**
- * Centripetal Catmull-Rom spline (α = 0.5) — densifies the point array to
- * ~2 px spacing, interpolating smoothly through every original sample point.
- *
- * WHY centripetal instead of uniform:
- *   Uniform CR parameterises knot spacing by chord length, which can produce
- *   cusps and local self-intersections near abrupt direction changes (the path
- *   "overshoots" and doubles back).  Centripetal CR uses √(chord length) as the
- *   knot spacing, which is mathematically proven to prevent cusps and loops.
- *   The result: no micro-direction-reversals → no bowtie quads → no artefacts.
- *
- * Uses the Barry-Goldman algorithm for non-uniform Catmull-Rom evaluation.
- * Runs at commit time; result is stored in the Path2D cache.
- */
+/** Catmull-Rom spline — densifies to ~2 px spacing. Runs at commit time only. */
 function catmullRom(points: StrokePoint[]): StrokePoint[] {
   if (points.length < 2) return points;
   const result: StrokePoint[] = [];
   const n = points.length;
-
-  /** Non-uniform linear interpolation at parameter t in [ta, tb]. */
-  const nlerp = (ta: number, va: number, tb: number, vb: number, t: number) =>
-    Math.abs(tb - ta) < 1e-10 ? (va + vb) * 0.5 : va + (vb - va) * (t - ta) / (tb - ta);
 
   for (let i = 0; i < n - 1; i++) {
     const p0 = points[Math.max(0, i - 1)];
@@ -81,30 +64,15 @@ function catmullRom(points: StrokePoint[]): StrokePoint[] {
     const p2 = points[i + 1];
     const p3 = points[Math.min(n - 1, i + 2)];
 
-    // Centripetal knot spacing: t_{i+1} = t_i + |P_{i+1} - P_i|^0.5
-    const t0 = 0;
-    const t1 = t0 + Math.sqrt(Math.hypot(p1.x - p0.x, p1.y - p0.y));
-    const t2 = t1 + Math.sqrt(Math.hypot(p2.x - p1.x, p2.y - p1.y));
-    const t3 = t2 + Math.sqrt(Math.hypot(p3.x - p2.x, p3.y - p2.y));
-
     const steps = Math.max(2, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2));
 
     for (let s = 0; s < steps; s++) {
-      const t = t1 + (t2 - t1) * (s / steps);
-
-      // Barry-Goldman recursive evaluation (3 levels of linear interpolation)
-      const A1x = nlerp(t0, p0.x, t1, p1.x, t), A1y = nlerp(t0, p0.y, t1, p1.y, t);
-      const A2x = nlerp(t1, p1.x, t2, p2.x, t), A2y = nlerp(t1, p1.y, t2, p2.y, t);
-      const A3x = nlerp(t2, p2.x, t3, p3.x, t), A3y = nlerp(t2, p2.y, t3, p3.y, t);
-
-      const B1x = nlerp(t0, A1x, t2, A2x, t),   B1y = nlerp(t0, A1y, t2, A2y, t);
-      const B2x = nlerp(t1, A2x, t3, A3x, t),   B2y = nlerp(t1, A2y, t3, A3y, t);
-
-      const x   = nlerp(t1, B1x, t2, B2x, t);
-      const y   = nlerp(t1, B1y, t2, B2y, t);
-
-      const frac = (t - t1) / Math.max(t2 - t1, 1e-10);
-      result.push({ x, y, pressure: p1.pressure + (p2.pressure - p1.pressure) * frac });
+      const t  = s / steps;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const x  = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+      const y  = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+      result.push({ x, y, pressure: p1.pressure + (p2.pressure - p1.pressure) * t });
     }
   }
 
@@ -112,19 +80,12 @@ function catmullRom(points: StrokePoint[]): StrokePoint[] {
   return result;
 }
 
-// ── Pen: variable-width outline polygon ───────────────────────────────────────
+// ── Pen: variable-width filled outline ───────────────────────────────────────
 
 /**
- * Build a filled Path2D outline for a pen stroke.
- *
- * Algorithm: for each dense CR point compute left/right profile points
- * (perpendicular offsets by the pressure-scaled half-width).  Connect them
- * into a single closed polygon with polygon-approximated round caps at both
- * ends.  Filling this path with ctx.fill() is a single GPU draw call.
- *
- * Cap geometry (8-step polygon semicircle):
- *   – Start cap: from right[0] (angle ta - π/2) going BACKWARD (decreasing by π) to left[0]
- *   – End cap:   from left[n-1] (angle ta + π/2) going FORWARD (decreasing by π) to right[n-1]
+ * Build a single closed Path2D for a pen stroke:
+ * start-cap (polygon semicircle) → left outline → end-cap → right outline.
+ * One ctx.fill() call renders the entire stroke.
  */
 function buildPenOutline(dense: StrokePoint[], width: number): Path2D {
   const path = new Path2D();
@@ -135,46 +96,49 @@ function buildPenOutline(dense: StrokePoint[], width: number): Path2D {
     return path;
   }
 
-  // Pre-compute perpendicular offset points (left / right of the stroke centreline).
-  // Using typed arrays avoids GC pressure for long densified strokes.
-  const lx = new Float64Array(n), ly = new Float64Array(n);
-  const rx = new Float64Array(n), ry = new Float64Array(n);
-  const hw = new Float64Array(n);
+  const left:  { x: number; y: number }[] = new Array(n);
+  const right: { x: number; y: number }[] = new Array(n);
+  const hw:    number[] = new Array(n);
+  const ta:    number[] = new Array(n);
 
   for (let i = 0; i < n; i++) {
-    const p  = dense[i];
-    hw[i]    = Math.max(0.3, p.pressure * width);
-    // Central-difference tangent (forward diff at start, backward at end)
+    const p = dense[i];
+    hw[i]   = Math.max(0.3, p.pressure * width);
     const ax = i > 0     ? dense[i - 1].x : dense[0].x;
     const ay = i > 0     ? dense[i - 1].y : dense[0].y;
     const bx = i < n - 1 ? dense[i + 1].x : dense[n - 1].x;
     const by = i < n - 1 ? dense[i + 1].y : dense[n - 1].y;
     let tx = bx - ax, ty = by - ay;
     const tl = Math.hypot(tx, ty);
-    if (tl > 1e-9) { tx /= tl; ty /= tl; } else { tx = 1; ty = 0; }
-    // Normal: 90° CCW = (-ty, tx)
-    lx[i] = p.x - ty * hw[i];  ly[i] = p.y + tx * hw[i];
-    rx[i] = p.x + ty * hw[i];  ry[i] = p.y - tx * hw[i];
+    if (tl < 1e-6) { tx = 1; ty = 0; } else { tx /= tl; ty /= tl; }
+    ta[i]    = Math.atan2(ty, tx);
+    const nx = -ty, ny = tx;          // 90° CCW from tangent
+    left[i]  = { x: p.x + nx * hw[i], y: p.y + ny * hw[i] };
+    right[i] = { x: p.x - nx * hw[i], y: p.y - ny * hw[i] };
   }
 
-  // ── Round caps ──────────────────────────────────────────────────────────────
-  // Simple filled discs at start and end — no polygon-cap winding issues.
-  path.arc(dense[0].x,     dense[0].y,     hw[0],     0, Math.PI * 2);
-  path.arc(dense[n-1].x,   dense[n-1].y,   hw[n-1],   0, Math.PI * 2);
+  const N_CAP = 8;
 
-  // ── Per-segment quads ───────────────────────────────────────────────────────
-  // Each segment is an INDEPENDENT closed subpath (moveTo … closePath).
-  // Independent subpaths cannot produce cross-segment self-intersections, which
-  // were the root cause of the triangular "hole" artifacts under the nonzero
-  // winding rule.  Adjacent quads share vertices, so there are no visible gaps.
-  for (let i = 0; i < n - 1; i++) {
-    path.moveTo(lx[i],     ly[i]);
-    path.lineTo(lx[i + 1], ly[i + 1]);
-    path.lineTo(rx[i + 1], ry[i + 1]);
-    path.lineTo(rx[i],     ry[i]);
-    path.closePath();
+  // Start cap: polygon semicircle from right[0] → left[0] going backward
+  path.moveTo(right[0].x, right[0].y);
+  for (let i = 1; i <= N_CAP; i++) {
+    const a = (ta[0] - Math.PI / 2) - (Math.PI * i) / N_CAP;
+    path.lineTo(dense[0].x + Math.cos(a) * hw[0], dense[0].y + Math.sin(a) * hw[0]);
   }
 
+  // Left outline (forward)
+  for (let i = 0; i < n; i++) path.lineTo(left[i].x, left[i].y);
+
+  // End cap: polygon semicircle from left[n-1] → right[n-1] going forward
+  for (let i = 1; i <= N_CAP; i++) {
+    const a = (ta[n - 1] + Math.PI / 2) - (Math.PI * i) / N_CAP;
+    path.lineTo(dense[n - 1].x + Math.cos(a) * hw[n - 1], dense[n - 1].y + Math.sin(a) * hw[n - 1]);
+  }
+
+  // Right outline (backward)
+  for (let i = n - 2; i >= 0; i--) path.lineTo(right[i].x, right[i].y);
+
+  path.closePath();
   return path;
 }
 
