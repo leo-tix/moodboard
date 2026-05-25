@@ -192,8 +192,8 @@ function redrawCommittedCanvas(
  * the current zoom (a 1.5-screen-px tolerance at zoom 0.3 = 5 canvas units).
  */
 function lodLevel(zoom: number): 0 | 1 | 2 {
-  if (zoom >= 0.5) return 0;
-  if (zoom >= 0.2) return 1;
+  if (zoom >= 0.25) return 0;
+  if (zoom >= 0.1)  return 1;
   return 2;
 }
 
