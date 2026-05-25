@@ -132,6 +132,7 @@ export function MoodboardEditor({ initialData }: Props) {
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  const overlayLayerRef  = useRef<HTMLDivElement>(null);
   const pencilLayerRef   = useRef<PencilLayerHandle | null>(null);
   const visMapRef        = useRef<Record<string, boolean>>({});
   const [visMap, setVisMap] = useState<Record<string, boolean>>({});
@@ -1926,30 +1927,16 @@ export function MoodboardEditor({ initialData }: Props) {
     setSaved(false);
   };
 
-  // ── Toolbar position (viewport-relative coords, clamped to viewport bounds) ──
-  // Reads from refs only — stable callback, no re-render needed.
-  const getToolbarPosition = useCallback((): { x: number; y: number } | null => {
-    const ids = selectedIdsRef.current;
-    if (ids.length === 0) return null;
-    const selected = elementsRef.current.filter((el) => ids.includes(el.id));
-    if (selected.length === 0) return null;
-    const minX = Math.min(...selected.map((el) => el.x));
-    const minY = Math.min(...selected.map((el) => el.y));
-    const maxX = Math.max(...selected.map((el) => el.x + el.w));
-    const rawX = ((minX + maxX) / 2) * zoomRef.current + panRef.current.x;
-    const rawY = minY * zoomRef.current + panRef.current.y;
-    const vpW = viewportRef.current?.getBoundingClientRect().width ?? 0;
-    const margin = 160;
-    const clampedX = vpW > 0 ? Math.min(Math.max(rawX, margin), vpW - margin) : rawX;
-    return { x: clampedX, y: rawY };
-  }, []); // stable — reads from refs only
-
   // ── Imperative view transform ────────────────────────────────────────────────
   // Applied on every pan/zoom frame without touching React state.
   const applyViewTransform = useCallback((px: number, py: number, z: number) => {
     // 1. Canvas wrapper
     if (canvasWrapperRef.current) {
       canvasWrapperRef.current.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
+    }
+    // Overlay layer — same transform as canvas so handles/toolbar track it automatically
+    if (overlayLayerRef.current) {
+      overlayLayerRef.current.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
     }
     // 2. Grid background (backgroundSize + backgroundPosition only; other props stay in JSX)
     const gridSize = GRID_PX * z;
@@ -1977,7 +1964,7 @@ export function MoodboardEditor({ initialData }: Props) {
       }
       if (changed) { visMapRef.current = newMap; setVisMap({ ...newMap }); }
     }
-  }, [getToolbarPosition]);
+  }, []);
 
   // Keep the ref in sync so zoomStepFnRef can always call the latest version.
   applyViewTransformRef.current = applyViewTransform;
@@ -2346,35 +2333,72 @@ export function MoodboardEditor({ initialData }: Props) {
             );
           })()}
 
-          {/* Group resize overlay — also shown for single elements on touch
-              (react-rnd handles use mouse events which are unreliable on iPad) */}
-          {selectedIds.length > 0 && (selectedIds.length > 1 || isTouchDevice) && (
-            <GroupResizeOverlay
-              selectedElements={elements.filter((el) => selectedIds.includes(el.id))}
-              pan={panRef.current}
-              zoom={rndScale}
-              isTouchDevice={isTouchDevice}
-              onUpdate={handleGroupResizeUpdate}
-              onCommit={handleGroupResizeCommit}
-            />
-          )}
-
-          {/* Contextual toolbar — positioned via getToolbarPosition() which reads from refs */}
-          {selectedIds.length > 0 && (() => {
-            const pos = getToolbarPosition();
-            if (!pos) return null;
-            return (
-              <ContextualToolbar
-                elements={elements}
-                selectedIds={selectedIds}
-                onUpdateMany={handleUpdateMany}
-                onDeleteSelected={deleteSelected}
-                posX={pos.x}
-                posY={pos.y}
+          {/* Overlay layer — same CSS transform as canvasWrapper.
+              GroupResizeOverlay and ContextualToolbar live here so they track
+              the canvas imperatively (zero lag during pan/zoom). */}
+          <div
+            ref={overlayLayerRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              transformOrigin: "0 0",
+              width: 0,
+              height: 0,
+              zIndex: 99999,
+              pointerEvents: "none",
+            }}
+          >
+            {/* GroupResizeOverlay — canvas coordinates, handles inverse-scaled */}
+            {selectedIds.length > 0 && (selectedIds.length > 1 || isTouchDevice) && (
+              <GroupResizeOverlay
+                selectedElements={elements.filter((el) => selectedIds.includes(el.id))}
+                zoom={rndScale}
                 isTouchDevice={isTouchDevice}
+                onUpdate={handleGroupResizeUpdate}
+                onCommit={handleGroupResizeCommit}
               />
-            );
-          })()}
+            )}
+
+            {/* ContextualToolbar — canvas coordinates, inverse-scaled so it stays at
+                constant screen size regardless of zoom level */}
+            {selectedIds.length > 0 && (() => {
+              const selected = elements.filter((el) => selectedIds.includes(el.id));
+              if (selected.length === 0) return null;
+              const minX = Math.min(...selected.map((el) => el.x));
+              const maxX = Math.max(...selected.map((el) => el.x + el.w));
+              const minY = Math.min(...selected.map((el) => el.y));
+              const canvasCenterX = (minX + maxX) / 2;
+              // toolbarH in screen px (matches ContextualToolbar's internal constant)
+              const toolbarH = isTouchDevice ? 52 : 36;
+              // Wrapper placed toolbarH+8 screen-px above selection top (in canvas units)
+              const wrapperTop = minY - (toolbarH + 8) / rndScale;
+              return (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: canvasCenterX,
+                    top: wrapperTop,
+                    // Counteract the parent's zoom so the toolbar always renders at its
+                    // natural screen size, while still tracking the canvas position.
+                    transform: `translateX(-50%) scale(${1 / rndScale})`,
+                    transformOrigin: "center top",
+                    pointerEvents: "all",
+                  }}
+                >
+                  <ContextualToolbar
+                    elements={elements}
+                    selectedIds={selectedIds}
+                    onUpdateMany={handleUpdateMany}
+                    onDeleteSelected={deleteSelected}
+                    posX={0}
+                    posY={toolbarH + 4}
+                    isTouchDevice={isTouchDevice}
+                  />
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Keyboard shortcuts panel — hidden on touch (no physical keyboard) */}
           {!isTouchDevice && <KeyboardShortcutsPanel />}
@@ -2918,7 +2942,6 @@ type ResizePatch = { x: number; y: number; w: number; h: number };
 
 interface GroupResizeOverlayProps {
   selectedElements: CanvasElement[];
-  pan: { x: number; y: number };
   zoom: number;
   isTouchDevice: boolean;
   onUpdate: (updates: Array<{ id: string; patch: ResizePatch }>) => void;
@@ -2927,7 +2950,6 @@ interface GroupResizeOverlayProps {
 
 function GroupResizeOverlay({
   selectedElements,
-  pan,
   zoom,
   isTouchDevice,
   onUpdate,
@@ -2942,23 +2964,17 @@ function GroupResizeOverlay({
   const gw  = gx2 - gx;
   const gh  = gy2 - gy;
 
-  // Viewport coords
-  const vx = gx * zoom + pan.x;
-  const vy = gy * zoom + pan.y;
-  const vw = gw * zoom;
-  const vh = gh * zoom;
-
-  const HANDLE = isTouchDevice ? 20 : 7;
+  const HANDLE = (isTouchDevice ? 20 : 7) / zoom;
 
   const handles: Array<{ dir: string; cx: number; cy: number; cursor: string }> = [
     { dir: "nw", cx: 0,    cy: 0,    cursor: "nw-resize" },
-    { dir: "n",  cx: vw/2, cy: 0,    cursor: "n-resize"  },
-    { dir: "ne", cx: vw,   cy: 0,    cursor: "ne-resize" },
-    { dir: "e",  cx: vw,   cy: vh/2, cursor: "e-resize"  },
-    { dir: "se", cx: vw,   cy: vh,   cursor: "se-resize" },
-    { dir: "s",  cx: vw/2, cy: vh,   cursor: "s-resize"  },
-    { dir: "sw", cx: 0,    cy: vh,   cursor: "sw-resize" },
-    { dir: "w",  cx: 0,    cy: vh/2, cursor: "w-resize"  },
+    { dir: "n",  cx: gw/2, cy: 0,    cursor: "n-resize"  },
+    { dir: "ne", cx: gw,   cy: 0,    cursor: "ne-resize" },
+    { dir: "e",  cx: gw,   cy: gh/2, cursor: "e-resize"  },
+    { dir: "se", cx: gw,   cy: gh,   cursor: "se-resize" },
+    { dir: "s",  cx: gw/2, cy: gh,   cursor: "s-resize"  },
+    { dir: "sw", cx: 0,    cy: gh,   cursor: "sw-resize" },
+    { dir: "w",  cx: 0,    cy: gh/2, cursor: "w-resize"  },
   ];
 
   // Shared resize logic — called by both mouse and touch handlers
@@ -3062,8 +3078,8 @@ function GroupResizeOverlay({
   return (
     <div
       className="absolute pointer-events-none"
-      style={{ left: vx, top: vy, width: vw, height: vh, zIndex: 99998,
-               border: "1px dashed rgba(255,255,255,0.35)" }}
+      style={{ left: gx, top: gy, width: gw, height: gh, zIndex: 99998,
+               border: `${1 / zoom}px dashed rgba(255,255,255,0.35)` }}
     >
       {handles.map(({ dir, cx, cy, cursor }) => (
         <div
