@@ -184,23 +184,23 @@ function redrawCommittedCanvas(
 
 /**
  * Three quality levels keyed by zoom:
- *   0 (full) : zoom ≥ 1.0  — all points, no simplification
- *   1 (mid)  : 0.3–1.0     — RDP epsilon ≈ 2 screen px
- *   2 (low)  : < 0.3       — RDP epsilon ≈ 5 screen px
+ *   0 (full) : zoom ≥ 0.5  — all points, no simplification
+ *   1 (mid)  : 0.2–0.5     — RDP epsilon ≈ 1.5 screen px (barely perceptible)
+ *   2 (low)  : < 0.2       — RDP epsilon ≈ 3 screen px
  *
  * Epsilon is expressed in canvas units so it scales correctly regardless of
- * the current zoom (a 2-screen-px tolerance at zoom 0.5 = 4 canvas units).
+ * the current zoom (a 1.5-screen-px tolerance at zoom 0.3 = 5 canvas units).
  */
 function lodLevel(zoom: number): 0 | 1 | 2 {
-  if (zoom >= 1.0) return 0;
-  if (zoom >= 0.3) return 1;
+  if (zoom >= 0.5) return 0;
+  if (zoom >= 0.2) return 1;
   return 2;
 }
 
 function lodEpsilon(lod: 0 | 1 | 2, zoom: number): number {
   if (lod === 0) return 0;
-  if (lod === 1) return 2 / zoom;   // ≈ 2 screen px
-  return 5 / zoom;                  // ≈ 5 screen px
+  if (lod === 1) return 1.5 / zoom;  // ≈ 1.5 screen px
+  return 3 / zoom;                   // ≈ 3 screen px
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
