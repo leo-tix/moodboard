@@ -122,15 +122,11 @@ function redrawCommittedCanvas(
   const dpr = window.devicePixelRatio || 1;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Prune stale cache entries (composite key format: "${strokeId}:${lod}")
+  // Prune stale cache entries (key = stroke id)
   const currentIds = new Set(strokeElements.map((el) => el.stroke.id));
   for (const key of cache.keys()) {
-    if (!currentIds.has(key.split(":")[0])) cache.delete(key);
+    if (!currentIds.has(key)) cache.delete(key);
   }
-
-  // Current LOD level and RDP epsilon for this zoom
-  const lod = lodLevel(zoom);
-  const eps = lodEpsilon(lod, zoom);
 
   // Visible region in canvas coordinates — used for viewport culling below.
   // Small padding avoids edge-popping when a stroke's bbox grazes the viewport.
@@ -147,20 +143,13 @@ function redrawCommittedCanvas(
 
   for (const el of sorted) {
     // Viewport culling: skip strokes whose bbox is entirely outside the visible region.
-    // el.x/y/w/h is the stroke's bbox in canvas coords — same space as visX1…visY2.
     if (el.x + el.w < visX1 || el.x > visX2 || el.y + el.h < visY1 || el.y > visY2) continue;
 
-    // Composite cache key: stroke id + LOD level so each quality level is cached
-    // independently. Switching zoom across a LOD boundary costs one rebuild per
-    // newly-visible stroke, then hits cache on all subsequent frames at that level.
-    const cacheKey = `${el.stroke.id}:${lod}`;
-    if (!cache.has(cacheKey)) {
-      cache.set(cacheKey, buildCachedStroke(el.stroke, eps));
+    if (!cache.has(el.stroke.id)) {
+      cache.set(el.stroke.id, buildCachedStroke(el.stroke, 0));
     }
-    const sid = cacheKey;
 
     // Per-element transform: scale from origin bbox, then apply pan+zoom
-    // sx/sy handle resize; tx/ty handle move (after accounting for scale)
     const sx = el.originW > 0 ? el.w / el.originW : 1;
     const sy = el.originH > 0 ? el.h / el.originH : 1;
     const tx = el.x - el.originX * sx;
@@ -174,33 +163,10 @@ function redrawCommittedCanvas(
       (pan.y + ty * zoom) * dpr,
     );
 
-    drawCachedStroke(ctx, cache.get(sid)!);
+    drawCachedStroke(ctx, cache.get(el.stroke.id)!);
   }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-}
-
-// ── Stroke LOD (zoom-dependent simplification) ────────────────────────────
-
-/**
- * Three quality levels keyed by zoom:
- *   0 (full) : zoom ≥ 0.5  — all points, no simplification
- *   1 (mid)  : 0.2–0.5     — RDP epsilon ≈ 1.5 screen px (barely perceptible)
- *   2 (low)  : < 0.2       — RDP epsilon ≈ 3 screen px
- *
- * Epsilon is expressed in canvas units so it scales correctly regardless of
- * the current zoom (a 1.5-screen-px tolerance at zoom 0.3 = 5 canvas units).
- */
-function lodLevel(zoom: number): 0 | 1 | 2 {
-  if (zoom >= 0.25) return 0;
-  if (zoom >= 0.1)  return 1;
-  return 2;
-}
-
-function lodEpsilon(lod: 0 | 1 | 2, zoom: number): number {
-  if (lod === 0) return 0;
-  if (lod === 1) return 1.5 / zoom;  // ≈ 1.5 screen px
-  return 3 / zoom;                   // ≈ 3 screen px
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -313,51 +279,55 @@ export function PencilLayer({
   // • Cache pre-warming: build Path2D for any new stroke BEFORE the rAF fires
   //   so redrawCommittedCanvas never has to run buildCachedStroke mid-draw.
 
-  // ── Bitmap-cache zoom (Excalidraw technique) ─────────────────────────────
+  // ── Bitmap-cache pan + zoom (Excalidraw technique) ───────────────────────
   //
-  // When zoom changes we instantly apply a CSS matrix() to the committed canvas
-  // (GPU composite, zero redraw cost). The bitmap looks pixelated while zooming.
-  // 80 ms after the last zoom event the transform is cleared and a proper
-  // redraw fires.
+  // For BOTH pan and zoom we instantly apply a CSS matrix() to the committed
+  // canvas (GPU composite, zero Path2D work). The bitmap is approximate until
+  // a proper redraw fires:
   //
-  // Pan-only changes skip the CSS-transform path and re-render immediately,
-  // because shifting the bitmap would expose empty canvas edges.
-  const renderedZoomRef = useRef(zoom);
-  const renderedPanRef  = useRef({ x: pan.x, y: pan.y });
-  const zoomSettleRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Detect whether strokeElements reference changed between renders
+  // • Zoom → debounce 80 ms. The smooth-zoom rAF lerp fires many frames;
+  //   the settle timer keeps resetting and fires once after the animation ends.
+  //   No conflict with smooth zoom: the CSS transform tracks each lerp step.
+  //
+  // • Pan only (s = 1) → redraw next rAF (~16 ms). CSS translate lasts ≤ 1
+  //   frame so edge exposure is at most ~10–15 px — imperceptible.
+  //
+  // • New stroke → immediate redraw, abort settle timer.
+  const renderedZoomRef       = useRef(zoom);
+  const renderedPanRef        = useRef({ x: pan.x, y: pan.y });
+  const zoomSettleRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStrokeElementsRef = useRef(strokeElements);
 
   useEffect(() => {
     const strokesChanged = strokeElements !== prevStrokeElementsRef.current;
     prevStrokeElementsRef.current = strokeElements;
 
-    // Pre-warm full-quality cache (LOD 0) for any new stroke.
-    // Other LOD levels are built lazily in redrawCommittedCanvas on first draw.
-    for (const el of strokeElements) {
-      const key = `${el.stroke.id}:0`;
-      if (!strokeCacheRef.current.has(key)) {
-        strokeCacheRef.current.set(key, buildCachedStroke(el.stroke, 0));
+    // Pre-warm cache only when strokes actually changed (not on every pan/zoom frame)
+    if (strokesChanged) {
+      for (const el of strokeElements) {
+        if (!strokeCacheRef.current.has(el.stroke.id)) {
+          strokeCacheRef.current.set(el.stroke.id, buildCachedStroke(el.stroke, 0));
+        }
       }
     }
 
-    // Helper: clear CSS transform then do a full re-render at current pan/zoom.
+    // Helper: clear CSS transform, re-render at current pan/zoom, update refs.
     const doFullRedraw = () => {
       if (committedRafRef.current !== null) cancelAnimationFrame(committedRafRef.current);
       committedRafRef.current = requestAnimationFrame(() => {
         committedRafRef.current = null;
-        const canvas = committedRef.current;
-        if (!canvas) return;
-        canvas.style.transform       = "";
-        canvas.style.transformOrigin = "";
-        redrawCommittedCanvas(canvas, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
+        const c = committedRef.current;
+        if (!c) return;
+        c.style.transform       = "";
+        c.style.transformOrigin = "";
+        redrawCommittedCanvas(c, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
         renderedZoomRef.current = zoomRef.current;
         renderedPanRef.current  = { x: panRef.current.x, y: panRef.current.y };
       });
     };
 
     if (strokesChanged) {
-      // New stroke committed — must appear immediately; abort any zoom settle timer.
+      // New stroke: must appear immediately — abort any pending zoom settle.
       if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
       doFullRedraw();
       return () => {
@@ -365,30 +335,11 @@ export function PencilLayer({
       };
     }
 
-    // Pan/zoom change — decide which path to take.
-    const z0 = renderedZoomRef.current;
-    const zoomChanged = Math.abs(zoom - z0) > 1e-6;
-
-    if (!zoomChanged) {
-      // Pan only: re-render immediately (CSS-shifting the bitmap exposes empty edges).
-      if (committedRafRef.current !== null) cancelAnimationFrame(committedRafRef.current);
-      committedRafRef.current = requestAnimationFrame(() => {
-        committedRafRef.current = null;
-        const canvas = committedRef.current;
-        if (!canvas) return;
-        redrawCommittedCanvas(canvas, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
-        renderedZoomRef.current = zoomRef.current;
-        renderedPanRef.current  = { x: panRef.current.x, y: panRef.current.y };
-      });
-      return () => {
-        if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
-      };
-    }
-
-    // Zoom changed — apply CSS matrix() instantly (GPU, no Path2D work).
+    // Apply CSS matrix() immediately for any pan/zoom change (GPU, no redraw cost).
     // Math: maps every pixel rendered at (z0, p0) to its new screen position at (zoom, pan).
-    //   newScreenX = oldScreenX * s + tx   where s = zoom/z0
-    //   tx = pan.x - p0.x * s            (similarly for y)
+    //   s  = zoom / z0          (scale ratio — equals 1 for pan-only)
+    //   tx = pan.x − p0.x × s  (translation that absorbs both the new pan and the scale shift)
+    const z0 = renderedZoomRef.current;
     const p0 = renderedPanRef.current;
     const s  = zoom / z0;
     const tx = pan.x - p0.x * s;
@@ -399,15 +350,20 @@ export function PencilLayer({
       canvas.style.transform = `matrix(${s},0,0,${s},${tx},${ty})`;
     }
 
-    // Debounce the real redraw until zoom settles (~80 ms of no zoom events).
-    if (zoomSettleRef.current) clearTimeout(zoomSettleRef.current);
-    zoomSettleRef.current = setTimeout(() => {
-      zoomSettleRef.current = null;
+    const zoomChanged = Math.abs(zoom - z0) > 1e-6;
+    if (zoomChanged) {
+      // Zoom: debounce 80 ms — smooth-zoom lerp fires many frames in a row.
+      if (zoomSettleRef.current) clearTimeout(zoomSettleRef.current);
+      zoomSettleRef.current = setTimeout(() => {
+        zoomSettleRef.current = null;
+        doFullRedraw();
+      }, 80);
+    } else {
+      // Pan only (s = 1): schedule full redraw on next rAF — CSS translate lasts ≤ 1 frame.
       doFullRedraw();
-    }, 80);
+    }
 
     return () => {
-      // Cancel pending work so the next effect invocation starts fresh.
       if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
       if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
     };
@@ -579,7 +535,7 @@ export function PencilLayer({
               const lc = liveRef.current;
               if (lc) lc.getContext("2d")?.clearRect(0, 0, lc.width, lc.height);
               // Pre-warm cache then commit (committed canvas redraws on next rAF)
-              strokeCacheRef.current.set(`${shaped.id}:0`, buildCachedStroke(shaped, 0));
+              strokeCacheRef.current.set(shaped.id, buildCachedStroke(shaped, 0));
               onStrokeAdd(shaped);
               currentStroke.current = null;
               snappedRef.current = true;
@@ -634,7 +590,7 @@ export function PencilLayer({
         // Pre-warm the cache synchronously before calling onStrokeAdd.
         // This way the Path2D is ready before the committed canvas redraws,
         // so the first post-commit redraw costs O(1) draw calls, not O(N_points).
-        strokeCacheRef.current.set(`${stroke.id}:0`, buildCachedStroke(stroke, 0));
+        strokeCacheRef.current.set(stroke.id, buildCachedStroke(stroke, 0));
         onStrokeAdd(stroke);
       } else if (toolRef.current === "eraser") {
         // Eraser gesture ended — signal parent to push one history entry
