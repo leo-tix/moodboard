@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { useRouter } from "next/navigation";
-import { getImageUrl } from "@/lib/storage/urls";
+import { getImageUrl, getResizedImageUrl } from "@/lib/storage/urls";
 import type {
   MoodboardData,
   CanvasElement,
@@ -2122,40 +2122,55 @@ export function MoodboardEditor({ initialData }: Props) {
                   outlineOffset: "0px",
                 }}
               >
-                <ElementContent element={el} selected={false} onChange={() => {}} />
+                <ElementContent element={el} selected={false} onChange={() => {}} zoom={zoom} isVisible />
               </div>
             ))}
 
-            {elements.map((el) => (
-              <CanvasItem
-                key={el.id}
-                element={el}
-                selected={selectedIds.includes(el.id)}
-                isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
-                zoom={zoom}
-                snapEnabled={snapEnabled}
-                shiftHeld={shiftHeld}
-                spaceHeld={spaceHeld}
-                // Only apply axis constraint to the element being actively dragged.
-                // Other selected elements (followers) are moved via setElements directly.
-                dragAxis={el.id === draggingId ? dragAxisState : "both"}
-                // Touch: drag only allowed if the element is already selected
-                forceDragDisabled={isTouchDevice && !selectedIds.includes(el.id)}
-                isTouchDevice={isTouchDevice}
-                onSelect={(shift) => handleSelect(el.id, shift)}
-                onContextMenu={(cx, cy) => {
-                  const vp = viewportRef.current;
-                  if (!vp) return;
-                  const r = vp.getBoundingClientRect();
-                  setContextMenu({ x: cx - r.left, y: cy - r.top });
-                }}
-                onChange={handleElemChange}
-                onDragStart={() => handleElemDragStart(el.id)}
-                onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
-                onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
-                onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
-              />
-            ))}
+            {(() => {
+              // Viewport bounds for image offscreen culling — read once per render.
+              const vpW = viewportRef.current?.clientWidth  ?? 1920;
+              const vpH = viewportRef.current?.clientHeight ?? 1080;
+              const IMG_PAD = 120; // px — avoids pop-in when panning near the edge
+              return elements.map((el) => {
+                // Only cull images — other elements are cheap and stateful (text editor, etc.)
+                const isVisible = el.type !== "image" || (() => {
+                  const sx = pan.x + el.x * zoom;
+                  const sy = pan.y + el.y * zoom;
+                  return (
+                    sx + el.w * zoom > -IMG_PAD && sx < vpW + IMG_PAD &&
+                    sy + el.h * zoom > -IMG_PAD && sy < vpH + IMG_PAD
+                  );
+                })();
+                return (
+                  <CanvasItem
+                    key={el.id}
+                    element={el}
+                    selected={selectedIds.includes(el.id)}
+                    isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
+                    zoom={zoom}
+                    isVisible={isVisible}
+                    snapEnabled={snapEnabled}
+                    shiftHeld={shiftHeld}
+                    spaceHeld={spaceHeld}
+                    dragAxis={el.id === draggingId ? dragAxisState : "both"}
+                    forceDragDisabled={isTouchDevice && !selectedIds.includes(el.id)}
+                    isTouchDevice={isTouchDevice}
+                    onSelect={(shift) => handleSelect(el.id, shift)}
+                    onContextMenu={(cx, cy) => {
+                      const vp = viewportRef.current;
+                      if (!vp) return;
+                      const r = vp.getBoundingClientRect();
+                      setContextMenu({ x: cx - r.left, y: cy - r.top });
+                    }}
+                    onChange={handleElemChange}
+                    onDragStart={() => handleElemDragStart(el.id)}
+                    onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
+                    onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
+                    onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
+                  />
+                );
+              });
+            })()}
           </div>
 
           {/* Rubber band selection rect */}
@@ -2433,6 +2448,8 @@ interface CanvasItemProps {
   forceDragDisabled?: boolean;
   /** On touch devices react-rnd resize handles are replaced by GroupResizeOverlay. */
   isTouchDevice?: boolean;
+  /** False when the element is outside the visible viewport — image content is skipped. */
+  isVisible?: boolean;
   onSelect: (shift: boolean) => void;
   onContextMenu: (clientX: number, clientY: number) => void;
   onChange: (el: CanvasElement) => void;
@@ -2460,6 +2477,7 @@ function CanvasItem({
   dragAxis,
   forceDragDisabled,
   isTouchDevice,
+  isVisible = true,
   onSelect,
   onContextMenu,
   onChange,
@@ -2541,7 +2559,7 @@ function CanvasItem({
       disableDragging={!!element.locked || !!forceDragDisabled}
       className="canvas-item group"
     >
-      <ElementContent element={element} selected={selected} onChange={onChange} />
+      <ElementContent element={element} selected={selected} onChange={onChange} zoom={zoom} isVisible={isVisible} />
       {/* Lock indicator — fades in on hover (or when selected) to signal the layer is locked.
           Stays hidden otherwise so it doesn't clutter the canvas at a glance. */}
       {element.locked && (
@@ -2695,17 +2713,34 @@ function ElementContent({
   element,
   selected,
   onChange,
+  zoom = 1,
+  isVisible = true,
 }: {
   element: CanvasElement;
   selected: boolean;
   onChange: (el: CanvasElement) => void;
+  zoom?: number;
+  isVisible?: boolean;
 }) {
   const br = 8; // border radius (design constant)
 
   if (element.type === "image") {
     const el = element as ImageElement;
     const fit = el.objectFit ?? "cover";
-    const url = getImageUrl(el.storageKey);
+
+    // Off-screen: render an empty placeholder so the Rnd wrapper stays intact
+    // but the browser never requests or decodes the image.
+    if (!isVisible) {
+      return <div className="w-full h-full" style={{ borderRadius: br }} />;
+    }
+
+    // Animated GIFs: don't resize — Cloudflare strips animation frames.
+    // Static images: request a zoom-bucketed width via Cloudflare Image Resizing
+    // so zoomed-out views load a small variant instead of the full original.
+    const url = el.isAnimated
+      ? getImageUrl(el.storageKey)
+      : getResizedImageUrl(el.storageKey, el.w, zoom);
+
     return (
       // pointer-events:none on the visual layer — the Rnd wrapper handles all
       // mouse events. This prevents the browser from showing its native image
@@ -2714,21 +2749,12 @@ function ElementContent({
         className="w-full h-full overflow-hidden relative pointer-events-none"
         style={{ borderRadius: br }}
       >
-        {el.isAnimated ? (
-          <img
-            src={url}
-            alt={el.title}
-            draggable={false}
-            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
-          />
-        ) : (
-          <img
-            src={url}
-            alt={el.title}
-            draggable={false}
-            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
-          />
-        )}
+        <img
+          src={url}
+          alt={el.title}
+          draggable={false}
+          className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
+        />
       </div>
     );
   }
