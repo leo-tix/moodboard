@@ -1263,12 +1263,14 @@ export function MoodboardEditor({ initialData }: Props) {
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Ignore synthetic mouse events that originate from Apple Pencil in drawing mode
     if (drawingModeRef.current) return;
-    // If a text element is being edited, commit it first.
-    // Then continue only if the active tool is "text" (so the user can chain-place new text);
-    // for every other tool, just commit and swallow the click.
+    // If a text element is being edited, commit it and swallow the click.
+    // The user clicked away from the textarea — just finish the edit; don't
+    // start a new action (even if the text tool is still active).
+    // commitTextEdit() synchronously sets activeToolRef.current = "select", so
+    // the rest of the handler (pan / rubber-band / placeTextAt) is skipped.
     if (textEditingIdRef.current) {
       commitTextEdit();
-      if (activeToolRef.current !== "text") return;
+      return;
     }
 
     if (e.button === 1 || (e.button === 0 && isSpaceDown.current)) {
@@ -1984,8 +1986,8 @@ export function MoodboardEditor({ initialData }: Props) {
       const nextIds = [el.id];
       selectedIdsRef.current = nextIds;
       setSelectedIds(nextIds);
-      setActiveTool("select");
-      activeToolRef.current = "select";
+      // Keep the text tool active while the user is typing — the tool switches to
+      // "select" in commitTextEdit (on blur / Escape / click-away), not here.
       // Enter textarea edit mode immediately (Excalidraw-style)
       setTextEditingId(el.id);
       textEditingIdRef.current = el.id;
@@ -2000,6 +2002,9 @@ export function MoodboardEditor({ initialData }: Props) {
     // Clear edit state synchronously so viewport handler won't re-enter
     setTextEditingId(null);
     textEditingIdRef.current = null;
+    // Switch back to select tool (text tool was kept active during editing)
+    setActiveTool("select");
+    activeToolRef.current = "select";
 
     const ta = textareaRef.current;
     const content = ta?.value ?? "";
