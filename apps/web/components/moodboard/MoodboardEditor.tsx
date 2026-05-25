@@ -1228,7 +1228,9 @@ export function MoodboardEditor({ initialData }: Props) {
                 el.x < x2 && el.x + el.w > x1 && el.y < y2 && el.y + el.h > y1
             )
             .map((el) => el.id);
-          setSelectedIds((prev) => e.shiftKey ? [...new Set([...prev, ...ids])] : ids);
+          const nextIds = e.shiftKey ? [...new Set([...selectedIdsRef.current, ...ids])] : ids;
+          selectedIdsRef.current = nextIds;
+          setSelectedIds(nextIds);
         }
         setRubberBand(null);
         document.removeEventListener("mousemove", onMove);
