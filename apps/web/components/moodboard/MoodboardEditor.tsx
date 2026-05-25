@@ -1313,6 +1313,13 @@ export function MoodboardEditor({ initialData }: Props) {
 
       const ids = selectedIdsRef.current;
 
+      // For multi-element drag: snap the leader's delta and apply it uniformly to all
+      // followers so relative positions within the group are perfectly preserved.
+      // (Snapping each element independently would round differently → group drifts.)
+      const ldr = multiDragStartPositions.current.get(id);
+      const sdx = (ids.length > 1 && ldr) ? snap(ldr.x + dx) - ldr.x : dx;
+      const sdy = (ids.length > 1 && ldr) ? snap(ldr.y + dy) - ldr.y : dy;
+
       // Alt+drag duplicate — real drag confirmed.
       // Create copies at the drag-START positions (they stay put) while
       // moving the originals to their drag-END positions.
@@ -1348,7 +1355,7 @@ export function MoodboardEditor({ initialData }: Props) {
             if (el.locked) return el; // locked elements never move
             const s = multiDragStartPositions.current.get(el.id);
             if (!s) return el;
-            if (ids.length > 1) return { ...el, x: snap(s.x + dx), y: snap(s.y + dy) };
+            if (ids.length > 1) return { ...el, x: s.x + sdx, y: s.y + sdy };
             return el.id === id ? { ...el, x: snap(newX), y: snap(newY) } : el;
           });
           return [...moved, ...copies];
@@ -1363,7 +1370,7 @@ export function MoodboardEditor({ initialData }: Props) {
             if (el.locked) return el; // locked elements never move
             const s = multiDragStartPositions.current.get(el.id);
             if (!s) return el;
-            return { ...el, x: snap(s.x + dx), y: snap(s.y + dy) };
+            return { ...el, x: s.x + sdx, y: s.y + sdy };
           })
         );
       } else {
@@ -1440,16 +1447,25 @@ export function MoodboardEditor({ initialData }: Props) {
 
   const handleGroupResizeCommit = useCallback(
     (updates: Array<{ id: string; patch: ResizePatch }>) => {
+      // Snap the group's top-left corner and apply the same delta to every element
+      // so relative positions within the group are preserved (independent per-element
+      // snapping would round differently and shift elements relative to each other).
+      const minX = Math.min(...updates.map((u) => u.patch.x));
+      const minY = Math.min(...updates.map((u) => u.patch.y));
+      const snapDX = snap(minX) - minX;
+      const snapDY = snap(minY) - minY;
       updateElements((prev) =>
         prev.map((el) => {
           const u = updates.find((u) => u.id === el.id);
           if (!u) return el;
           return {
             ...el,
-            x: snap(u.patch.x),
-            y: snap(u.patch.y),
-            w: Math.max(40, Math.round(u.patch.w)),
-            h: Math.max(24, Math.round(u.patch.h)),
+            x: u.patch.x + snapDX,
+            y: u.patch.y + snapDY,
+            // Match the same minimums used in the live preview (GroupResizeOverlay.compute)
+            // so the committed state is identical to what the user saw during the drag.
+            w: Math.max(20, Math.round(u.patch.w)),
+            h: Math.max(10, Math.round(u.patch.h)),
           };
         })
       );
