@@ -27,7 +27,7 @@
  *  · Hover div        — cursor preview driven by React state (pointer pressure=0)
  */
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback, useState } from "react";
 import type { PencilTool, StrokePoint, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import {
   buildCachedStroke,
@@ -298,7 +298,7 @@ export function PencilLayer({
   const zoomSettleRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStrokeElementsRef = useRef(strokeElements);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const strokesChanged = strokeElements !== prevStrokeElementsRef.current;
     prevStrokeElementsRef.current = strokeElements;
 
@@ -352,12 +352,12 @@ export function PencilLayer({
 
     const zoomChanged = Math.abs(zoom - z0) > 1e-6;
     if (zoomChanged) {
-      // Zoom: debounce 80 ms — smooth-zoom lerp fires many frames in a row.
+      // Zoom: debounce 50 ms — smooth-zoom lerp fires many frames in a row.
       if (zoomSettleRef.current) clearTimeout(zoomSettleRef.current);
       zoomSettleRef.current = setTimeout(() => {
         zoomSettleRef.current = null;
         doFullRedraw();
-      }, 80);
+      }, 50);
     } else {
       // Pan only (s = 1): schedule full redraw on next rAF — CSS translate lasts ≤ 1 frame.
       doFullRedraw();
@@ -367,6 +367,9 @@ export function PencilLayer({
       if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
       if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
     };
+  // useLayoutEffect (not useEffect): fires synchronously before the browser paints,
+  // so the CSS matrix() transform is visible in the *same* frame as the React render.
+  // The body is O(1) (style.transform write + rAF schedule) — no stall risk.
   }, [strokeElements, pan, zoom]);
 
   // ── Live canvas helpers (rAF-throttled) ──────────────────────────────────
