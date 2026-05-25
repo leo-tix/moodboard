@@ -313,39 +313,103 @@ export function PencilLayer({
   // • Cache pre-warming: build Path2D for any new stroke BEFORE the rAF fires
   //   so redrawCommittedCanvas never has to run buildCachedStroke mid-draw.
 
-  // Pre-warm full-quality cache (LOD 0) whenever strokeElements change.
-  // Other LOD levels are built lazily in redrawCommittedCanvas on first draw.
+  // ── Bitmap-cache zoom (Excalidraw technique) ─────────────────────────────
+  //
+  // When zoom changes we instantly apply a CSS matrix() to the committed canvas
+  // (GPU composite, zero redraw cost). The bitmap looks pixelated while zooming.
+  // 80 ms after the last zoom event the transform is cleared and a proper
+  // redraw fires.
+  //
+  // Pan-only changes skip the CSS-transform path and re-render immediately,
+  // because shifting the bitmap would expose empty canvas edges.
+  const renderedZoomRef = useRef(zoom);
+  const renderedPanRef  = useRef({ x: pan.x, y: pan.y });
+  const zoomSettleRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Detect whether strokeElements reference changed between renders
+  const prevStrokeElementsRef = useRef(strokeElements);
+
   useEffect(() => {
+    const strokesChanged = strokeElements !== prevStrokeElementsRef.current;
+    prevStrokeElementsRef.current = strokeElements;
+
+    // Pre-warm full-quality cache (LOD 0) for any new stroke.
+    // Other LOD levels are built lazily in redrawCommittedCanvas on first draw.
     for (const el of strokeElements) {
       const key = `${el.stroke.id}:0`;
       if (!strokeCacheRef.current.has(key)) {
         strokeCacheRef.current.set(key, buildCachedStroke(el.stroke, 0));
       }
     }
-  }, [strokeElements]);
 
-  useEffect(() => {
-    // Cancel any frame already queued so we coalesce rapid updates
-    if (committedRafRef.current !== null) {
-      cancelAnimationFrame(committedRafRef.current);
-    }
-    committedRafRef.current = requestAnimationFrame(() => {
-      committedRafRef.current = null;
-      if (committedRef.current) {
-        redrawCommittedCanvas(
-          committedRef.current,
-          strokeElementsRef.current,
-          panRef.current,
-          zoomRef.current,
-          strokeCacheRef.current,
-        );
-      }
-    });
-    return () => {
-      if (committedRafRef.current !== null) {
-        cancelAnimationFrame(committedRafRef.current);
+    // Helper: clear CSS transform then do a full re-render at current pan/zoom.
+    const doFullRedraw = () => {
+      if (committedRafRef.current !== null) cancelAnimationFrame(committedRafRef.current);
+      committedRafRef.current = requestAnimationFrame(() => {
         committedRafRef.current = null;
-      }
+        const canvas = committedRef.current;
+        if (!canvas) return;
+        canvas.style.transform       = "";
+        canvas.style.transformOrigin = "";
+        redrawCommittedCanvas(canvas, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
+        renderedZoomRef.current = zoomRef.current;
+        renderedPanRef.current  = { x: panRef.current.x, y: panRef.current.y };
+      });
+    };
+
+    if (strokesChanged) {
+      // New stroke committed — must appear immediately; abort any zoom settle timer.
+      if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
+      doFullRedraw();
+      return () => {
+        if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
+      };
+    }
+
+    // Pan/zoom change — decide which path to take.
+    const z0 = renderedZoomRef.current;
+    const zoomChanged = Math.abs(zoom - z0) > 1e-6;
+
+    if (!zoomChanged) {
+      // Pan only: re-render immediately (CSS-shifting the bitmap exposes empty edges).
+      if (committedRafRef.current !== null) cancelAnimationFrame(committedRafRef.current);
+      committedRafRef.current = requestAnimationFrame(() => {
+        committedRafRef.current = null;
+        const canvas = committedRef.current;
+        if (!canvas) return;
+        redrawCommittedCanvas(canvas, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
+        renderedZoomRef.current = zoomRef.current;
+        renderedPanRef.current  = { x: panRef.current.x, y: panRef.current.y };
+      });
+      return () => {
+        if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
+      };
+    }
+
+    // Zoom changed — apply CSS matrix() instantly (GPU, no Path2D work).
+    // Math: maps every pixel rendered at (z0, p0) to its new screen position at (zoom, pan).
+    //   newScreenX = oldScreenX * s + tx   where s = zoom/z0
+    //   tx = pan.x - p0.x * s            (similarly for y)
+    const p0 = renderedPanRef.current;
+    const s  = zoom / z0;
+    const tx = pan.x - p0.x * s;
+    const ty = pan.y - p0.y * s;
+    const canvas = committedRef.current;
+    if (canvas) {
+      canvas.style.transformOrigin = "0 0";
+      canvas.style.transform = `matrix(${s},0,0,${s},${tx},${ty})`;
+    }
+
+    // Debounce the real redraw until zoom settles (~80 ms of no zoom events).
+    if (zoomSettleRef.current) clearTimeout(zoomSettleRef.current);
+    zoomSettleRef.current = setTimeout(() => {
+      zoomSettleRef.current = null;
+      doFullRedraw();
+    }, 80);
+
+    return () => {
+      // Cancel pending work so the next effect invocation starts fresh.
+      if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
+      if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
     };
   }, [strokeElements, pan, zoom]);
 
