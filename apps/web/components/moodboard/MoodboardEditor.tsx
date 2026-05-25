@@ -17,6 +17,9 @@ import type {
   TextElement,
   ColorElement,
   StickyElement,
+  ShapeElement,
+  LinearElement,
+  LinearPoint,
 } from "@/lib/moodboard/types";
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
 import { SharePanel } from "@/components/moodboard/SharePanel";
@@ -128,6 +131,52 @@ export function MoodboardEditor({ initialData }: Props) {
   // Stable ref so native touch handlers can read drawingMode without being recreated
   const drawingModeRef = useRef(drawingMode);
   useEffect(() => { drawingModeRef.current = drawingMode; }, [drawingMode]);
+
+  // ── Shape / Vector tool system ───────────────────────────────────────────────
+  type ActiveTool = "select" | "rectangle" | "ellipse" | "diamond" | "line" | "arrow" | "text";
+  const [activeTool, setActiveTool] = useState<ActiveTool>("select");
+  const activeToolRef = useRef<ActiveTool>("select");
+  useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+
+  // Tool property defaults — persisted across placements (like Excalidraw)
+  const [toolFillColor,   setToolFillColor]   = useState("transparent");
+  const [toolStrokeColor, setToolStrokeColor] = useState("#ffffff");
+  const [toolStrokeWidth, setToolStrokeWidth] = useState(2);
+  const [toolStrokeStyle, setToolStrokeStyle] = useState<"solid"|"dashed"|"dotted">("solid");
+  const [toolArrowStart,  setToolArrowStart]  = useState<"none"|"arrow">("none");
+  const [toolArrowEnd,    setToolArrowEnd]    = useState<"none"|"arrow">("arrow");
+  const [toolFontSize,    setToolFontSize]    = useState(18);
+  const [toolTextColor,   setToolTextColor]   = useState("#ffffff");
+  // Ref mirror so document-level handlers always see the latest values
+  const toolPropsRef = useRef({
+    fillColor: "transparent", strokeColor: "#ffffff", strokeWidth: 2,
+    strokeStyle: "solid" as "solid"|"dashed"|"dotted",
+    arrowStart: "none" as "none"|"arrow", arrowEnd: "arrow" as "none"|"arrow",
+    fontSize: 18, textColor: "#ffffff",
+  });
+  useEffect(() => {
+    toolPropsRef.current = {
+      fillColor: toolFillColor, strokeColor: toolStrokeColor,
+      strokeWidth: toolStrokeWidth, strokeStyle: toolStrokeStyle,
+      arrowStart: toolArrowStart, arrowEnd: toolArrowEnd,
+      fontSize: toolFontSize, textColor: toolTextColor,
+    };
+  }, [toolFillColor, toolStrokeColor, toolStrokeWidth, toolStrokeStyle,
+      toolArrowStart, toolArrowEnd, toolFontSize, toolTextColor]);
+
+  // ── Drawing preview states ───────────────────────────────────────────────────
+  const [shapeDrawing, setShapeDrawing] = useState<{
+    startX: number; startY: number; endX: number; endY: number; shiftLock: boolean;
+  } | null>(null);
+  const shapeDrawingRef = useRef<typeof shapeDrawing>(null);
+
+  const [linearInProgress, setLinearInProgress] = useState<{
+    points: LinearPoint[]; cursor: LinearPoint;
+  } | null>(null);
+  const linearInProgressRef = useRef<typeof linearInProgress>(null);
+  const linearLastClickRef  = useRef(0);
+  // Linear point being dragged in the edit overlay (live preview only)
+  const [linearDragPreview, setLinearDragPreview] = useState<LinearElement | null>(null);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1130,10 +1179,50 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // ── Escape ──
       if (e.key === "Escape") {
+        // Cancel in-progress drawing first
+        if (linearInProgressRef.current) {
+          linearInProgressRef.current = null;
+          setLinearInProgress(null);
+          setActiveTool("select");
+          activeToolRef.current = "select";
+          return;
+        }
+        if (shapeDrawingRef.current) {
+          shapeDrawingRef.current = null;
+          setShapeDrawing(null);
+          setActiveTool("select");
+          activeToolRef.current = "select";
+          return;
+        }
+        if (activeToolRef.current !== "select") {
+          setActiveTool("select");
+          activeToolRef.current = "select";
+          return;
+        }
         setSelectedIds([]);
         selectedIdsRef.current = [];
         setContextMenu(null);
         return;
+      }
+
+      // ── Tool shortcuts (only when not editing text) ──
+      if (inInput) return;
+
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const toolMap: Record<string, typeof activeToolRef.current> = {
+          v: "select", r: "rectangle", e: "ellipse", d: "diamond",
+          l: "line", a: "arrow", t: "text",
+        };
+        const mapped = toolMap[e.key.toLowerCase()];
+        if (mapped) {
+          e.preventDefault();
+          // Cancel any in-progress drawing
+          linearInProgressRef.current = null; setLinearInProgress(null);
+          shapeDrawingRef.current = null; setShapeDrawing(null);
+          setActiveTool(mapped);
+          activeToolRef.current = mapped;
+          return;
+        }
       }
     };
 
@@ -1192,10 +1281,127 @@ export function MoodboardEditor({ initialData }: Props) {
     }
 
     if (e.button === 0) {
-      // Rubber band
-      if (!e.shiftKey) setSelectedIds([]);
       setContextMenu(null);
-      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+      const tool = activeToolRef.current;
+      const viewport = e.currentTarget as HTMLDivElement;
+      const rect = viewport.getBoundingClientRect();
+
+      // ── Text tool: click to place ──
+      if (tool === "text") {
+        const pos = screenToCanvasRaw(e.clientX, e.clientY);
+        placeTextAt(pos.x, pos.y);
+        return;
+      }
+
+      // ── Shape tools: drag to draw ──
+      if (tool === "rectangle" || tool === "ellipse" || tool === "diamond") {
+        e.preventDefault();
+        const start = screenToCanvasRaw(e.clientX, e.clientY);
+        const initState = { startX: start.x, startY: start.y, endX: start.x, endY: start.y, shiftLock: false };
+        shapeDrawingRef.current = initState;
+        setShapeDrawing(initState);
+
+        const onMove = (ev: MouseEvent) => {
+          const cur = screenToCanvasRaw(ev.clientX, ev.clientY);
+          let endX = cur.x;
+          let endY = cur.y;
+          let shiftLock = false;
+          if (ev.shiftKey) {
+            // Shift = constrain to square
+            const dx = Math.abs(endX - start.x);
+            const dy = Math.abs(endY - start.y);
+            const side = Math.max(dx, dy);
+            endX = start.x + Math.sign(endX - start.x) * side;
+            endY = start.y + Math.sign(endY - start.y) * side;
+            shiftLock = true;
+          }
+          const s = { startX: start.x, startY: start.y, endX, endY, shiftLock };
+          shapeDrawingRef.current = s;
+          setShapeDrawing(s);
+        };
+        const onUp = (ev: MouseEvent) => {
+          const cur = screenToCanvasRaw(ev.clientX, ev.clientY);
+          let endX = cur.x;
+          let endY = cur.y;
+          if (ev.shiftKey) {
+            const dx = Math.abs(endX - start.x);
+            const dy = Math.abs(endY - start.y);
+            const side = Math.max(dx, dy);
+            endX = start.x + Math.sign(endX - start.x) * side;
+            endY = start.y + Math.sign(endY - start.y) * side;
+          }
+          const minSz = 8 / zoomRef.current;
+          if (Math.abs(endX - start.x) > minSz || Math.abs(endY - start.y) > minSz) {
+            commitShape(start.x, start.y, endX, endY);
+          } else {
+            // Small click = place default-sized shape centered on click
+            commitShape(start.x - 80, start.y - 50, start.x + 80, start.y + 50);
+          }
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        return;
+      }
+
+      // ── Linear tools: click to add points, double-click to commit ──
+      if (tool === "line" || tool === "arrow") {
+        e.preventDefault();
+        const pos = screenToCanvasRaw(e.clientX, e.clientY);
+        const now = Date.now();
+        const isDbl = now - linearLastClickRef.current < 350 && linearInProgressRef.current !== null;
+        linearLastClickRef.current = now;
+
+        if (isDbl && linearInProgressRef.current) {
+          // Double-click: commit (remove the duplicate point added by the last single click)
+          const pts = linearInProgressRef.current.points;
+          const finalPts = pts.length >= 3 ? pts.slice(0, -1) : pts;
+          finalPts[finalPts.length - 1] = pos;
+          commitLinear(finalPts);
+          return;
+        }
+
+        if (!linearInProgressRef.current) {
+          // First point
+          const state = { points: [{ ...pos }], cursor: { ...pos } };
+          linearInProgressRef.current = state;
+          setLinearInProgress(state);
+
+          const onMove = (ev: MouseEvent) => {
+            const cur = screenToCanvasRaw(ev.clientX, ev.clientY);
+            if (!linearInProgressRef.current) return;
+            const pts = [...linearInProgressRef.current.points, cur];
+            // Replace the "ghost" last point with cursor
+            const state = { points: linearInProgressRef.current.points, cursor: cur };
+            linearInProgressRef.current = state;
+            setLinearInProgress({ ...state });
+          };
+          const onEsc = (ev: KeyboardEvent) => {
+            if (ev.key === "Escape") {
+              linearInProgressRef.current = null;
+              setLinearInProgress(null);
+              setActiveTool("select");
+              activeToolRef.current = "select";
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("keydown", onEsc);
+            }
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("keydown", onEsc);
+        } else {
+          // Add waypoint at clicked position
+          const prev = linearInProgressRef.current;
+          const newPts = [...prev.points, { ...pos }];
+          const state = { points: newPts, cursor: { ...pos } };
+          linearInProgressRef.current = state;
+          setLinearInProgress({ ...state });
+        }
+        return;
+      }
+
+      // ── Select tool: rubber band ──
+      if (!e.shiftKey) setSelectedIds([]);
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
       rubberBandActive.current = true;
@@ -1213,7 +1419,6 @@ export function MoodboardEditor({ initialData }: Props) {
         rubberBandActive.current = false;
         const ex = ev.clientX - rect.left;
         const ey = ev.clientY - rect.top;
-        // Convert to canvas coords
         const cp = panRef.current;
         const cz = zoomRef.current;
         const x1 = (Math.min(sx, ex) - cp.x) / cz;
@@ -1224,10 +1429,7 @@ export function MoodboardEditor({ initialData }: Props) {
         const h = y2 - y1;
         if (w > 4 && h > 4) {
           const ids = elementsRef.current
-            .filter(
-              (el) =>
-                el.x < x2 && el.x + el.w > x1 && el.y < y2 && el.y + el.h > y1
-            )
+            .filter((el) => el.x < x2 && el.x + el.w > x1 && el.y < y2 && el.y + el.h > y1)
             .map((el) => el.id);
           const nextIds = e.shiftKey ? [...new Set([...selectedIdsRef.current, ...ids])] : ids;
           selectedIdsRef.current = nextIds;
@@ -1240,6 +1442,7 @@ export function MoodboardEditor({ initialData }: Props) {
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Element drag (multi-select, Shift+axis, Alt+duplicate) ──
@@ -1646,56 +1849,96 @@ export function MoodboardEditor({ initialData }: Props) {
     [getViewportCenter, updateElements, snap]
   );
 
-  const addText = useCallback(() => {
-    const { x, y } = getViewportCenter();
-    const el: TextElement = {
-      id: makeId(),
-      type: "text",
-      x: snap(x - 120),
-      y: snap(y - 30),
-      w: 240,
-      h: 60,
-      zIndex: ++nextZRef.current,
-      content: "Texte libre",
-      fontSize: 18,
-      color: "#ffffff",
-      bold: false,
-      italic: false,
-    };
-    updateElements((prev) => [...prev, el]);
-  }, [getViewportCenter, updateElements, snap]);
+  // ── Shape commit helper ──
+  const commitShape = useCallback(
+    (startX: number, startY: number, rawEndX: number, rawEndY: number) => {
+      const shapeType = activeToolRef.current as "rectangle" | "ellipse" | "diamond";
+      const x = snap(Math.min(startX, rawEndX));
+      const y = snap(Math.min(startY, rawEndY));
+      const w = snap(Math.max(SNAP_PX * 2, Math.abs(rawEndX - startX)));
+      const h = snap(Math.max(SNAP_PX,     Math.abs(rawEndY - startY)));
+      const tp = toolPropsRef.current;
+      const el: ShapeElement = {
+        id: makeId(), type: "shape", shape: shapeType,
+        x, y, w, h,
+        zIndex: ++nextZRef.current,
+        fillColor: tp.fillColor, strokeColor: tp.strokeColor,
+        strokeWidth: tp.strokeWidth, strokeStyle: tp.strokeStyle,
+      };
+      updateElements((prev) => [...prev, el]);
+      const nextIds = [el.id];
+      selectedIdsRef.current = nextIds;
+      setSelectedIds(nextIds);
+      setShapeDrawing(null);
+      shapeDrawingRef.current = null;
+      setActiveTool("select");
+      activeToolRef.current = "select";
+    },
+    [snap, updateElements]
+  );
 
-  const addColor = useCallback(() => {
-    const { x, y } = getViewportCenter();
-    const el: ColorElement = {
-      id: makeId(),
-      type: "color",
-      x: snap(x - 80),
-      y: snap(y - 50),
-      w: 160,
-      h: 100,
-      zIndex: ++nextZRef.current,
-      color: "#3b4bdb",
-    };
-    updateElements((prev) => [...prev, el]);
-  }, [getViewportCenter, updateElements, snap]);
+  // ── Linear commit helper ──
+  const commitLinear = useCallback(
+    (absPoints: LinearPoint[]) => {
+      if (absPoints.length < 2) {
+        setLinearInProgress(null);
+        linearInProgressRef.current = null;
+        setActiveTool("select");
+        activeToolRef.current = "select";
+        return;
+      }
+      const minX = Math.min(...absPoints.map((p) => p.x));
+      const minY = Math.min(...absPoints.map((p) => p.y));
+      const maxX = Math.max(...absPoints.map((p) => p.x));
+      const maxY = Math.max(...absPoints.map((p) => p.y));
+      const tp = toolPropsRef.current;
+      const sub = activeToolRef.current === "arrow" ? "arrow" : "line";
+      const el: LinearElement = {
+        id: makeId(), type: "linear", subtype: sub,
+        x: snap(minX), y: snap(minY),
+        w: Math.max(4, snap(maxX - minX)),
+        h: Math.max(4, snap(maxY - minY)),
+        zIndex: ++nextZRef.current,
+        points: absPoints.map((p) => ({ x: p.x - minX, y: p.y - minY })),
+        strokeColor: tp.strokeColor, strokeWidth: tp.strokeWidth, strokeStyle: tp.strokeStyle,
+        startArrowhead: sub === "arrow" ? tp.arrowStart : "none",
+        endArrowhead:   sub === "arrow" ? tp.arrowEnd   : "none",
+      };
+      updateElements((prev) => [...prev, el]);
+      const nextIds = [el.id];
+      selectedIdsRef.current = nextIds;
+      setSelectedIds(nextIds);
+      setLinearInProgress(null);
+      linearInProgressRef.current = null;
+      setActiveTool("select");
+      activeToolRef.current = "select";
+    },
+    [snap, updateElements]
+  );
 
-  const addSticky = useCallback(() => {
-    const { x, y } = getViewportCenter();
-    const el: StickyElement = {
-      id: makeId(),
-      type: "sticky",
-      x: snap(x - 100),
-      y: snap(y - 80),
-      w: 200,
-      h: 160,
-      zIndex: ++nextZRef.current,
-      content: "Note…",
-      backgroundColor: "#fef08a",
-      textColor: "#1c1917",
-    };
-    updateElements((prev) => [...prev, el]);
-  }, [getViewportCenter, updateElements, snap]);
+  // ── Text tool placement ──
+  const placeTextAt = useCallback(
+    (canvasX: number, canvasY: number) => {
+      const tp = toolPropsRef.current;
+      const el: TextElement = {
+        id: makeId(), type: "text",
+        x: snap(canvasX - 100), y: snap(canvasY - 20),
+        w: 200, h: 60,
+        zIndex: ++nextZRef.current,
+        content: "",
+        fontSize: tp.fontSize,
+        color: tp.textColor,
+        bold: false, italic: false,
+      };
+      updateElements((prev) => [...prev, el]);
+      const nextIds = [el.id];
+      selectedIdsRef.current = nextIds;
+      setSelectedIds(nextIds);
+      setActiveTool("select");
+      activeToolRef.current = "select";
+    },
+    [snap, updateElements]
+  );
 
   // ── Drop position conversion ──
   const screenToCanvas = useCallback(
@@ -1709,6 +1952,20 @@ export function MoodboardEditor({ initialData }: Props) {
       };
     },
     [snap]
+  );
+
+  /** Raw version (no snapping) — used for live drawing preview */
+  const screenToCanvasRaw = useCallback(
+    (clientX: number, clientY: number) => {
+      const viewport = viewportRef.current;
+      if (!viewport) return { x: 80, y: 80 };
+      const rect = viewport.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - panRef.current.x) / zoomRef.current,
+        y: (clientY - rect.top - panRef.current.y) / zoomRef.current,
+      };
+    },
+    []
   );
 
   // ── Upload file → library + canvas ──
@@ -2026,28 +2283,6 @@ export function MoodboardEditor({ initialData }: Props) {
 
         <div className="w-px h-4 bg-[var(--border-subtle)]" />
 
-        {/* Add elements */}
-        <button
-          onClick={addText}
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors px-1.5 py-1 rounded hover:bg-[var(--bg-surface)] flex-shrink-0"
-          title="Texte (T)"
-        >
-          T
-        </button>
-        <button
-          onClick={addColor}
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors px-1.5 py-1 rounded hover:bg-[var(--bg-surface)] flex-shrink-0"
-          title="Bloc couleur"
-        >
-          ■
-        </button>
-        <button
-          onClick={addSticky}
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors px-1.5 py-1 rounded hover:bg-[var(--bg-surface)] flex-shrink-0"
-          title="Note autocollante"
-        >
-          🗒
-        </button>
         <button
           onClick={() => setShowLibrary((v) => !v)}
           className={`text-xs transition-colors px-1.5 py-1 rounded flex-shrink-0 ${
@@ -2238,6 +2473,249 @@ export function MoodboardEditor({ initialData }: Props) {
               />
             )}
 
+          {/* ── Left tool toolbar (Excalidraw-style) ── */}
+          {!drawingMode && (
+            <div
+              className="absolute left-3 z-50 flex flex-col gap-0"
+              style={{ top: "50%", transform: "translateY(-50%)" }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              {/* Tool buttons */}
+              <div className="flex flex-col items-center gap-0.5 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-xl shadow-xl p-1.5">
+                {(
+                  [
+                    { tool: "select",    icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M2 1l10 6-5 1.5L5 13z"/></svg>,            title: "Sélection (V)" },
+                    null, // sep
+                    { tool: "rectangle", icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="11" height="11" rx="1.5"/></svg>, title: "Rectangle (R)" },
+                    { tool: "ellipse",   icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4"><ellipse cx="6.5" cy="6.5" rx="5.5" ry="5.5"/></svg>,   title: "Ellipse (E)"   },
+                    { tool: "diamond",   icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4"><polygon points="6.5,1 12,6.5 6.5,12 1,6.5"/></svg>,       title: "Diamant (D)"   },
+                    null, // sep
+                    { tool: "line",      icon: <svg width="13" height="13" viewBox="0 0 13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="1.5" y1="11.5" x2="11.5" y2="1.5"/></svg>, title: "Ligne (L)" },
+                    { tool: "arrow",     icon: <svg width="13" height="13" viewBox="0 0 13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="1.5" y1="11.5" x2="11.5" y2="1.5"/><path d="M7 2l4.5-.5-.5 4.5" fill="none"/></svg>, title: "Flèche (A)" },
+                    null, // sep
+                    { tool: "text",      icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><text x="1" y="11" fontSize="11" fontFamily="serif" fontWeight="bold">T</text></svg>,    title: "Texte (T)"   },
+                  ] as Array<{ tool: string; icon: React.ReactNode; title: string } | null>
+                ).map((item, i) => {
+                  if (item === null) return <div key={i} className="w-6 h-px bg-[var(--border-subtle)] my-0.5" />;
+                  const isActive = activeTool === item.tool;
+                  return (
+                    <button
+                      key={item.tool}
+                      title={item.title}
+                      onClick={() => {
+                        // Cancel any in-progress drawing
+                        linearInProgressRef.current = null; setLinearInProgress(null);
+                        shapeDrawingRef.current = null; setShapeDrawing(null);
+                        setActiveTool(item.tool as Parameters<typeof setActiveTool>[0]);
+                        activeToolRef.current = item.tool as typeof activeToolRef.current;
+                      }}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                        isActive
+                          ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      {item.icon}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Tool properties panel — shown when a drawing tool is active */}
+              {activeTool !== "select" && (
+                <div className="mt-2 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-xl shadow-xl p-2 flex flex-col gap-2 min-w-[120px]">
+                  <p className="text-[9px] uppercase tracking-widest text-[var(--text-tertiary)] font-semibold">Style</p>
+
+                  {/* Fill — shapes only */}
+                  {(activeTool === "rectangle" || activeTool === "ellipse" || activeTool === "diamond") && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--text-tertiary)] w-8">Fill</span>
+                      <label className="relative cursor-pointer">
+                        <div
+                          className="w-5 h-5 rounded border border-[var(--border-default)]"
+                          style={{ backgroundColor: toolFillColor === "transparent" ? "transparent" : toolFillColor,
+                                   backgroundImage: toolFillColor === "transparent"
+                                     ? "repeating-conic-gradient(#aaa 0% 25%, transparent 0% 50%)"
+                                     : undefined,
+                                   backgroundSize: "6px 6px" }}
+                        />
+                        <input type="color"
+                          value={toolFillColor === "transparent" ? "#000000" : toolFillColor}
+                          onChange={(e) => setToolFillColor(e.target.value)}
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        />
+                      </label>
+                      <button
+                        title="Pas de remplissage"
+                        onClick={() => setToolFillColor("transparent")}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                          toolFillColor === "transparent"
+                            ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
+                            : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:border-[var(--border-default)]"
+                        }`}
+                      >∅</button>
+                    </div>
+                  )}
+
+                  {/* Stroke */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-[var(--text-tertiary)] w-8">Trait</span>
+                    <label className="relative cursor-pointer">
+                      <div className="w-5 h-5 rounded border border-[var(--border-default)]" style={{ backgroundColor: toolStrokeColor }} />
+                      <input type="color" value={toolStrokeColor}
+                        onChange={(e) => setToolStrokeColor(e.target.value)}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      />
+                    </label>
+                    <input
+                      type="number" value={toolStrokeWidth} min={1} max={40}
+                      onChange={(e) => setToolStrokeWidth(Math.max(1, Number(e.target.value)))}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="w-9 bg-transparent text-[10px] text-[var(--text-primary)] text-center outline-none border border-[var(--border-subtle)] rounded h-5"
+                    />
+                  </div>
+
+                  {/* Stroke style */}
+                  {activeTool !== "text" && (
+                    <div className="flex items-center gap-1">
+                      {(["solid", "dashed", "dotted"] as const).map((s) => (
+                        <button key={s} title={s} onClick={() => setToolStrokeStyle(s)}
+                          className={`flex-1 h-5 rounded text-[11px] transition-colors border ${
+                            toolStrokeStyle === s
+                              ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
+                              : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:border-[var(--border-default)]"
+                          }`}
+                        >
+                          {s === "solid" ? "—" : s === "dashed" ? "╌" : "⋯"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Arrow directions */}
+                  {activeTool === "arrow" && (
+                    <div className="flex items-center gap-1">
+                      <button title="Pointe départ" onClick={() => setToolArrowStart(v => v === "none" ? "arrow" : "none")}
+                        className={`flex-1 h-5 rounded text-[11px] border transition-colors ${
+                          toolArrowStart !== "none"
+                            ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
+                            : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
+                        }`}>←</button>
+                      <button title="Pointe fin" onClick={() => setToolArrowEnd(v => v === "none" ? "arrow" : "none")}
+                        className={`flex-1 h-5 rounded text-[11px] border transition-colors ${
+                          toolArrowEnd !== "none"
+                            ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
+                            : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
+                        }`}>→</button>
+                    </div>
+                  )}
+
+                  {/* Text color + size */}
+                  {activeTool === "text" && (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-[var(--text-tertiary)] w-8">Coul.</span>
+                        <label className="relative cursor-pointer">
+                          <div className="w-5 h-5 rounded border border-[var(--border-default)]" style={{ backgroundColor: toolTextColor }} />
+                          <input type="color" value={toolTextColor}
+                            onChange={(e) => setToolTextColor(e.target.value)}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-[var(--text-tertiary)] w-8">Taille</span>
+                        <input type="number" value={toolFontSize} min={6} max={300}
+                          onChange={(e) => setToolFontSize(Math.max(6, Number(e.target.value)))}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="w-14 bg-transparent text-[10px] text-[var(--text-primary)] text-center outline-none border border-[var(--border-subtle)] rounded h-5"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Shape drawing live preview ── */}
+          {shapeDrawing && (
+            <div
+              style={{
+                position: "absolute",
+                left: Math.min(shapeDrawing.startX, shapeDrawing.endX) * rndScale + panRef.current.x,
+                top:  Math.min(shapeDrawing.startY, shapeDrawing.endY) * rndScale + panRef.current.y,
+                width:  Math.abs(shapeDrawing.endX - shapeDrawing.startX) * rndScale,
+                height: Math.abs(shapeDrawing.endY - shapeDrawing.startY) * rndScale,
+                pointerEvents: "none",
+                zIndex: 99999,
+              }}
+            >
+              <svg width="100%" height="100%" style={{ overflow: "visible" }}>
+                {activeTool === "rectangle" && (
+                  <rect x={0} y={0} width="100%" height="100%"
+                    fill={toolFillColor === "transparent" ? "none" : toolFillColor}
+                    stroke={toolStrokeColor} strokeWidth={toolStrokeWidth * rndScale}
+                    strokeDasharray={
+                      toolStrokeStyle === "dashed" ? `${toolStrokeWidth * rndScale * 4},${toolStrokeWidth * rndScale * 2}` :
+                      toolStrokeStyle === "dotted" ? `${toolStrokeWidth * rndScale},${toolStrokeWidth * rndScale * 2}` : undefined
+                    }
+                    strokeOpacity={0.7}
+                  />
+                )}
+                {activeTool === "ellipse" && (
+                  <ellipse cx="50%" cy="50%"
+                    rx={`calc(50% - ${toolStrokeWidth * rndScale / 2}px)`}
+                    ry={`calc(50% - ${toolStrokeWidth * rndScale / 2}px)`}
+                    fill={toolFillColor === "transparent" ? "none" : toolFillColor}
+                    stroke={toolStrokeColor} strokeWidth={toolStrokeWidth * rndScale}
+                    strokeOpacity={0.7}
+                  />
+                )}
+                {activeTool === "diamond" && (() => {
+                  const W = Math.abs(shapeDrawing.endX - shapeDrawing.startX) * rndScale;
+                  const H = Math.abs(shapeDrawing.endY - shapeDrawing.startY) * rndScale;
+                  return (
+                    <polygon
+                      points={`${W/2},0 ${W},${H/2} ${W/2},${H} 0,${H/2}`}
+                      fill={toolFillColor === "transparent" ? "none" : toolFillColor}
+                      stroke={toolStrokeColor} strokeWidth={toolStrokeWidth * rndScale}
+                      strokeOpacity={0.7}
+                    />
+                  );
+                })()}
+              </svg>
+            </div>
+          )}
+
+          {/* ── Linear drawing live preview ── */}
+          {linearInProgress && (() => {
+            const allPts = [...linearInProgress.points, linearInProgress.cursor];
+            const pathD = allPts.map((p, i) =>
+              `${i === 0 ? "M" : "L"} ${p.x * rndScale + panRef.current.x} ${p.y * rndScale + panRef.current.y}`
+            ).join(" ");
+            const sw = toolStrokeWidth * rndScale;
+            return (
+              <svg
+                style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 99999 }}
+                width={0} height={0}
+              >
+                <path d={pathD} fill="none" stroke={toolStrokeColor}
+                  strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
+                  strokeDasharray={`${sw * 4},${sw * 2}`} strokeOpacity={0.8}
+                />
+                {linearInProgress.points.map((p, i) => (
+                  <circle key={i}
+                    cx={p.x * rndScale + panRef.current.x}
+                    cy={p.y * rndScale + panRef.current.y}
+                    r={4} fill={toolStrokeColor} stroke="white" strokeWidth={1}
+                  />
+                ))}
+              </svg>
+            );
+          })()}
+
           {/* Apple Pencil drawing layer — always mounted so canvas state persists */}
           <PencilLayer
             ref={pencilLayerRef}
@@ -2359,6 +2837,24 @@ export function MoodboardEditor({ initialData }: Props) {
                 onCommit={handleGroupResizeCommit}
               />
             )}
+
+            {/* LinearEditOverlay — point handles for single selected linear element */}
+            {selectedIds.length === 1 && (() => {
+              const el = elements.find((e) => e.id === selectedIds[0] && e.type === "linear");
+              if (!el) return null;
+              const lin = (linearDragPreview ?? el) as LinearElement;
+              return (
+                <LinearEditOverlay
+                  element={lin}
+                  zoom={rndScale}
+                  onChange={(updated) => setLinearDragPreview(updated)}
+                  onCommit={(updated) => {
+                    setLinearDragPreview(null);
+                    handleElemChange(updated);
+                  }}
+                />
+              );
+            })()}
 
             {/* ContextualToolbar — canvas coordinates, inverse-scaled so it stays at
                 constant screen size regardless of zoom level */}
@@ -2649,7 +3145,7 @@ function CanvasItem({
         onResize(pos.x, pos.y, ref.offsetWidth, ref.offsetHeight);
       }}
       dragAxis={dragAxis}
-      enableResizing={selected && !element.locked && !isTouchDevice}
+      enableResizing={selected && !element.locked && !isTouchDevice && element.type !== "linear"}
       disableDragging={!!element.locked || !!forceDragDisabled}
       className="canvas-item group"
     >
@@ -2929,7 +3425,224 @@ function ElementContent({
     return <div className="w-full h-full" />;
   }
 
+  if (element.type === "shape") {
+    const el = element as ShapeElement;
+    const sw = el.strokeWidth;
+    const half = sw / 2;
+    const fill = el.fillColor === "transparent" ? "none" : el.fillColor;
+    const dash =
+      el.strokeStyle === "dashed" ? `${sw * 4},${sw * 2}` :
+      el.strokeStyle === "dotted" ? `${sw},${sw * 2}` : undefined;
+
+    return (
+      <div className="w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+        <svg width="100%" height="100%" style={{ overflow: "visible", display: "block" }}>
+          {el.shape === "rectangle" && (
+            <rect
+              x={half} y={half}
+              width={`calc(100% - ${sw}px)`} height={`calc(100% - ${sw}px)`}
+              fill={fill} stroke={el.strokeColor} strokeWidth={sw}
+              strokeDasharray={dash} rx={el.cornerRadius ?? 0}
+            />
+          )}
+          {el.shape === "ellipse" && (
+            <ellipse
+              cx="50%" cy="50%"
+              rx={`calc(50% - ${half}px)`} ry={`calc(50% - ${half}px)`}
+              fill={fill} stroke={el.strokeColor} strokeWidth={sw}
+              strokeDasharray={dash}
+            />
+          )}
+          {el.shape === "diamond" && (() => {
+            // Computed in a closure so we can reference element.w/h
+            // The SVG is 100%×100% so we use percentage points
+            return (
+              <polygon
+                points="50%,0 100%,50% 50%,100% 0,50%"
+                fill={fill} stroke={el.strokeColor} strokeWidth={sw}
+                strokeDasharray={dash}
+                style={{ vectorEffect: "non-scaling-stroke" }}
+              />
+            );
+          })()}
+        </svg>
+        {el.label && (
+          <div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            style={{
+              fontSize: el.fontSize ?? 14,
+              color: el.labelColor ?? "#ffffff",
+              padding: "4px 8px",
+              textAlign: "center",
+              wordBreak: "break-word",
+              userSelect: "none",
+            }}
+          >
+            {el.label}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (element.type === "linear") {
+    const el = element as LinearElement;
+    const sw = el.strokeWidth;
+    const dash =
+      el.strokeStyle === "dashed" ? `${sw * 4},${sw * 2}` :
+      el.strokeStyle === "dotted" ? `${sw},${sw * 2}` : undefined;
+    const pts = el.points;
+    if (pts.length < 2) return <div className="w-full h-full" />;
+
+    const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+    const markerId = `arrow-end-${el.id}`;
+    const markerStartId = `arrow-start-${el.id}`;
+
+    // Arrow geometry: angled head
+    const arrowW = sw * 3.5;
+    const arrowH = sw * 3;
+
+    return (
+      <div className="w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+        <svg
+          width={el.w || 1}
+          height={el.h || 1}
+          style={{ overflow: "visible", position: "absolute", left: 0, top: 0 }}
+        >
+          <defs>
+            {el.endArrowhead === "arrow" && (
+              <marker
+                id={markerId}
+                markerWidth={arrowW} markerHeight={arrowH}
+                refX={arrowW - 0.5} refY={arrowH / 2}
+                orient="auto"
+              >
+                <path
+                  d={`M0,0 L${arrowW},${arrowH/2} L0,${arrowH}`}
+                  fill="none" stroke={el.strokeColor} strokeWidth={sw * 0.85}
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              </marker>
+            )}
+            {el.startArrowhead === "arrow" && (
+              <marker
+                id={markerStartId}
+                markerWidth={arrowW} markerHeight={arrowH}
+                refX={0.5} refY={arrowH / 2}
+                orient="auto-start-reverse"
+              >
+                <path
+                  d={`M${arrowW},0 L0,${arrowH/2} L${arrowW},${arrowH}`}
+                  fill="none" stroke={el.strokeColor} strokeWidth={sw * 0.85}
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              </marker>
+            )}
+          </defs>
+          <path
+            d={pathD}
+            fill="none"
+            stroke={el.strokeColor}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            markerEnd={el.endArrowhead === "arrow" ? `url(#${markerId})` : undefined}
+            markerStart={el.startArrowhead === "arrow" ? `url(#${markerStartId})` : undefined}
+          />
+        </svg>
+      </div>
+    );
+  }
+
   return null;
+}
+
+// ── Linear element point-edit overlay ───────────────────────────────────────
+// Shown when exactly one LinearElement is selected.
+// Renders draggable handles at each point (canvas-coordinate space, inside overlayLayerRef).
+
+interface LinearEditOverlayProps {
+  element: LinearElement;
+  zoom: number;
+  onChange: (updated: LinearElement) => void;
+  onCommit: (updated: LinearElement) => void;
+}
+
+function LinearEditOverlay({ element, zoom, onChange, onCommit }: LinearEditOverlayProps) {
+  const HANDLE = 8 / zoom; // constant 8 screen-px
+
+  const recompute = (newAbsPoints: Array<{ x: number; y: number }>): LinearElement => {
+    const minX = Math.min(...newAbsPoints.map((p) => p.x));
+    const minY = Math.min(...newAbsPoints.map((p) => p.y));
+    const maxX = Math.max(...newAbsPoints.map((p) => p.x));
+    const maxY = Math.max(...newAbsPoints.map((p) => p.y));
+    return {
+      ...element,
+      x: minX, y: minY,
+      w: Math.max(2, maxX - minX),
+      h: Math.max(2, maxY - minY),
+      points: newAbsPoints.map((p) => ({ x: p.x - minX, y: p.y - minY })),
+    };
+  };
+
+  return (
+    <>
+      {element.points.map((pt, i) => {
+        const absX = element.x + pt.x;
+        const absY = element.y + pt.y;
+        return (
+          <div
+            key={i}
+            data-role="resize-handle"
+            style={{
+              position: "absolute",
+              left: absX - HANDLE / 2,
+              top:  absY - HANDLE / 2,
+              width:  HANDLE,
+              height: HANDLE,
+              borderRadius: "50%",
+              backgroundColor: "#1971c2",
+              border: `${1.5 / zoom}px solid white`,
+              cursor: "move",
+              pointerEvents: "all",
+              zIndex: 99997,
+              boxSizing: "border-box",
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const startMX = e.clientX;
+              const startMY = e.clientY;
+
+              const onMove = (ev: MouseEvent) => {
+                const dx = (ev.clientX - startMX) / zoom;
+                const dy = (ev.clientY - startMY) / zoom;
+                const absPoints = element.points.map((p, j) =>
+                  j === i ? { x: element.x + p.x + dx, y: element.y + p.y + dy } : { x: element.x + p.x, y: element.y + p.y }
+                );
+                onChange(recompute(absPoints));
+              };
+
+              const onUp = (ev: MouseEvent) => {
+                const dx = (ev.clientX - startMX) / zoom;
+                const dy = (ev.clientY - startMY) / zoom;
+                const absPoints = element.points.map((p, j) =>
+                  j === i ? { x: element.x + p.x + dx, y: element.y + p.y + dy } : { x: element.x + p.x, y: element.y + p.y }
+                );
+                onCommit(recompute(absPoints));
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+              };
+
+              document.addEventListener("mousemove", onMove);
+              document.addEventListener("mouseup", onUp);
+            }}
+          />
+        );
+      })}
+    </>
+  );
 }
 
 // ── Group/Selection Resize Overlay ──────────────────────────────────────────

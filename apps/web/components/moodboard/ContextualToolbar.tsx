@@ -7,6 +7,8 @@ import type {
   TextElement,
   ColorElement,
   StickyElement,
+  ShapeElement,
+  LinearElement,
 } from "@/lib/moodboard/types";
 
 interface Patch {
@@ -590,6 +592,144 @@ export function ContextualToolbar({
                 label="A"
               />
               <Sep />
+            </>
+          )}
+
+          {/* Shape */}
+          {single.type === "shape" && (
+            <>
+              <ColorSwatch
+                value={(single as ShapeElement).fillColor === "transparent" ? "#000000" : (single as ShapeElement).fillColor}
+                onChange={(v) => upd(single.id, { fillColor: v })}
+                title="Couleur de remplissage"
+                label="F"
+              />
+              <button
+                title="Pas de remplissage"
+                onClick={() => upd(single.id, { fillColor: "transparent" })}
+                className={`rounded text-[10px] px-1 h-[22px] flex-shrink-0 transition-colors ${
+                  (single as ShapeElement).fillColor === "transparent"
+                    ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                }`}
+              >
+                ∅
+              </button>
+              <ColorSwatch
+                value={(single as ShapeElement).strokeColor}
+                onChange={(v) => upd(single.id, { strokeColor: v })}
+                title="Couleur de bordure"
+                label="S"
+              />
+              <input
+                type="number"
+                value={(single as ShapeElement).strokeWidth}
+                min={0}
+                max={40}
+                onChange={(e) => upd(single.id, { strokeWidth: Math.max(0, Number(e.target.value)) })}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="w-9 bg-transparent text-[11px] text-[var(--text-primary)] text-center outline-none border border-[var(--border-subtle)] rounded h-[22px] mx-0.5"
+                title="Épaisseur de bordure"
+              />
+              {(["solid", "dashed", "dotted"] as const).map((s) => (
+                <button
+                  key={s}
+                  title={s}
+                  onClick={() => upd(single.id, { strokeStyle: s })}
+                  className={`rounded px-1.5 h-[22px] flex-shrink-0 text-[10px] transition-colors ${
+                    (single as ShapeElement).strokeStyle === s
+                      ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                  }`}
+                >
+                  {s === "solid" ? "—" : s === "dashed" ? "╌" : "·····"}
+                </button>
+              ))}
+              {(single as ShapeElement).shape === "rectangle" && (
+                <input
+                  type="number"
+                  value={(single as ShapeElement).cornerRadius ?? 0}
+                  min={0}
+                  max={200}
+                  onChange={(e) => upd(single.id, { cornerRadius: Math.max(0, Number(e.target.value)) })}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="w-9 bg-transparent text-[11px] text-[var(--text-primary)] text-center outline-none border border-[var(--border-subtle)] rounded h-[22px] mx-0.5"
+                  title="Rayon des coins"
+                />
+              )}
+              <Sep />
+            </>
+          )}
+
+          {/* Linear (line / arrow) */}
+          {single.type === "linear" && (
+            <>
+              <ColorSwatch
+                value={(single as LinearElement).strokeColor}
+                onChange={(v) => upd(single.id, { strokeColor: v })}
+                title="Couleur du trait"
+              />
+              <input
+                type="number"
+                value={(single as LinearElement).strokeWidth}
+                min={1}
+                max={40}
+                onChange={(e) => upd(single.id, { strokeWidth: Math.max(1, Number(e.target.value)) })}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="w-9 bg-transparent text-[11px] text-[var(--text-primary)] text-center outline-none border border-[var(--border-subtle)] rounded h-[22px] mx-0.5"
+                title="Épaisseur"
+              />
+              {(["solid", "dashed", "dotted"] as const).map((s) => (
+                <button
+                  key={s}
+                  title={s}
+                  onClick={() => upd(single.id, { strokeStyle: s })}
+                  className={`rounded px-1.5 h-[22px] flex-shrink-0 text-[10px] transition-colors ${
+                    (single as LinearElement).strokeStyle === s
+                      ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                  }`}
+                >
+                  {s === "solid" ? "—" : s === "dashed" ? "╌" : "·····"}
+                </button>
+              ))}
+              <Sep />
+              {/* Arrowhead toggles */}
+              {(single as LinearElement).subtype === "arrow" && (
+                <>
+                  <button
+                    title="Pointe de départ"
+                    onClick={() =>
+                      upd(single.id, {
+                        startArrowhead: (single as LinearElement).startArrowhead === "none" ? "arrow" : "none",
+                      })
+                    }
+                    className={`rounded px-1.5 h-[22px] flex-shrink-0 text-[11px] transition-colors ${
+                      (single as LinearElement).startArrowhead !== "none"
+                        ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                    }`}
+                  >
+                    ←
+                  </button>
+                  <button
+                    title="Pointe de fin"
+                    onClick={() =>
+                      upd(single.id, {
+                        endArrowhead: (single as LinearElement).endArrowhead === "none" ? "arrow" : "none",
+                      })
+                    }
+                    className={`rounded px-1.5 h-[22px] flex-shrink-0 text-[11px] transition-colors ${
+                      (single as LinearElement).endArrowhead !== "none"
+                        ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
+                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                    }`}
+                  >
+                    →
+                  </button>
+                  <Sep />
+                </>
+              )}
             </>
           )}
 

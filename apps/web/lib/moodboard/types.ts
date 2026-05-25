@@ -83,7 +83,41 @@ export type StrokeElement = CanvasElementBase & {
   originH: number;
 };
 
-export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement | StrokeElement;
+/** A geometric shape drawn on the canvas (rectangle, ellipse, diamond). */
+export type ShapeElement = CanvasElementBase & {
+  type: "shape";
+  shape: "rectangle" | "ellipse" | "diamond";
+  fillColor: string;       // "transparent" = no fill
+  strokeColor: string;
+  strokeWidth: number;     // px in canvas units
+  strokeStyle: "solid" | "dashed" | "dotted";
+  cornerRadius?: number;   // for rectangles only
+  label?: string;          // optional text inside the shape
+  fontSize?: number;
+  labelColor?: string;
+};
+
+export type LinearPoint = { x: number; y: number };
+
+/**
+ * A line or arrow drawn on the canvas.
+ * Points are stored in canvas units, relative to (element.x, element.y).
+ * element.x/y is the top-left of the bounding box of all points.
+ * element.w/h is the size of that bounding box.
+ */
+export type LinearElement = CanvasElementBase & {
+  type: "linear";
+  subtype: "line" | "arrow";
+  /** Relative to (element.x, element.y) */
+  points: LinearPoint[];
+  strokeColor: string;
+  strokeWidth: number;
+  strokeStyle: "solid" | "dashed" | "dotted";
+  startArrowhead: "none" | "arrow" | "bar";
+  endArrowhead: "none" | "arrow" | "bar";
+};
+
+export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement | StrokeElement | ShapeElement | LinearElement;
 
 export interface MoodboardData {
   id: string;
