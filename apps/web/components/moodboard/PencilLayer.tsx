@@ -55,6 +55,8 @@ interface Props {
   onStrokeAdd: (stroke: Stroke) => void;
   /** Called continuously while eraser moves over the canvas */
   onEraseAt: (canvasX: number, canvasY: number, radius: number) => void;
+  /** Called once when the erasing gesture ends (pencil lift) — use to push history */
+  onEraseEnd?: () => void;
   /**
    * Called when the Apple Pencil Pro barrel button / squeeze is detected.
    * Use this to toggle between the active tool and the eraser.
@@ -169,6 +171,7 @@ export function PencilLayer({
   strokeElements,
   onStrokeAdd,
   onEraseAt,
+  onEraseEnd,
   onToggleEraser,
   viewportRef,
 }: Props) {
@@ -185,6 +188,7 @@ export function PencilLayer({
   const strokeElementsRef = useRef(strokeElements);
   const activeRef         = useRef(active);
   const onToggleEraserRef = useRef(onToggleEraser);
+  const onEraseEndRef     = useRef(onEraseEnd);
 
   useEffect(() => { panRef.current              = pan;            }, [pan]);
   useEffect(() => { zoomRef.current             = zoom;           }, [zoom]);
@@ -194,6 +198,7 @@ export function PencilLayer({
   useEffect(() => { strokeElementsRef.current   = strokeElements; }, [strokeElements]);
   useEffect(() => { activeRef.current           = active;         }, [active]);
   useEffect(() => { onToggleEraserRef.current   = onToggleEraser; }, [onToggleEraser]);
+  useEffect(() => { onEraseEndRef.current       = onEraseEnd;     }, [onEraseEnd]);
 
   const currentStroke    = useRef<Stroke | null>(null);
   const rafId            = useRef<number | null>(null);   // live canvas rAF
@@ -521,6 +526,9 @@ export function PencilLayer({
         // so the first post-commit redraw costs O(1) draw calls, not O(N_points).
         strokeCacheRef.current.set(stroke.id, buildCachedStroke(stroke));
         onStrokeAdd(stroke);
+      } else if (toolRef.current === "eraser") {
+        // Eraser gesture ended — signal parent to push one history entry
+        onEraseEndRef.current?.();
       }
     };
 

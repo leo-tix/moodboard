@@ -25,7 +25,7 @@ import { PencilLayer, type Stroke, type PencilTool, type StrokeElement } from "@
 import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
 import { AI_IMPORT_KEY } from "@/components/settings/GeneralSettings";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
-import { strokeToElement } from "@/lib/moodboard/pencil";
+import { strokeToElement, eraseStroke } from "@/lib/moodboard/pencil";
 
 interface Props {
   initialData: MoodboardData;
@@ -1502,37 +1502,46 @@ export function MoodboardEditor({ initialData }: Props) {
   }, [updateElements]);
 
   /**
-   * Eraser: remove any StrokeElement whose path passes within `radius` of (cx, cy).
+   * Eraser: partially erase any StrokeElement whose path passes within `radius` of (cx, cy).
+   * Splits intersected strokes into sub-strokes around the erased region.
    * Non-stroke elements are never affected by the pencil eraser.
-   * Uses setElements directly to avoid creating a history entry on every move;
-   * each distinct stroke deletion does push history (via inline logic).
+   * History is NOT pushed here — call handleEraseEnd on pencil lift to commit one entry.
    */
   const handleEraseAt = useCallback((cx: number, cy: number, radius: number) => {
     setElements((prev) => {
-      const next = prev.filter((el) => {
-        if (el.type !== "stroke") return true;
+      let changed = false;
+      const next: CanvasElement[] = [];
+      for (const el of prev) {
+        if (el.type !== "stroke") { next.push(el); continue; }
         const { points } = el.stroke;
-        if (points.length === 0) return false;
-        if (points.length === 1) {
-          return Math.hypot(cx - points[0].x, cy - points[0].y) > radius;
+        // Quick intersection check before running the full split
+        const intersects = points.some((p, i) => {
+          if (Math.hypot(p.x - cx, p.y - cy) <= radius) return true;
+          if (i > 0) {
+            return distPointToSegment(cx, cy, points[i - 1].x, points[i - 1].y, p.x, p.y) <= radius;
+          }
+          return false;
+        });
+        if (!intersects) { next.push(el); continue; }
+        changed = true;
+        const subStrokes = eraseStroke(el.stroke, cx, cy, radius);
+        for (const sub of subStrokes) {
+          next.push(strokeToElement(sub, ++nextZRef.current));
         }
-        for (let i = 1; i < points.length; i++) {
-          const d = distPointToSegment(cx, cy, points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
-          if (d <= radius) return false;
-        }
-        return true;
-      });
-      if (next.length !== prev.length) {
-        // A stroke was erased — push to history and schedule save
-        scheduleSave({ canvasData: next });
-        setSaved(false);
-        pushHistory(next);
       }
+      if (!changed) return prev;
+      scheduleSave({ canvasData: next });
+      setSaved(false);
       return next;
     });
   // distPointToSegment is stable (declared in same scope)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduleSave, pushHistory]);
+  }, [scheduleSave]);
+
+  /** Push one history entry after an erasing gesture ends (called on pencil lift). */
+  const handleEraseEnd = useCallback(() => {
+    pushHistory(elementsRef.current);
+  }, [pushHistory]);
 
   /** Pencil undo = regular canvas undo (strokes are canvas elements). */
   const handlePencilUndo = useCallback(() => undo(), [undo]);
@@ -2175,6 +2184,7 @@ export function MoodboardEditor({ initialData }: Props) {
             strokeElements={elements.filter((el) => el.type === "stroke") as StrokeElement[]}
             onStrokeAdd={handleStrokeAdd}
             onEraseAt={handleEraseAt}
+            onEraseEnd={handleEraseEnd}
             onToggleEraser={handleToggleEraser}
             viewportRef={viewportRef}
           />

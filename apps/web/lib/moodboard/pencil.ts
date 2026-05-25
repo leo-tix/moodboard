@@ -23,23 +23,8 @@
 import getStroke from "perfect-freehand";
 import type { Stroke, StrokePoint, StrokeElement } from "./types";
 
-// ── Marker smoothing helper (commit-time only) ────────────────────────────────
-
-/** Multi-pass 3-point moving-average — used by the marker path only. */
-function smoothPositions(points: StrokePoint[], passes = 3): StrokePoint[] {
-  let pts = [...points];
-  for (let p = 0; p < passes; p++) {
-    if (pts.length < 3) break;
-    pts = pts.map((pt, i) => {
-      if (i === 0 || i === pts.length - 1) return pt;
-      return {
-        ...pt,
-        x: (pts[i - 1].x + pt.x + pts[i + 1].x) / 3,
-        y: (pts[i - 1].y + pt.y + pts[i + 1].y) / 3,
-      };
-    });
-  }
-  return pts;
+function makeId() {
+  return Math.random().toString(36).slice(2, 9);
 }
 
 // ── Pen: perfect-freehand outline ────────────────────────────────────────────
@@ -75,28 +60,39 @@ function buildPenPath(points: StrokePoint[], width: number, last: boolean): Path
   return path;
 }
 
-// ── Marker: single bezier Path2D ─────────────────────────────────────────────
+// ── Marker: perfect-freehand outline (constant width, no thinning) ───────────
 
-function buildMarkerPath(smooth: StrokePoint[], width: number): { path: Path2D; lineWidth: number } {
+function buildMarkerPath(points: StrokePoint[], width: number, last: boolean): Path2D {
   const path = new Path2D();
+  if (points.length === 0) return path;
 
-  if (smooth.length === 1) {
-    path.arc(smooth[0].x, smooth[0].y, width * 2.5, 0, Math.PI * 2);
-    return { path, lineWidth: width * 5 };
+  if (points.length === 1) {
+    const tilt      = points[0].tiltX ?? 0;
+    const tiltScale = 1 + Math.abs(tilt) / 90;
+    path.arc(points[0].x, points[0].y, width * 2.5 * tiltScale, 0, Math.PI * 2);
+    return path;
   }
 
-  const tilt      = smooth[0]?.tiltX ?? 0;
+  const tilt      = points[0]?.tiltX ?? 0;
   const tiltScale = 1 + Math.abs(tilt) / 90;
 
-  path.moveTo(smooth[0].x, smooth[0].y);
-  for (let i = 1; i < smooth.length - 1; i++) {
-    const mx = (smooth[i].x + smooth[i + 1].x) / 2;
-    const my = (smooth[i].y + smooth[i + 1].y) / 2;
-    path.quadraticCurveTo(smooth[i].x, smooth[i].y, mx, my);
-  }
-  path.lineTo(smooth[smooth.length - 1].x, smooth[smooth.length - 1].y);
+  const outline = getStroke(
+    points.map((p) => [p.x, p.y, p.pressure] as [number, number, number]),
+    {
+      size:             width * 5 * tiltScale,
+      thinning:         0,     // constant width — marker doesn't vary with pressure
+      smoothing:        0.5,
+      streamline:       0.5,
+      simulatePressure: false,
+      last,
+    },
+  );
 
-  return { path, lineWidth: width * 5 * tiltScale };
+  if (outline.length < 2) return path;
+  path.moveTo(outline[0][0], outline[0][1]);
+  for (let i = 1; i < outline.length; i++) path.lineTo(outline[i][0], outline[i][1]);
+  path.closePath();
+  return path;
 }
 
 // ── Public cache types ────────────────────────────────────────────────────────
@@ -106,13 +102,12 @@ function buildMarkerPath(smooth: StrokePoint[], width: number): { path: Path2D; 
  * Built once at commit time; reused on every subsequent canvas redraw.
  */
 export interface CachedStroke {
-  /** Filled polygon outline for pen strokes (null for marker) */
+  /** Filled polygon outline for pen and marker strokes (null for eraser/empty) */
   fillPath:   Path2D | null;
-  /** Stroked bezier path for marker strokes (null for pen) */
+  /** Reserved for future stroke-based tools; currently always null */
   strokePath: Path2D | null;
   strokeStyle: string;
   globalAlpha: number;
-  /** Line width for the marker stroke() call */
   lineWidth: number;
 }
 
@@ -136,14 +131,12 @@ export function buildCachedStroke(stroke: Stroke): CachedStroke {
   }
 
   if (tool === "marker" && points.length > 0) {
-    const smooth              = smoothPositions(points, 3);
-    const { path, lineWidth } = buildMarkerPath(smooth, width);
     return {
-      fillPath:    null,
-      strokePath:  path,
+      fillPath:    buildMarkerPath(points, width, true),
+      strokePath:  null,
       strokeStyle: color,
       globalAlpha: 0.38,
-      lineWidth,
+      lineWidth:   0,
     };
   }
 
@@ -208,21 +201,8 @@ export function drawStrokeLive(ctx: CanvasRenderingContext2D, stroke: Stroke): v
     // Live preview: last=false keeps end open (no premature taper while drawing)
     ctx.fill(buildPenPath(points, width, false));
   } else {
-    // Marker: width matches committed result exactly
-    const tilt      = points[0]?.tiltX ?? 0;
-    const tiltScale = 1 + Math.abs(tilt) / 90;
-    ctx.lineWidth = width * 5 * tiltScale;
-    ctx.lineCap   = "round";
-    ctx.lineJoin  = "round";
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length - 1; i++) {
-      const mx = (points[i].x + points[i + 1].x) / 2;
-      const my = (points[i].y + points[i + 1].y) / 2;
-      ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-    }
-    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-    ctx.stroke();
+    // Marker: same perfect-freehand pipeline as committed, last=false for open end
+    ctx.fill(buildMarkerPath(points, width, false));
   }
 
   ctx.restore();
@@ -429,6 +409,46 @@ export function detectShape(stroke: Stroke): SnappedShape | null {
   }
 
   return null;
+}
+
+// ── Partial erase ─────────────────────────────────────────────────────────────
+
+/**
+ * Erase the portion of a stroke that falls within `radius` of (cx, cy).
+ * Returns sub-strokes (0 or more) representing the surviving parts.
+ * Each sub-stroke needs ≥ 2 points to be renderable.
+ */
+export function eraseStroke(stroke: Stroke, cx: number, cy: number, radius: number): Stroke[] {
+  const { points } = stroke;
+  if (points.length === 0) return [];
+
+  // Mark points to erase: point within radius, OR on a segment intersecting the circle
+  const erased = new Array<boolean>(points.length).fill(false);
+  for (let i = 0; i < points.length; i++) {
+    if (Math.hypot(points[i].x - cx, points[i].y - cy) <= radius) erased[i] = true;
+  }
+  for (let i = 1; i < points.length; i++) {
+    if (ptToSegDist(cx, cy, points[i - 1].x, points[i - 1].y, points[i].x, points[i].y) <= radius) {
+      erased[i - 1] = true;
+      erased[i]     = true;
+    }
+  }
+
+  if (!erased.some(Boolean)) return [stroke]; // nothing erased
+  if (erased.every(Boolean)) return [];        // fully erased
+
+  // Split into contiguous groups of surviving points
+  const subStrokes: Stroke[] = [];
+  let i = 0;
+  while (i < points.length) {
+    if (erased[i]) { i++; continue; }
+    const subPoints: StrokePoint[] = [];
+    while (i < points.length && !erased[i]) { subPoints.push(points[i]); i++; }
+    if (subPoints.length >= 2) {
+      subStrokes.push({ ...stroke, id: makeId(), points: subPoints });
+    }
+  }
+  return subStrokes;
 }
 
 // ── StrokeElement helpers ─────────────────────────────────────────────────────
