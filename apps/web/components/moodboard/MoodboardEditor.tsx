@@ -21,7 +21,7 @@ import type {
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
 import { SharePanel } from "@/components/moodboard/SharePanel";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
-import { PencilLayer, type Stroke, type PencilTool, type StrokeElement } from "@/components/moodboard/PencilLayer";
+import { PencilLayer, type Stroke, type PencilTool, type StrokeElement, type PencilLayerHandle } from "@/components/moodboard/PencilLayer";
 import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
 import { AI_IMPORT_KEY } from "@/components/settings/GeneralSettings";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
@@ -74,8 +74,11 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Canvas state ──
   const [elements, setElements] = useState<CanvasElement[]>(initialData.canvasData);
-  const [pan, setPan] = useState({ x: 80, y: 60 });
-  const [zoom, setZoom] = useState(1);
+  // pan and zoom are now refs-only — no React state.
+  // displayZoom is only for the toolbar % display (updated at zoom settle).
+  // rndScale is for react-rnd's scale prop (updated at zoom settle).
+  const [displayZoom, setDisplayZoom] = useState(1);
+  const [rndScale, setRndScale] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [shiftHeld, setShiftHeld] = useState(false);
@@ -128,8 +131,12 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
-  const panRef = useRef(pan);
-  const zoomRef = useRef(zoom);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  const pencilLayerRef   = useRef<PencilLayerHandle | null>(null);
+  const visMapRef        = useRef<Record<string, boolean>>({});
+  const [visMap, setVisMap] = useState<Record<string, boolean>>({});
+  const panRef = useRef({ x: 80, y: 60 });
+  const zoomRef = useRef(1);
   const selectedIdsRef = useRef(selectedIds);
   const elementsRef = useRef(elements);
   const snapEnabledRef = useRef(snapEnabled);
@@ -172,8 +179,8 @@ export function MoodboardEditor({ initialData }: Props) {
   // zoomTargetRef / panTargetRef hold the *desired* state.
   // A requestAnimationFrame loop lerps the visual state toward the target each frame,
   // giving buttery smooth zoom on mouse wheel and trackpad pinch.
-  const zoomTargetRef  = useRef(zoom);
-  const panTargetRef   = useRef<{ x: number; y: number }>(pan);
+  const zoomTargetRef  = useRef(1);
+  const panTargetRef   = useRef<{ x: number; y: number }>({ x: 80, y: 60 });
   const zoomRafRef     = useRef<number | null>(null);
   // Throttle direct pan state updates (trackpad wheel) to rAF frequency.
   // panRef is updated immediately so the canvas always has the freshest value;
@@ -181,9 +188,10 @@ export function MoodboardEditor({ initialData }: Props) {
   // instead of at the wheel-event rate (120 Hz+ on modern trackpads).
   const panFlushRafRef = useRef<number | null>(null);
   // Holds the step function; re-assigned every render so the closure always
-  // captures the latest React state setters (setZoom / setPan are stable, but
-  // the pattern lets us avoid stale-closure pitfalls in the rAF loop).
+  // captures the latest React state setters — stale-closure safe ref wrapper pattern.
   const zoomStepFnRef = useRef<() => void>(() => {});
+  // Ref wrapper for applyViewTransform — lets zoomStepFnRef call it before it's defined.
+  const applyViewTransformRef = useRef<(px: number, py: number, z: number) => void>(() => {});
 
   // ── History ──
   const historyRef = useRef<CanvasElement[][]>([
@@ -210,14 +218,15 @@ export function MoodboardEditor({ initialData }: Props) {
     const fpy = done ? tp.y : npy;
     zoomRef.current = fz;
     panRef.current  = { x: fpx, y: fpy };
-    setZoom(fz);
-    setPan({ x: fpx, y: fpy });
+    applyViewTransformRef.current(fpx, fpy, fz);
+    if (done) {
+      setDisplayZoom(fz);
+      setRndScale(fz);
+    }
     zoomRafRef.current = done ? null : requestAnimationFrame(() => zoomStepFnRef.current());
   };
 
   // Sync refs
-  useEffect(() => { panRef.current = pan; }, [pan]);
-  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { elementsRef.current = elements; }, [elements]);
   useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
@@ -678,17 +687,18 @@ export function MoodboardEditor({ initialData }: Props) {
           panRef.current        = { x: newPanX, y: newPanY };
           zoomTargetRef.current = newZoom;
           panTargetRef.current  = { x: newPanX, y: newPanY };
-          setZoom(newZoom);
-          setPan({ x: newPanX, y: newPanY });
+          applyViewTransformRef.current(newPanX, newPanY, newZoom);
+          setDisplayZoom(newZoom);
+          setRndScale(newZoom);
         } else if (e.touches.length === 1 && touchPanRef.current) {
           const touch = e.touches[0];
           const p  = touchPanRef.current;
           const dx = touch.clientX - p.startX;
           const dy = touch.clientY - p.startY;
           const np = { x: p.originX + dx, y: p.originY + dy };
-          setPan(np);
           panRef.current       = np;
           panTargetRef.current = np;
+          applyViewTransformRef.current(np.x, np.y, zoomRef.current);
         }
         return;
       }
@@ -713,8 +723,9 @@ export function MoodboardEditor({ initialData }: Props) {
         panRef.current       = { x: newPanX, y: newPanY };
         zoomTargetRef.current = newZoom;
         panTargetRef.current  = { x: newPanX, y: newPanY };
-        setZoom(newZoom);
-        setPan({ x: newPanX, y: newPanY });
+        applyViewTransformRef.current(newPanX, newPanY, newZoom);
+        setDisplayZoom(newZoom);
+        setRndScale(newZoom);
         return;
       }
 
@@ -749,9 +760,9 @@ export function MoodboardEditor({ initialData }: Props) {
             e.preventDefault();
             touchDidPanRef.current = true;
             const np = { x: p.originX + dx, y: p.originY + dy };
-            setPan(np);
             panRef.current       = np;
             panTargetRef.current  = np;
+            applyViewTransformRef.current(np.x, np.y, zoomRef.current);
           }
         }
 
@@ -895,22 +906,14 @@ export function MoodboardEditor({ initialData }: Props) {
         panTargetRef.current  = { x: px - canvasX * newTarget, y: py - canvasY * newTarget };
         kickZoomAnimation();
       } else {
-        // Pan — no lerp (must feel instant), but throttle React state to rAF frequency.
-        // panRef is updated immediately so PencilLayer and the canvas always have the
-        // freshest value; setPan is deferred to avoid re-rendering the whole editor
-        // faster than the display can refresh (trackpad fires 120 Hz+ on modern Macs).
+        // Pan — no lerp (must feel instant). Apply imperatively — no React state update.
         const np = {
           x: panRef.current.x - e.deltaX,
           y: panRef.current.y - e.deltaY,
         };
         panTargetRef.current = np;
         panRef.current = np;
-        if (panFlushRafRef.current === null) {
-          panFlushRafRef.current = requestAnimationFrame(() => {
-            panFlushRafRef.current = null;
-            setPan({ ...panRef.current });
-          });
-        }
+        applyViewTransformRef.current(np.x, np.y, zoomRef.current);
       }
     };
 
@@ -1170,11 +1173,11 @@ export function MoodboardEditor({ initialData }: Props) {
           x: panOrigin.current.x + (ev.clientX - panStart.current.x),
           y: panOrigin.current.y + (ev.clientY - panStart.current.y),
         };
-        setPan(np);
         panRef.current = np;
         // Keep the smooth-zoom rAF target in sync — without this, any running
         // zoom animation would fight the manual pan and snap back to the old target.
         panTargetRef.current = np;
+        applyViewTransformRef.current(np.x, np.y, zoomRef.current);
       };
       const onUp = () => {
         isPanningRef.current = false;
@@ -1906,30 +1909,70 @@ export function MoodboardEditor({ initialData }: Props) {
   };
 
   // ── Toolbar position (viewport-relative coords, clamped to viewport bounds) ──
-  const toolbarPos = useMemo(() => {
-    if (selectedIds.length === 0) return null;
-    const selected = elements.filter((el) => selectedIds.includes(el.id));
+  // Reads from refs only — stable callback, no re-render needed.
+  const getToolbarPosition = useCallback((): { x: number; y: number } | null => {
+    const ids = selectedIdsRef.current;
+    if (ids.length === 0) return null;
+    const selected = elementsRef.current.filter((el) => ids.includes(el.id));
     if (selected.length === 0) return null;
     const minX = Math.min(...selected.map((el) => el.x));
     const minY = Math.min(...selected.map((el) => el.y));
     const maxX = Math.max(...selected.map((el) => el.x + el.w));
-    const rawX = ((minX + maxX) / 2) * zoom + pan.x;
-    const rawY = minY * zoom + pan.y;
-    // Clamp X so the toolbar (centered at rawX, ~280px wide) stays inside the viewport.
-    // We don't know the exact toolbar width at this point, so use a conservative margin.
+    const rawX = ((minX + maxX) / 2) * zoomRef.current + panRef.current.x;
+    const rawY = minY * zoomRef.current + panRef.current.y;
     const vpW = viewportRef.current?.getBoundingClientRect().width ?? 0;
-    const margin = 160; // half of max toolbar width
+    const margin = 160;
     const clampedX = vpW > 0 ? Math.min(Math.max(rawX, margin), vpW - margin) : rawX;
     return { x: clampedX, y: rawY };
-  }, [selectedIds, elements, zoom, pan]);
+  }, []); // stable — reads from refs only
+
+  // ── Imperative view transform ────────────────────────────────────────────────
+  // Applied on every pan/zoom frame without touching React state.
+  const applyViewTransform = useCallback((px: number, py: number, z: number) => {
+    // 1. Canvas wrapper
+    if (canvasWrapperRef.current) {
+      canvasWrapperRef.current.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
+    }
+    // 2. Grid background (backgroundSize + backgroundPosition only; other props stay in JSX)
+    const gridSize = GRID_PX * z;
+    const vp = viewportRef.current;
+    if (vp) {
+      vp.style.backgroundSize     = `${gridSize}px ${gridSize}px`;
+      vp.style.backgroundPosition = `${px % gridSize}px ${py % gridSize}px`;
+    }
+    // 3. PencilLayer canvas transform
+    pencilLayerRef.current?.notifyPanZoom({ x: px, y: py }, z);
+    // 4. Visibility map — only setState when a value actually flips
+    if (vp) {
+      const vpW = vp.clientWidth;
+      const vpH = vp.clientHeight;
+      const PAD = 120;
+      const newMap: Record<string, boolean> = {};
+      let changed = false;
+      for (const el of elementsRef.current) {
+        if (el.type !== "image") { newMap[el.id] = true; continue; }
+        const sx  = px + el.x * z;
+        const sy  = py + el.y * z;
+        const vis = sx + el.w * z > -PAD && sx < vpW + PAD && sy + el.h * z > -PAD && sy < vpH + PAD;
+        newMap[el.id] = vis;
+        if (visMapRef.current[el.id] !== vis) changed = true;
+      }
+      if (changed) { visMapRef.current = newMap; setVisMap({ ...newMap }); }
+    }
+  }, [getToolbarPosition]);
+
+  // Keep the ref in sync so zoomStepFnRef can always call the latest version.
+  applyViewTransformRef.current = applyViewTransform;
+
+  // ── Initial transform on mount ──
+  useEffect(() => {
+    applyViewTransform(panRef.current.x, panRef.current.y, zoomRef.current);
+  }, [applyViewTransform]);
 
   // ── Dot grid background ──
-  const gridSize = GRID_PX * zoom;
   const gridStyle: React.CSSProperties = {
     backgroundColor: background,
     backgroundImage: `radial-gradient(circle, rgba(128,128,148,0.22) 1px, transparent 1px)`,
-    backgroundSize: `${gridSize}px ${gridSize}px`,
-    backgroundPosition: `${pan.x % gridSize}px ${pan.y % gridSize}px`,
     // Default canvas cursor: custom crosshair SVG (hides OS cursor on empty canvas).
     // Canvas elements override this with their own cursor (react-rnd sets cursor:move).
     cursor: cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
@@ -2108,13 +2151,13 @@ export function MoodboardEditor({ initialData }: Props) {
           onDrop={handleDrop}
           onDragLeave={handleDragLeave}
         >
-          {/* Canvas world (transformed) */}
+          {/* Canvas world (transformed imperatively via canvasWrapperRef) */}
           <div
+            ref={canvasWrapperRef}
             style={{
               position: "absolute",
               top: 0,
               left: 0,
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: "0 0",
               width: 0,
               height: 0,
@@ -2141,55 +2184,38 @@ export function MoodboardEditor({ initialData }: Props) {
                   outlineOffset: "0px",
                 }}
               >
-                <ElementContent element={el} selected={false} onChange={() => {}} zoom={zoom} isVisible />
+                <ElementContent element={el} selected={false} onChange={() => {}} zoom={rndScale} isVisible />
               </div>
             ))}
 
-            {(() => {
-              // Viewport bounds for image offscreen culling — read once per render.
-              const vpW = viewportRef.current?.clientWidth  ?? 1920;
-              const vpH = viewportRef.current?.clientHeight ?? 1080;
-              const IMG_PAD = 120; // px — avoids pop-in when panning near the edge
-              return elements.map((el) => {
-                // Only cull images — other elements are cheap and stateful (text editor, etc.)
-                const isVisible = el.type !== "image" || (() => {
-                  const sx = pan.x + el.x * zoom;
-                  const sy = pan.y + el.y * zoom;
-                  return (
-                    sx + el.w * zoom > -IMG_PAD && sx < vpW + IMG_PAD &&
-                    sy + el.h * zoom > -IMG_PAD && sy < vpH + IMG_PAD
-                  );
-                })();
-                return (
-                  <CanvasItem
-                    key={el.id}
-                    element={el}
-                    selected={selectedIds.includes(el.id)}
-                    isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
-                    zoom={zoom}
-                    isVisible={isVisible}
-                    snapEnabled={snapEnabled}
-                    shiftHeld={shiftHeld}
-                    spaceHeld={spaceHeld}
-                    dragAxis={el.id === draggingId ? dragAxisState : "both"}
-                    forceDragDisabled={isTouchDevice && !selectedIds.includes(el.id)}
-                    isTouchDevice={isTouchDevice}
-                    onSelect={(shift) => handleSelect(el.id, shift)}
-                    onContextMenu={(cx, cy) => {
-                      const vp = viewportRef.current;
-                      if (!vp) return;
-                      const r = vp.getBoundingClientRect();
-                      setContextMenu({ x: cx - r.left, y: cy - r.top });
-                    }}
-                    onChange={handleElemChange}
-                    onDragStart={() => handleElemDragStart(el.id)}
-                    onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
-                    onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
-                    onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
-                  />
-                );
-              });
-            })()}
+            {elements.map((el) => (
+              <CanvasItem
+                key={el.id}
+                element={el}
+                selected={selectedIds.includes(el.id)}
+                isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
+                zoom={rndScale}
+                isVisible={visMap[el.id] ?? true}
+                snapEnabled={snapEnabled}
+                shiftHeld={shiftHeld}
+                spaceHeld={spaceHeld}
+                dragAxis={el.id === draggingId ? dragAxisState : "both"}
+                forceDragDisabled={isTouchDevice && !selectedIds.includes(el.id)}
+                isTouchDevice={isTouchDevice}
+                onSelect={(shift) => handleSelect(el.id, shift)}
+                onContextMenu={(cx, cy) => {
+                  const vp = viewportRef.current;
+                  if (!vp) return;
+                  const r = vp.getBoundingClientRect();
+                  setContextMenu({ x: cx - r.left, y: cy - r.top });
+                }}
+                onChange={handleElemChange}
+                onDragStart={() => handleElemDragStart(el.id)}
+                onDragMove={(x, y) => handleElemDragMove(el.id, x, y)}
+                onDragStop={(x, y) => handleElemDragStop(el.id, x, y)}
+                onResize={(x, y, w, h) => handleElemResize(el.id, x, y, w, h)}
+              />
+            ))}
           </div>
 
           {/* Rubber band selection rect */}
@@ -2209,9 +2235,8 @@ export function MoodboardEditor({ initialData }: Props) {
 
           {/* Apple Pencil drawing layer — always mounted so canvas state persists */}
           <PencilLayer
+            ref={pencilLayerRef}
             active={drawingMode}
-            pan={pan}
-            zoom={zoom}
             tool={pencilTool}
             color={pencilColor}
             width={pencilSize}
@@ -2308,26 +2333,30 @@ export function MoodboardEditor({ initialData }: Props) {
           {selectedIds.length > 0 && (selectedIds.length > 1 || isTouchDevice) && (
             <GroupResizeOverlay
               selectedElements={elements.filter((el) => selectedIds.includes(el.id))}
-              pan={pan}
-              zoom={zoom}
+              pan={panRef.current}
+              zoom={rndScale}
               isTouchDevice={isTouchDevice}
               onUpdate={handleGroupResizeUpdate}
               onCommit={handleGroupResizeCommit}
             />
           )}
 
-          {/* Contextual toolbar */}
-          {toolbarPos && (
-            <ContextualToolbar
-              elements={elements}
-              selectedIds={selectedIds}
-              onUpdateMany={handleUpdateMany}
-              onDeleteSelected={deleteSelected}
-              posX={toolbarPos.x}
-              posY={toolbarPos.y}
-              isTouchDevice={isTouchDevice}
-            />
-          )}
+          {/* Contextual toolbar — positioned via getToolbarPosition() which reads from refs */}
+          {selectedIds.length > 0 && (() => {
+            const pos = getToolbarPosition();
+            if (!pos) return null;
+            return (
+              <ContextualToolbar
+                elements={elements}
+                selectedIds={selectedIds}
+                onUpdateMany={handleUpdateMany}
+                onDeleteSelected={deleteSelected}
+                posX={pos.x}
+                posY={pos.y}
+                isTouchDevice={isTouchDevice}
+              />
+            );
+          })()}
 
           {/* Keyboard shortcuts panel — hidden on touch (no physical keyboard) */}
           {!isTouchDevice && <KeyboardShortcutsPanel />}
@@ -2358,7 +2387,7 @@ export function MoodboardEditor({ initialData }: Props) {
               className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] w-10 text-center transition-colors"
               title="Zoom 100 %"
             >
-              {Math.round(zoom * 100)}%
+              {Math.round(displayZoom * 100)}%
             </button>
             <button
               onClick={() => {

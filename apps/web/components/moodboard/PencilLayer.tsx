@@ -27,7 +27,7 @@
  *  · Hover div        — cursor preview driven by React state (pointer pressure=0)
  */
 
-import { useRef, useEffect, useLayoutEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback, useState, forwardRef, useImperativeHandle } from "react";
 import type { PencilTool, StrokePoint, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import {
   buildCachedStroke,
@@ -40,11 +40,13 @@ import {
 // Re-export for consumers that import from this file
 export type { PencilTool, StrokePoint, Stroke, StrokeElement };
 
+export interface PencilLayerHandle {
+  notifyPanZoom: (pan: { x: number; y: number }, zoom: number) => void;
+}
+
 interface Props {
   /** Whether drawing mode is active (pen events are captured) */
   active: boolean;
-  pan: { x: number; y: number };
-  zoom: number;
   tool: PencilTool;
   color: string;
   /** Base stroke width in canvas units */
@@ -171,10 +173,8 @@ function redrawCommittedCanvas(
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function PencilLayer({
+export const PencilLayer = forwardRef<PencilLayerHandle, Props>(function PencilLayer({
   active,
-  pan,
-  zoom,
   tool,
   color,
   width,
@@ -184,14 +184,14 @@ export function PencilLayer({
   onEraseEnd,
   onToggleEraser,
   viewportRef,
-}: Props) {
+}, ref) {
   const committedRef = useRef<HTMLCanvasElement>(null);
   const liveRef      = useRef<HTMLCanvasElement>(null);
 
   // Stable refs so event handlers always see the latest values without
   // being recreated (avoids removing/re-adding listeners on every render).
-  const panRef     = useRef(pan);
-  const zoomRef    = useRef(zoom);
+  const panRef     = useRef({ x: 80, y: 60 });
+  const zoomRef    = useRef(1);
   const toolRef    = useRef(tool);
   const colorRef   = useRef(color);
   const widthRef   = useRef(width);
@@ -200,8 +200,6 @@ export function PencilLayer({
   const onToggleEraserRef = useRef(onToggleEraser);
   const onEraseEndRef     = useRef(onEraseEnd);
 
-  useEffect(() => { panRef.current              = pan;            }, [pan]);
-  useEffect(() => { zoomRef.current             = zoom;           }, [zoom]);
   useEffect(() => { toolRef.current             = tool;           }, [tool]);
   useEffect(() => { colorRef.current            = color;          }, [color]);
   useEffect(() => { widthRef.current            = width;          }, [width]);
@@ -293,84 +291,69 @@ export function PencilLayer({
   //   frame so edge exposure is at most ~10–15 px — imperceptible.
   //
   // • New stroke → immediate redraw, abort settle timer.
-  const renderedZoomRef       = useRef(zoom);
-  const renderedPanRef        = useRef({ x: pan.x, y: pan.y });
+  const renderedZoomRef       = useRef(1);
+  const renderedPanRef        = useRef({ x: 80, y: 60 });
   const zoomSettleRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevStrokeElementsRef = useRef(strokeElements);
 
+  // Helper: clear CSS transform, re-render at current pan/zoom, update refs.
+  const doFullRedraw = useCallback(() => {
+    if (committedRafRef.current !== null) cancelAnimationFrame(committedRafRef.current);
+    committedRafRef.current = requestAnimationFrame(() => {
+      committedRafRef.current = null;
+      const c = committedRef.current;
+      if (!c) return;
+      c.style.transform       = "";
+      c.style.transformOrigin = "";
+      redrawCommittedCanvas(c, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
+      renderedZoomRef.current = zoomRef.current;
+      renderedPanRef.current  = { x: panRef.current.x, y: panRef.current.y };
+    });
+  }, []);
+
+  // Stroke-only effect: fires when strokeElements changes (not on pan/zoom).
   useLayoutEffect(() => {
     const strokesChanged = strokeElements !== prevStrokeElementsRef.current;
     prevStrokeElementsRef.current = strokeElements;
-
-    // Pre-warm cache only when strokes actually changed (not on every pan/zoom frame)
     if (strokesChanged) {
       for (const el of strokeElements) {
         if (!strokeCacheRef.current.has(el.stroke.id)) {
           strokeCacheRef.current.set(el.stroke.id, buildCachedStroke(el.stroke, 0));
         }
       }
-    }
-
-    // Helper: clear CSS transform, re-render at current pan/zoom, update refs.
-    const doFullRedraw = () => {
-      if (committedRafRef.current !== null) cancelAnimationFrame(committedRafRef.current);
-      committedRafRef.current = requestAnimationFrame(() => {
-        committedRafRef.current = null;
-        const c = committedRef.current;
-        if (!c) return;
-        c.style.transform       = "";
-        c.style.transformOrigin = "";
-        redrawCommittedCanvas(c, strokeElementsRef.current, panRef.current, zoomRef.current, strokeCacheRef.current);
-        renderedZoomRef.current = zoomRef.current;
-        renderedPanRef.current  = { x: panRef.current.x, y: panRef.current.y };
-      });
-    };
-
-    if (strokesChanged) {
-      // New stroke: must appear immediately — abort any pending zoom settle.
       if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
       doFullRedraw();
-      return () => {
-        if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
-      };
     }
-
-    // Apply CSS matrix() immediately for any pan/zoom change (GPU, no redraw cost).
-    // Math: maps every pixel rendered at (z0, p0) to its new screen position at (zoom, pan).
-    //   s  = zoom / z0          (scale ratio — equals 1 for pan-only)
-    //   tx = pan.x − p0.x × s  (translation that absorbs both the new pan and the scale shift)
-    const z0 = renderedZoomRef.current;
-    const p0 = renderedPanRef.current;
-    const s  = zoom / z0;
-    const tx = pan.x - p0.x * s;
-    const ty = pan.y - p0.y * s;
-    const canvas = committedRef.current;
-    if (canvas) {
-      canvas.style.transformOrigin = "0 0";
-      canvas.style.transform = `matrix(${s},0,0,${s},${tx},${ty})`;
-    }
-
-    const zoomChanged = Math.abs(zoom - z0) > 1e-6;
-    if (zoomChanged) {
-      // Zoom: debounce 50 ms — smooth-zoom lerp fires many frames in a row.
-      if (zoomSettleRef.current) clearTimeout(zoomSettleRef.current);
-      zoomSettleRef.current = setTimeout(() => {
-        zoomSettleRef.current = null;
-        doFullRedraw();
-      }, 50);
-    } else {
-      // Pan only (s = 1): schedule full redraw on next rAF — CSS translate lasts ≤ 1 frame.
-      doFullRedraw();
-    }
-
     return () => {
-      if (zoomSettleRef.current) { clearTimeout(zoomSettleRef.current); zoomSettleRef.current = null; }
       if (committedRafRef.current !== null) { cancelAnimationFrame(committedRafRef.current); committedRafRef.current = null; }
     };
-  // useLayoutEffect (not useEffect): fires synchronously before the browser paints,
-  // so the CSS matrix() transform is visible in the *same* frame as the React render.
-  // The body is O(1) (style.transform write + rAF schedule) — no stall risk.
-  }, [strokeElements, pan, zoom]);
+  }, [strokeElements, doFullRedraw]);
+
+  // Imperative handle: parent calls notifyPanZoom() on every pan/zoom frame
+  // (no React re-render — direct DOM mutation via ref).
+  useImperativeHandle(ref, () => ({
+    notifyPanZoom(pan: { x: number; y: number }, zoom: number) {
+      panRef.current = pan;
+      zoomRef.current = zoom;
+      const z0 = renderedZoomRef.current;
+      const p0 = renderedPanRef.current;
+      const s  = zoom / z0;
+      const tx = pan.x - p0.x * s;
+      const ty = pan.y - p0.y * s;
+      const canvas = committedRef.current;
+      if (canvas) {
+        canvas.style.transformOrigin = "0 0";
+        canvas.style.transform = `matrix(${s},0,0,${s},${tx},${ty})`;
+      }
+      const zoomChanged = Math.abs(zoom - z0) > 1e-6;
+      if (zoomChanged) {
+        if (zoomSettleRef.current) clearTimeout(zoomSettleRef.current);
+        zoomSettleRef.current = setTimeout(() => { zoomSettleRef.current = null; doFullRedraw(); }, 50);
+      } else {
+        doFullRedraw();
+      }
+    },
+  }), [doFullRedraw]);
 
   // ── Live canvas helpers (rAF-throttled) ──────────────────────────────────
 
@@ -678,8 +661,8 @@ export function PencilLayer({
             // Pen/marker: small dot with tool color
             <div
               style={{
-                width:  tool === "marker" ? width * zoom * 5 : width * zoom,
-                height: tool === "marker" ? width * zoom * 5 : width * zoom,
+                width:  tool === "marker" ? width * zoomRef.current * 5 : width * zoomRef.current,
+                height: tool === "marker" ? width * zoomRef.current * 5 : width * zoomRef.current,
                 borderRadius: "50%",
                 backgroundColor: color,
                 opacity: tool === "marker" ? 0.4 : 0.85,
@@ -692,4 +675,4 @@ export function PencilLayer({
       )}
     </>
   );
-}
+});
