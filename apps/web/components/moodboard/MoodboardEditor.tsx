@@ -172,9 +172,14 @@ export function MoodboardEditor({ initialData }: Props) {
   // zoomTargetRef / panTargetRef hold the *desired* state.
   // A requestAnimationFrame loop lerps the visual state toward the target each frame,
   // giving buttery smooth zoom on mouse wheel and trackpad pinch.
-  const zoomTargetRef = useRef(zoom);
-  const panTargetRef  = useRef<{ x: number; y: number }>(pan);
-  const zoomRafRef    = useRef<number | null>(null);
+  const zoomTargetRef  = useRef(zoom);
+  const panTargetRef   = useRef<{ x: number; y: number }>(pan);
+  const zoomRafRef     = useRef<number | null>(null);
+  // Throttle direct pan state updates (trackpad wheel) to rAF frequency.
+  // panRef is updated immediately so the canvas always has the freshest value;
+  // setPan is deferred so React re-renders at most once per frame (~60 Hz)
+  // instead of at the wheel-event rate (120 Hz+ on modern trackpads).
+  const panFlushRafRef = useRef<number | null>(null);
   // Holds the step function; re-assigned every render so the closure always
   // captures the latest React state setters (setZoom / setPan are stable, but
   // the pattern lets us avoid stale-closure pitfalls in the rAF loop).
@@ -890,15 +895,22 @@ export function MoodboardEditor({ initialData }: Props) {
         panTargetRef.current  = { x: px - canvasX * newTarget, y: py - canvasY * newTarget };
         kickZoomAnimation();
       } else {
-        // Pan — applied directly (no lerp: trackpad panning must feel instant).
-        // Keep panTargetRef in sync so any running zoom-lerp converges to the right place.
+        // Pan — no lerp (must feel instant), but throttle React state to rAF frequency.
+        // panRef is updated immediately so PencilLayer and the canvas always have the
+        // freshest value; setPan is deferred to avoid re-rendering the whole editor
+        // faster than the display can refresh (trackpad fires 120 Hz+ on modern Macs).
         const np = {
           x: panRef.current.x - e.deltaX,
           y: panRef.current.y - e.deltaY,
         };
         panTargetRef.current = np;
-        setPan(np);
         panRef.current = np;
+        if (panFlushRafRef.current === null) {
+          panFlushRafRef.current = requestAnimationFrame(() => {
+            panFlushRafRef.current = null;
+            setPan({ ...panRef.current });
+          });
+        }
       }
     };
 
