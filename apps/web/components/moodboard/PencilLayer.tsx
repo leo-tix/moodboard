@@ -623,24 +623,26 @@ export const PencilLayer = forwardRef<PencilLayerHandle, Props>(function PencilL
 
   return (
     <>
-      {/* Committed strokes */}
+      {/* Committed strokes — z-index 40 keeps them above canvas elements
+          (which are inside a transform-isolated stacking context at z≈0)
+          but below all UI overlays that start at z-50. */}
       <canvas
         ref={committedRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 148 }}
+        style={{ zIndex: 40 }}
       />
-      {/* Live (in-progress) stroke — only visible while drawing */}
+      {/* Live (in-progress) stroke */}
       <canvas
         ref={liveRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 149 }}
+        style={{ zIndex: 41 }}
       />
       {/* Hover cursor — shown when Pencil is hovering above screen */}
       {hoverVP && active && (
         <div
           className="absolute pointer-events-none"
           style={{
-            zIndex: 150,
+            zIndex: 42,
             left: hoverVP.vx,
             top:  hoverVP.vy,
             transform: "translate(-50%, -50%)",
