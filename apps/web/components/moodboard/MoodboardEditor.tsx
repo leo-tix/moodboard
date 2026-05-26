@@ -384,6 +384,15 @@ export function MoodboardEditor({ initialData }: Props) {
   useEffect(() => { undoRef.current = undo; }, [undo]);
   useEffect(() => { redoRef.current = redo; }, [redo]);
 
+  // Stable ref wrappers for tool callbacks used inside the [] touch useEffect.
+  // Pattern: ref is created once, updated every render so the closure always gets
+  // the latest function without the effect needing to re-register listeners.
+  const commitShapeRef  = useRef<(sx: number, sy: number, ex: number, ey: number) => void>(() => {});
+  const commitLinearRef = useRef<(pts: LinearPoint[]) => void>(() => {});
+  const placeTextAtRef  = useRef<(cx: number, cy: number) => void>(() => {});
+  /** Tracks the canvas-coord start of a touch-drag shape draw. */
+  const touchShapeStartRef = useRef<{ x: number; y: number } | null>(null);
+
   // ── Pencil Pro eraser toggle ──
   // Remembers the last non-eraser tool so squeeze switches back to it.
   const prevPencilToolRef = useRef<Exclude<PencilTool, "eraser">>("pen");
@@ -618,6 +627,12 @@ export function MoodboardEditor({ initialData }: Props) {
         // Track for 2-finger undo tap
         multiTapRef.current = { count: 2, startTime: Date.now(), didMove: false };
         touchPanRef.current = null;
+        // Cancel any in-progress shape draw (second finger interrupted)
+        if (touchShapeStartRef.current) {
+          touchShapeStartRef.current = null;
+          shapeDrawingRef.current = null;
+          setShapeDrawing(null);
+        }
         clearTouchRubberBand();
         setRubberBand(null);
         const t0 = e.touches[0], t1 = e.touches[1];
@@ -657,9 +672,37 @@ export function MoodboardEditor({ initialData }: Props) {
         );
 
         if (!hitEl) {
-          // ── Empty canvas ──
+          // ── Empty canvas — route by active tool ──
           touchStartedOnElementRef.current = false;
-          e.preventDefault(); // prevent synthetic mousedown → no accidental rubber band via mouse handler
+          e.preventDefault(); // always prevent scroll/zoom and synthetic mouse events
+
+          const tool = activeToolRef.current;
+
+          // ── Text tool: record position, commit placement in onTouchEnd ──
+          if (tool === "text") {
+            longPressPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+            // No pan, no rubber band — just wait for lift
+            return;
+          }
+
+          // ── Shape tools: init touch-draw (move updates preview, lift commits) ──
+          if (tool === "rectangle" || tool === "ellipse" || tool === "diamond") {
+            const sx = (viewX - panRef.current.x) / zoomRef.current;
+            const sy = (viewY - panRef.current.y) / zoomRef.current;
+            touchShapeStartRef.current = { x: sx, y: sy };
+            const initState = { startX: sx, startY: sy, endX: sx, endY: sy, shiftLock: false };
+            shapeDrawingRef.current = initState;
+            setShapeDrawing(initState);
+            return;
+          }
+
+          // ── Linear tools: tap-to-add-points, double-tap to commit (handled in onTouchEnd) ──
+          if (tool === "line" || tool === "arrow") {
+            longPressPosRef.current = { clientX: touch.clientX, clientY: touch.clientY };
+            return;
+          }
+
+          // ── Default (select tool): pan + long-press rubber band ──
           touchPanRef.current = {
             startX : touch.clientX,
             startY : touch.clientY,
@@ -790,6 +833,23 @@ export function MoodboardEditor({ initialData }: Props) {
       if (e.touches.length === 1) {
         const touch = e.touches[0];
 
+        // ── Shape drawing: live preview update ──
+        if (touchShapeStartRef.current) {
+          e.preventDefault();
+          const rect = viewport.getBoundingClientRect();
+          const vx = touch.clientX - rect.left;
+          const vy = touch.clientY - rect.top;
+          const cx = (vx - panRef.current.x) / zoomRef.current;
+          const cy = (vy - panRef.current.y) / zoomRef.current;
+          const prev = shapeDrawingRef.current;
+          if (prev) {
+            const s = { ...prev, endX: cx, endY: cy };
+            shapeDrawingRef.current = s;
+            setShapeDrawing(s);
+          }
+          return;
+        }
+
         // ── Rubber band mode: update the selection rect ──
         if (touchRubberBandRef.current && touchRubberBandStartRef.current) {
           e.preventDefault();
@@ -871,6 +931,82 @@ export function MoodboardEditor({ initialData }: Props) {
         touchDidPanRef.current = false;
         touchStartedOnElementRef.current = false;
         clearLongPress();
+        return;
+      }
+
+      // ── Shape tool: commit on finger lift ──
+      if (touchShapeStartRef.current) {
+        const sd = shapeDrawingRef.current;
+        if (sd) {
+          const minSz = 8 / zoomRef.current;
+          if (Math.abs(sd.endX - sd.startX) > minSz || Math.abs(sd.endY - sd.startY) > minSz) {
+            commitShapeRef.current(sd.startX, sd.startY, sd.endX, sd.endY);
+          } else {
+            // Tap with no drag → place default-sized shape centered on tap
+            commitShapeRef.current(sd.startX - 80, sd.startY - 50, sd.startX + 80, sd.startY + 50);
+          }
+        }
+        touchShapeStartRef.current = null;
+        shapeDrawingRef.current = null;
+        setShapeDrawing(null);
+        clearLongPress();
+        touchPanRef.current = null;
+        touchDidPanRef.current = false;
+        touchStartedOnElementRef.current = false;
+        return;
+      }
+
+      // ── Text tool: place on tap (position from changedTouches) ──
+      if (activeToolRef.current === "text" && !touchDidPanRef.current && e.changedTouches.length > 0) {
+        const t = e.changedTouches[0];
+        const r = viewport.getBoundingClientRect();
+        const vx = t.clientX - r.left;
+        const vy = t.clientY - r.top;
+        const cx = (vx - panRef.current.x) / zoomRef.current;
+        const cy = (vy - panRef.current.y) / zoomRef.current;
+        placeTextAtRef.current(cx, cy);
+        clearLongPress();
+        touchPanRef.current = null;
+        touchDidPanRef.current = false;
+        touchStartedOnElementRef.current = false;
+        return;
+      }
+
+      // ── Linear tool: tap to add point / double-tap to commit ──
+      if ((activeToolRef.current === "line" || activeToolRef.current === "arrow")
+          && !touchDidPanRef.current && e.changedTouches.length > 0) {
+        const t = e.changedTouches[0];
+        const r = viewport.getBoundingClientRect();
+        const vx = t.clientX - r.left;
+        const vy = t.clientY - r.top;
+        const cx = (vx - panRef.current.x) / zoomRef.current;
+        const cy = (vy - panRef.current.y) / zoomRef.current;
+        const now = Date.now();
+        const isDbl = now - linearLastClickRef.current < 500 && linearInProgressRef.current !== null;
+        linearLastClickRef.current = now;
+        if (isDbl && linearInProgressRef.current) {
+          // Double-tap: commit, finalise at tap position
+          const pts = linearInProgressRef.current.points;
+          const finalPts = pts.length >= 3 ? pts.slice(0, -1) : [...pts];
+          if (finalPts.length > 0) finalPts[finalPts.length - 1] = { x: cx, y: cy };
+          commitLinearRef.current(finalPts);
+        } else if (!linearInProgressRef.current) {
+          // First tap: create initial point
+          const state = { points: [{ x: cx, y: cy }], cursor: { x: cx, y: cy } };
+          linearInProgressRef.current = state;
+          setLinearInProgress(state);
+        } else {
+          // Subsequent tap: add waypoint
+          const prev = linearInProgressRef.current;
+          const newPts = [...prev.points, { x: cx, y: cy }];
+          const state = { points: newPts, cursor: { x: cx, y: cy } };
+          linearInProgressRef.current = state;
+          setLinearInProgress({ ...state });
+        }
+        clearLongPress();
+        touchPanRef.current = null;
+        touchDidPanRef.current = false;
+        touchStartedOnElementRef.current = false;
         return;
       }
 
@@ -1983,6 +2119,7 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [snap, updateElements]
   );
+  useEffect(() => { commitShapeRef.current = commitShape; }, [commitShape]);
 
   // ── Linear commit helper ──
   const commitLinear = useCallback(
@@ -2022,6 +2159,7 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [snap, updateElements]
   );
+  useEffect(() => { commitLinearRef.current = commitLinear; }, [commitLinear]);
 
   // ── Text tool placement ──
   const placeTextAt = useCallback(
@@ -2052,6 +2190,7 @@ export function MoodboardEditor({ initialData }: Props) {
     },
     [snap, updateElements]
   );
+  useEffect(() => { placeTextAtRef.current = placeTextAt; }, [placeTextAt]);
 
   // ── Commit text edit (called on blur / Escape) ──
   const commitTextEdit = useCallback(() => {
@@ -2661,6 +2800,12 @@ export function MoodboardEditor({ initialData }: Props) {
                         fill={fill} stroke={toolStrokeColor} strokeWidth={sw}
                         strokeDasharray={dash} strokeOpacity={0.75} />
                     )}
+                    {activeTool === "diamond" && (() => {
+                      const cx = w / 2, cy = h / 2;
+                      const pts = `${cx},${sw/2} ${w - sw/2},${cy} ${cx},${h - sw/2} ${sw/2},${cy}`;
+                      return <polygon points={pts} fill={fill} stroke={toolStrokeColor}
+                        strokeWidth={sw} strokeDasharray={dash} strokeOpacity={0.75} />;
+                    })()}
                   </svg>
                 </div>
               );
@@ -2840,7 +2985,7 @@ export function MoodboardEditor({ initialData }: Props) {
                     { tool: "text",      icon: <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><text x="1" y="11" fontSize="11" fontFamily="serif" fontWeight="bold">T</text></svg>,    title: "Texte (T)"   },
                   ] as Array<{ tool: string; icon: React.ReactNode; title: string } | null>
                 ).map((item, i) => {
-                  if (item === null) return <div key={i} className="w-6 h-px bg-[var(--border-subtle)] my-0.5" />;
+                  if (item === null) return <div key={i} className={`${isTouchDevice ? "w-9" : "w-6"} h-px bg-[var(--border-subtle)] my-0.5`} />;
                   const isActive = activeTool === item.tool;
                   return (
                     <button
@@ -2853,7 +2998,7 @@ export function MoodboardEditor({ initialData }: Props) {
                         setActiveTool(item.tool as Parameters<typeof setActiveTool>[0]);
                         activeToolRef.current = item.tool as typeof activeToolRef.current;
                       }}
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                      className={`${isTouchDevice ? "w-11 h-11" : "w-8 h-8"} rounded-lg flex items-center justify-center transition-colors ${
                         isActive
                           ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
                           : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]"
