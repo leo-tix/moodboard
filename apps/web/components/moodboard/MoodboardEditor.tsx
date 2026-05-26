@@ -1518,13 +1518,20 @@ export function MoodboardEditor({ initialData }: Props) {
         e.preventDefault();
         const pos = screenToCanvasRaw(e.clientX, e.clientY);
         const now = Date.now();
-        const isDbl = now - linearLastClickRef.current < 350 && linearInProgressRef.current !== null;
+        // Double-click = second click within 500ms AND at least 2 points already placed.
+        // Requiring ≥ 2 points prevents silently cancelling a fresh line when the user
+        // clicks twice quickly to start (which was treated as double-click + commitLinear
+        // with 1 point → silent failure → line disappeared).
+        const isDbl = now - linearLastClickRef.current < 500
+          && linearInProgressRef.current !== null
+          && linearInProgressRef.current.points.length >= 2;
         linearLastClickRef.current = now;
 
         if (isDbl && linearInProgressRef.current) {
-          // Double-click: commit (remove the duplicate point added by the last single click)
+          // Double-click: commit — finalise at the exact click position
           const pts = linearInProgressRef.current.points;
-          const finalPts = pts.length >= 3 ? pts.slice(0, -1) : pts;
+          // Remove the last auto-waypoint added by the previous single click if ≥ 3 pts
+          const finalPts = pts.length >= 3 ? pts.slice(0, -1) : [...pts];
           finalPts[finalPts.length - 1] = pos;
           commitLinear(finalPts);
           return;
@@ -2732,10 +2739,16 @@ export function MoodboardEditor({ initialData }: Props) {
               </div>
             ))}
 
-            {elements.map((el) => (
+            {elements.map((el) => {
+              // When a linear element's point is being dragged, pass the preview element
+              // so both the line SVG and the bounding box update live (not just the handles).
+              const displayEl = (linearDragPreview && el.id === linearDragPreview.id)
+                ? linearDragPreview
+                : el;
+              return (
               <CanvasItem
                 key={el.id}
-                element={el}
+                element={displayEl}
                 selected={selectedIds.includes(el.id)}
                 isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
                 zoom={rndScale}
@@ -2773,7 +2786,8 @@ export function MoodboardEditor({ initialData }: Props) {
                   }
                 }}
               />
-            ))}
+              );
+            })}
 
             {/* ── Shape drawing live preview (canvas-space coords) ── */}
             {shapeDrawing && (() => {
