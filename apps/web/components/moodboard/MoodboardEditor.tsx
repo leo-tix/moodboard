@@ -185,7 +185,9 @@ export function MoodboardEditor({ initialData }: Props) {
   const textareaRef      = useRef<HTMLTextAreaElement | null>(null);
   /** Hidden div used to measure text width during editing (same font as the textarea). */
   const measureSpanRef   = useRef<HTMLDivElement | null>(null);
-  /** Captures fontSize/h at resize start for proportional scaling */
+  /** Persistent hidden div for measuring text height at a given width during resize. */
+  const textMeasureDivRef = useRef<HTMLDivElement | null>(null);
+  /** Captures fontSize/h at resize start — kept but no longer used for font scaling */
   const resizeStartRef   = useRef<{ id: string; h: number; fontSize: number } | null>(null);
 
   // ── Refs (avoid stale closures in event handlers) ──
@@ -1711,28 +1713,44 @@ export function MoodboardEditor({ initialData }: Props) {
     [updateElements, snap]
   );
 
+  /**
+   * Measure the pixel height a TextElement's content would take at a given width.
+   * Uses a persistent hidden div (textMeasureDivRef) so there is no DOM allocation
+   * per call — safe to call on every resize rAF tick.
+   */
+  const measureTextHeight = useCallback(
+    (content: string, fontSize: number, bold: boolean, italic: boolean, width: number): number => {
+      const div = textMeasureDivRef.current;
+      if (!div) return Math.max(10, Math.ceil(fontSize * 1.4));
+      div.style.width      = width + "px";
+      div.style.fontSize   = fontSize + "px";
+      div.style.fontWeight = bold   ? "bold"   : "normal";
+      div.style.fontStyle  = italic ? "italic" : "normal";
+      div.textContent = content || " ";
+      return Math.max(10, div.offsetHeight);
+    },
+    []
+  );
+
   const handleElemResize = useCallback(
     (id: string, x: number, y: number, w: number, h: number) => {
       updateElements((prev) =>
         prev.map((el) => {
           if (el.id !== id) return el;
           const newW = Math.max(40, Math.round(w));
-          const newH = Math.max(24, Math.round(h));
-          const base = { ...el, x: snap(x), y: snap(y), w: newW, h: newH };
-          // Text: font size scales proportionally to height (ratio captured at resize start)
+          const base = { ...el, x: snap(x), y: snap(y), w: newW };
+          // Text: font size stays fixed; height is derived from text reflow at the new width.
           if (el.type === "text") {
-            const start = resizeStartRef.current;
-            const autoFontSize = (start && start.id === id && start.h > 0)
-              ? Math.max(8, Math.round(start.fontSize * newH / start.h))
-              : Math.max(8, Math.round(newH * 0.55));
-            resizeStartRef.current = null;
-            return { ...base, fontSize: autoFontSize } as typeof el;
+            const textEl = el as TextElement;
+            const newH = measureTextHeight(textEl.content, textEl.fontSize, textEl.bold, textEl.italic, newW);
+            return { ...base, h: newH } as typeof el;
           }
-          return base;
+          const newH = Math.max(24, Math.round(h));
+          return { ...base, h: newH };
         })
       );
     },
-    [updateElements, snap]
+    [updateElements, snap, measureTextHeight]
   );
 
   const handleElemChange = useCallback(
@@ -1748,19 +1766,18 @@ export function MoodboardEditor({ initialData }: Props) {
       setElements((prev) =>
         prev.map((el) => {
           if (el.id !== id) return el;
-          const base = { ...el, x, y, w: Math.max(20, Math.round(w)), h: Math.max(10, Math.round(h)) };
+          const newW = Math.max(20, Math.round(w));
           if (el.type === "text") {
-            const start = resizeStartRef.current;
-            const newFontSize = (start && start.id === id && start.h > 0)
-              ? Math.max(8, Math.round(start.fontSize * base.h / start.h))
-              : Math.max(8, Math.round(base.h * 0.55));
-            return { ...base, fontSize: newFontSize } as typeof el;
+            // Height from text reflow — font size unchanged, only width matters.
+            const textEl = el as TextElement;
+            const newH = measureTextHeight(textEl.content, textEl.fontSize, textEl.bold, textEl.italic, newW);
+            return { ...el, x, y, w: newW, h: newH } as typeof el;
           }
-          return base;
+          return { ...el, x, y, w: newW, h: Math.max(10, Math.round(h)) };
         })
       );
     },
-    []
+    [measureTextHeight]
   );
 
   // ── Toolbar update handler ──
@@ -2494,6 +2511,20 @@ export function MoodboardEditor({ initialData }: Props) {
           onDrop={handleDrop}
           onDragLeave={handleDragLeave}
         >
+          {/* Persistent hidden div for measuring text height at a given width during resize.
+              position:fixed removes it from document flow and avoids the canvas transform. */}
+          <div
+            ref={textMeasureDivRef}
+            aria-hidden
+            style={{
+              position: "fixed", top: -99999, left: -99999,
+              visibility: "hidden", pointerEvents: "none",
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+              lineHeight: 1.4, padding: "2px 4px", boxSizing: "border-box",
+              fontFamily: "inherit",
+            }}
+          />
+
           {/* Canvas world (transformed imperatively via canvasWrapperRef) */}
           <div
             ref={canvasWrapperRef}
@@ -3318,12 +3349,14 @@ function CanvasItem({
   const dragGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
   const resizeGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
 
-  // Aspect ratio lock: images and strokes lock by default, Shift unlocks
+  // Aspect ratio lock: images, strokes, and text lock by default, Shift unlocks.
+  // For text the lock just keeps the resize "feeling" proportional — the actual
+  // height is always recomputed from text reflow in handleElemResizeLive/Resize.
   let lockAspectRatio: boolean | number = false;
   if (!shiftHeld) {
     if (element.type === "image") {
       lockAspectRatio = (element as ImageElement).aspectRatio ?? (element.w / element.h);
-    } else if (element.type === "stroke") {
+    } else if (element.type === "stroke" || element.type === "text") {
       lockAspectRatio = element.w / element.h;
     }
   }
