@@ -1269,6 +1269,10 @@ export function MoodboardEditor({ initialData }: Props) {
     // commitTextEdit() synchronously sets activeToolRef.current = "select", so
     // the rest of the handler (pan / rubber-band / placeTextAt) is skipped.
     if (textEditingIdRef.current) {
+      // preventDefault: same reason as the text-tool placement case below —
+      // prevents the browser from moving focus to body after the handler, which
+      // would trigger a second onBlur → commitTextEdit call.
+      e.preventDefault();
       commitTextEdit();
       return;
     }
@@ -1312,6 +1316,10 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // ── Text tool: click to place ──
       if (tool === "text") {
+        // preventDefault stops the browser's post-mousedown native focus management
+        // (which would move focus to document.body, immediately blurring the textarea
+        // we are about to create and triggering an unwanted commitTextEdit call).
+        e.preventDefault();
         const pos = screenToCanvasRaw(e.clientX, e.clientY);
         placeTextAt(pos.x, pos.y);
         return;
