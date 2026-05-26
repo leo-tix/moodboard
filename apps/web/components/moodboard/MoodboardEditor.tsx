@@ -37,7 +37,7 @@ interface Props {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const GRID_PX = 24;   // logical grid size (canvas coords)
-const SNAP_PX = 8;    // snap resolution
+const SNAP_PX = 8;    // minimum shape size reference (snap disabled)
 const ZOOM_MIN = 0.08;
 const ZOOM_MAX = 5;
 const HISTORY_MAX = 60;
@@ -83,7 +83,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const [displayZoom, setDisplayZoom] = useState(1);
   const [rndScale, setRndScale] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [snapEnabled, setSnapEnabled] = useState(true);
+
   const [shiftHeld, setShiftHeld] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [draggingId,    setDraggingId]    = useState<string | null>(null);
@@ -201,7 +201,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const zoomRef = useRef(1);
   const selectedIdsRef = useRef(selectedIds);
   const elementsRef = useRef(elements);
-  const snapEnabledRef = useRef(snapEnabled);
+
   const nextZRef = useRef(
     Math.max(100, ...initialData.canvasData.map((el) => el.zIndex), 0)
   );
@@ -291,7 +291,6 @@ export function MoodboardEditor({ initialData }: Props) {
   // Sync refs
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { elementsRef.current = elements; }, [elements]);
-  useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
 
   useEffect(() => {
     aiOnImport.current = localStorage.getItem(AI_IMPORT_KEY) === "true";
@@ -302,11 +301,8 @@ export function MoodboardEditor({ initialData }: Props) {
     setIsTouchDevice(navigator.maxTouchPoints > 1);
   }, []);
 
-  // ── Snap helper ──
-  const snap = useCallback(
-    (v: number) => (snapEnabledRef.current ? Math.round(v / SNAP_PX) * SNAP_PX : v),
-    []
-  );
+  // ── Snap helper (snap disabled — always returns value as-is) ──
+  const snap = useCallback((v: number) => v, []);
 
   // ── Auto-save ──
   const save = useCallback(
@@ -2605,7 +2601,6 @@ export function MoodboardEditor({ initialData }: Props) {
                 isMultiSelected={selectedIds.length > 1 && selectedIds.includes(el.id)}
                 zoom={rndScale}
                 isVisible={visMap[el.id] ?? true}
-                snapEnabled={snapEnabled}
                 shiftHeld={shiftHeld}
                 spaceHeld={spaceHeld}
                 dragAxis={el.id === draggingId ? dragAxisState : "both"}
@@ -3232,18 +3227,6 @@ export function MoodboardEditor({ initialData }: Props) {
             >
               Ajuster
             </button>
-            <div className="w-px h-3 bg-[var(--border-subtle)]" />
-            <button
-              onClick={() => setSnapEnabled((v) => !v)}
-              className={`${isTouchDevice ? "w-10 h-10 text-base" : "text-[10px] px-1"} rounded transition-colors ${
-                snapEnabled
-                  ? "text-[var(--accent,#a78bfa)]"
-                  : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-              }`}
-              title="Grille magnétique 8px"
-            >
-              ⊞
-            </button>
             {/* Zoom-to-fit on touch */}
             {isTouchDevice && (
               <>
@@ -3310,7 +3293,6 @@ interface CanvasItemProps {
   selected: boolean;
   isMultiSelected: boolean;
   zoom: number;
-  snapEnabled: boolean;
   shiftHeld: boolean;
   spaceHeld: boolean;
   /** Axis constraint for react-rnd — "x", "y", or "both" (default). Applied to the
@@ -3351,7 +3333,6 @@ function CanvasItem({
   selected,
   isMultiSelected,
   zoom,
-  snapEnabled,
   shiftHeld,
   spaceHeld,
   dragAxis,
@@ -3379,10 +3360,8 @@ function CanvasItem({
       }
     : { outline: "none" };
 
-  // Snap grid in screen pixels: SNAP_PX canvas units × zoom = screen pixels
-  const gridPx = Math.max(1, SNAP_PX * zoom);
-  const dragGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
-  const resizeGrid: [number, number] = snapEnabled ? [gridPx, gridPx] : [1, 1];
+  const dragGrid: [number, number] = [1, 1];
+  const resizeGrid: [number, number] = [1, 1];
 
   // Aspect ratio lock: images, strokes, and text lock by default, Shift unlocks.
   // For text the lock just keeps the resize "feeling" proportional — the actual
@@ -3581,7 +3560,7 @@ function KeyboardShortcutsPanel() {
           {/* Footer */}
           <div className="border-t border-[var(--border-subtle)] px-4 py-2 text-center">
             <span className="text-[10px] text-[var(--text-tertiary)]">
-              Shift maintenu · Snap désactivé sur les images
+              Shift maintenu · Ratio libre sur les images
             </span>
           </div>
         </div>
