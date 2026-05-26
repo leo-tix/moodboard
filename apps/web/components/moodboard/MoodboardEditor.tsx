@@ -187,8 +187,8 @@ export function MoodboardEditor({ initialData }: Props) {
   const measureSpanRef   = useRef<HTMLDivElement | null>(null);
   /** Persistent hidden div for measuring text height at a given width during resize. */
   const textMeasureDivRef = useRef<HTMLDivElement | null>(null);
-  /** Captures fontSize/h at resize start — kept but no longer used for font scaling */
-  const resizeStartRef   = useRef<{ id: string; h: number; fontSize: number } | null>(null);
+  /** Captures initial dimensions + fontSize at resize start for proportional font scaling. */
+  const resizeStartRef   = useRef<{ id: string; w: number; h: number; fontSize: number } | null>(null);
 
   // ── Refs (avoid stale closures in event handlers) ──
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1739,11 +1739,20 @@ export function MoodboardEditor({ initialData }: Props) {
           if (el.id !== id) return el;
           const newW = Math.max(40, Math.round(w));
           const base = { ...el, x: snap(x), y: snap(y), w: newW };
-          // Text: font size stays fixed; height is derived from text reflow at the new width.
+          // Text: aspect-ratio resize → scale font; free resize (Shift) → keep font fixed.
+          // Height always derived from text reflow at the new (width, fontSize).
           if (el.type === "text") {
             const textEl = el as TextElement;
-            const newH = measureTextHeight(textEl.content, textEl.fontSize, textEl.bold, textEl.italic, newW);
-            return { ...base, h: newH } as typeof el;
+            let newFontSize = textEl.fontSize;
+            if (!shiftHeldRef.current) {
+              const start = resizeStartRef.current;
+              if (start && start.id === id && start.w > 0) {
+                newFontSize = Math.max(8, Math.round(start.fontSize * newW / start.w));
+              }
+            }
+            resizeStartRef.current = null;
+            const newH = measureTextHeight(textEl.content, newFontSize, textEl.bold, textEl.italic, newW);
+            return { ...base, h: newH, fontSize: newFontSize } as typeof el;
           }
           const newH = Math.max(24, Math.round(h));
           return { ...base, h: newH };
@@ -1768,10 +1777,18 @@ export function MoodboardEditor({ initialData }: Props) {
           if (el.id !== id) return el;
           const newW = Math.max(20, Math.round(w));
           if (el.type === "text") {
-            // Height from text reflow — font size unchanged, only width matters.
             const textEl = el as TextElement;
-            const newH = measureTextHeight(textEl.content, textEl.fontSize, textEl.bold, textEl.italic, newW);
-            return { ...el, x, y, w: newW, h: newH } as typeof el;
+            // Aspect-ratio resize (no Shift) → scale font proportionally to width.
+            // Free resize (Shift held)        → keep font fixed, only reflow height.
+            let newFontSize = textEl.fontSize;
+            if (!shiftHeldRef.current) {
+              const start = resizeStartRef.current;
+              if (start && start.id === id && start.w > 0) {
+                newFontSize = Math.max(8, Math.round(start.fontSize * newW / start.w));
+              }
+            }
+            const newH = measureTextHeight(textEl.content, newFontSize, textEl.bold, textEl.italic, newW);
+            return { ...el, x, y, w: newW, h: newH, fontSize: newFontSize } as typeof el;
           }
           return { ...el, x, y, w: newW, h: Math.max(10, Math.round(h)) };
         })
@@ -2598,7 +2615,7 @@ export function MoodboardEditor({ initialData }: Props) {
                 }}
                 onResizeStart={() => {
                   if (el.type === "text") {
-                    resizeStartRef.current = { id: el.id, h: el.h, fontSize: (el as TextElement).fontSize };
+                    resizeStartRef.current = { id: el.id, w: el.w, h: el.h, fontSize: (el as TextElement).fontSize };
                   } else {
                     resizeStartRef.current = null;
                   }
