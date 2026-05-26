@@ -2923,42 +2923,6 @@ export function MoodboardEditor({ initialData }: Props) {
               );
             })()}
 
-            {/* ── Linear drawing live preview (canvas-space coords) ── */}
-            {linearInProgress && (() => {
-              const allPts = [...linearInProgress.points, linearInProgress.cursor];
-              const pathD = allPts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-              const sw = toolStrokeWidth;
-              return (
-                <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 99999 }} width={0} height={0}>
-                  <path d={pathD} fill="none" stroke={toolStrokeColor}
-                    strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
-                    strokeDasharray={`${sw * 4},${sw * 2}`} strokeOpacity={0.85}
-                  />
-                  {linearInProgress.points.map((p, i) => (
-                    <circle key={i} cx={p.x} cy={p.y}
-                      r={4 / rndScale} fill={toolStrokeColor} stroke="white" strokeWidth={1 / rndScale}
-                    />
-                  ))}
-                  {/* Arrow tip preview */}
-                  {activeTool === "arrow" && allPts.length >= 2 && (() => {
-                    const last = allPts[allPts.length - 1];
-                    const prev = allPts[allPts.length - 2];
-                    const angle = Math.atan2(last.y - prev.y, last.x - prev.x);
-                    const aLen = 10 / rndScale;
-                    return (
-                      <g stroke={toolStrokeColor} strokeWidth={sw * 0.85} strokeLinecap="round" fill="none" strokeOpacity={0.85}>
-                        <line x1={last.x} y1={last.y}
-                          x2={last.x - Math.cos(angle - 0.4) * aLen}
-                          y2={last.y - Math.sin(angle - 0.4) * aLen} />
-                        <line x1={last.x} y1={last.y}
-                          x2={last.x - Math.cos(angle + 0.4) * aLen}
-                          y2={last.y - Math.sin(angle + 0.4) * aLen} />
-                      </g>
-                    );
-                  })()}
-                </svg>
-              );
-            })()}
           </div>
 
           {/* Rubber band selection rect */}
@@ -2975,6 +2939,84 @@ export function MoodboardEditor({ initialData }: Props) {
                 }}
               />
             )}
+
+          {/* ── Linear creation live preview — viewport-space overlay ── */}
+          {linearInProgress && (() => {
+            const zoom = zoomRef.current;
+            const pan  = panRef.current;
+            const toVP = (p: { x: number; y: number }) => ({
+              vx: p.x * zoom + pan.x,
+              vy: p.y * zoom + pan.y,
+            });
+            const allVP = [...linearInProgress.points, linearInProgress.cursor].map(toVP);
+            const pathD = allVP.map((p, i) => `${i === 0 ? "M" : "L"} ${p.vx} ${p.vy}`).join(" ");
+            const sw = toolStrokeWidth * zoom;
+            return (
+              <svg
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  width: "100%",
+                  height: "100%",
+                  overflow: "visible",
+                  pointerEvents: "none",
+                  zIndex: 51,
+                }}
+              >
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke={toolStrokeColor}
+                  strokeWidth={sw}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeDasharray={`${sw * 4},${sw * 2}`}
+                  strokeOpacity={0.85}
+                />
+                {linearInProgress.points.map((p, i) => {
+                  const vp = toVP(p);
+                  return (
+                    <circle
+                      key={i}
+                      cx={vp.vx}
+                      cy={vp.vy}
+                      r={Math.max(3, 4 * zoom)}
+                      fill={toolStrokeColor}
+                      stroke="white"
+                      strokeWidth={1.5}
+                    />
+                  );
+                })}
+                {activeTool === "arrow" && allVP.length >= 2 && (() => {
+                  const last = allVP[allVP.length - 1];
+                  const prev = allVP[allVP.length - 2];
+                  const angle = Math.atan2(last.vy - prev.vy, last.vx - prev.vx);
+                  const aLen = Math.max(10, sw * 3);
+                  return (
+                    <g
+                      stroke={toolStrokeColor}
+                      strokeWidth={sw * 0.85}
+                      strokeLinecap="round"
+                      fill="none"
+                      strokeOpacity={0.85}
+                    >
+                      <line
+                        x1={last.vx} y1={last.vy}
+                        x2={last.vx - Math.cos(angle - 0.4) * aLen}
+                        y2={last.vy - Math.sin(angle - 0.4) * aLen}
+                      />
+                      <line
+                        x1={last.vx} y1={last.vy}
+                        x2={last.vx - Math.cos(angle + 0.4) * aLen}
+                        y2={last.vy - Math.sin(angle + 0.4) * aLen}
+                      />
+                    </g>
+                  );
+                })()}
+              </svg>
+            );
+          })()}
 
           {/* ── Left tool toolbar (Excalidraw-style) ── */}
           {!drawingMode && (
