@@ -1672,46 +1672,7 @@ export function MoodboardEditor({ initialData }: Props) {
   }, []);
 
   // ── Group resize (multi-select) ──
-  type ResizePatch = { x: number; y: number; w: number; h: number };
-  const handleGroupResizeUpdate = useCallback(
-    (updates: Array<{ id: string; patch: ResizePatch }>) => {
-      setElements((prev) =>
-        prev.map((el) => {
-          const u = updates.find((u) => u.id === el.id);
-          return u ? { ...el, ...u.patch } : el;
-        })
-      );
-    },
-    []
-  );
-
-  const handleGroupResizeCommit = useCallback(
-    (updates: Array<{ id: string; patch: ResizePatch }>) => {
-      // Snap the group's top-left corner and apply the same delta to every element
-      // so relative positions within the group are preserved (independent per-element
-      // snapping would round differently and shift elements relative to each other).
-      const minX = Math.min(...updates.map((u) => u.patch.x));
-      const minY = Math.min(...updates.map((u) => u.patch.y));
-      const snapDX = snap(minX) - minX;
-      const snapDY = snap(minY) - minY;
-      updateElements((prev) =>
-        prev.map((el) => {
-          const u = updates.find((u) => u.id === el.id);
-          if (!u) return el;
-          return {
-            ...el,
-            x: u.patch.x + snapDX,
-            y: u.patch.y + snapDY,
-            // Match the same minimums used in the live preview (GroupResizeOverlay.compute)
-            // so the committed state is identical to what the user saw during the drag.
-            w: Math.max(20, Math.round(u.patch.w)),
-            h: Math.max(10, Math.round(u.patch.h)),
-          };
-        })
-      );
-    },
-    [updateElements, snap]
-  );
+  type ResizePatch = { x: number; y: number; w: number; h: number; fontSize?: number };
 
   /**
    * Measure the pixel height a TextElement's content would take at a given width.
@@ -1730,6 +1691,63 @@ export function MoodboardEditor({ initialData }: Props) {
       return Math.max(10, div.offsetHeight);
     },
     []
+  );
+
+  const handleGroupResizeUpdate = useCallback(
+    (updates: Array<{ id: string; patch: ResizePatch }>) => {
+      setElements((prev) =>
+        prev.map((el) => {
+          const u = updates.find((u) => u.id === el.id);
+          if (!u) return el;
+          if (el.type === "text" && u.patch.fontSize !== undefined) {
+            const textEl = el as TextElement;
+            const newW = Math.max(20, Math.round(u.patch.w));
+            const newFontSize = u.patch.fontSize;
+            const newH = measureTextHeight(textEl.content, newFontSize, textEl.bold, textEl.italic, newW);
+            return { ...el, x: u.patch.x, y: u.patch.y, w: newW, h: newH, fontSize: newFontSize };
+          }
+          return { ...el, ...u.patch };
+        })
+      );
+    },
+    [measureTextHeight]
+  );
+
+  const handleGroupResizeCommit = useCallback(
+    (updates: Array<{ id: string; patch: ResizePatch }>) => {
+      // Snap the group's top-left corner and apply the same delta to every element
+      // so relative positions within the group are preserved (independent per-element
+      // snapping would round differently and shift elements relative to each other).
+      const minX = Math.min(...updates.map((u) => u.patch.x));
+      const minY = Math.min(...updates.map((u) => u.patch.y));
+      const snapDX = snap(minX) - minX;
+      const snapDY = snap(minY) - minY;
+      updateElements((prev) =>
+        prev.map((el) => {
+          const u = updates.find((u) => u.id === el.id);
+          if (!u) return el;
+          const newW = Math.max(20, Math.round(u.patch.w));
+          const sx = u.patch.x + snapDX;
+          const sy = u.patch.y + snapDY;
+          if (el.type === "text" && u.patch.fontSize !== undefined) {
+            const textEl = el as TextElement;
+            const newFontSize = u.patch.fontSize;
+            const newH = measureTextHeight(textEl.content, newFontSize, textEl.bold, textEl.italic, newW);
+            return { ...el, x: sx, y: sy, w: newW, h: newH, fontSize: newFontSize };
+          }
+          return {
+            ...el,
+            x: sx,
+            y: sy,
+            // Match the same minimums used in the live preview (GroupResizeOverlay.compute)
+            // so the committed state is identical to what the user saw during the drag.
+            w: newW,
+            h: Math.max(10, Math.round(u.patch.h)),
+          };
+        })
+      );
+    },
+    [updateElements, snap, measureTextHeight]
   );
 
   const handleElemResize = useCallback(
@@ -3952,7 +3970,7 @@ function LinearEditOverlay({ element, zoom, onChange, onCommit }: LinearEditOver
 // On touch: shown for single AND multi-selection (react-rnd handles don't work well).
 // Handles are in viewport coords; drag deltas are converted to canvas units.
 
-type ResizePatch = { x: number; y: number; w: number; h: number };
+type ResizePatch = { x: number; y: number; w: number; h: number; fontSize?: number };
 
 interface GroupResizeOverlayProps {
   selectedElements: CanvasElement[];
@@ -4003,6 +4021,9 @@ function GroupResizeOverlay({
       relY: origGh > 0 ? (el.y - origGy) / origGh : 0,
       relW: origGw > 0 ? el.w / origGw : 1,
       relH: origGh > 0 ? el.h / origGh : 1,
+      isText: el.type === "text",
+      // Capture original fontSize so we can scale it proportionally during group resize.
+      origFontSize: el.type === "text" ? (el as TextElement).fontSize : undefined,
     }));
 
     const AR = origGw / Math.max(1, origGh);
@@ -4037,15 +4058,24 @@ function GroupResizeOverlay({
         }
       }
 
-      return relData.map(({ id, relX, relY, relW, relH }) => ({
-        id,
-        patch: {
+      // Width scale factor for the whole group — used to scale text font sizes.
+      const wScale = origGw > 0 ? ngw / origGw : 1;
+
+      return relData.map(({ id, relX, relY, relW, relH, isText, origFontSize }) => {
+        const patch: ResizePatch = {
           x: ngx + relX * ngw,
           y: ngy + relY * ngh,
           w: Math.max(20, relW * ngw),
           h: Math.max(10, relH * ngh),
-        },
-      }));
+        };
+        // For text elements, scale font proportionally to group width change.
+        // The parent handlers (handleGroupResizeUpdate/Commit) will then recompute
+        // the actual height via measureTextHeight so lines reflow correctly.
+        if (isText && origFontSize !== undefined) {
+          patch.fontSize = Math.max(8, Math.round(origFontSize * wScale));
+        }
+        return { id, patch };
+      });
     };
 
     if (isTouch) {
