@@ -2971,7 +2971,6 @@ export function MoodboardEditor({ initialData }: Props) {
                   strokeWidth={sw}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeDasharray={`${sw * 4},${sw * 2}`}
                   strokeOpacity={0.85}
                 />
                 {linearInProgress.points.map((p, i) => {
@@ -2996,7 +2995,7 @@ export function MoodboardEditor({ initialData }: Props) {
                   return (
                     <g
                       stroke={toolStrokeColor}
-                      strokeWidth={sw * 0.85}
+                      strokeWidth={sw}
                       strokeLinecap="round"
                       fill="none"
                       strokeOpacity={0.85}
