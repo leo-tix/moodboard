@@ -145,7 +145,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const [toolStrokeStyle, setToolStrokeStyle] = useState<"solid"|"dashed"|"dotted">("solid");
   const [toolArrowStart,  setToolArrowStart]  = useState<"none"|"arrow">("none");
   const [toolArrowEnd,    setToolArrowEnd]    = useState<"none"|"arrow">("arrow");
-  const [toolFontSize,    setToolFontSize]    = useState(18);
+  const [toolFontSize,    setToolFontSize]    = useState(40);
   const [toolTextColor,   setToolTextColor]   = useState("#ffffff");
   const [toolTextAlign,   setToolTextAlign]   = useState<"left"|"center"|"right">("left");
   // Ref mirror so document-level handlers always see the latest values
@@ -153,7 +153,7 @@ export function MoodboardEditor({ initialData }: Props) {
     fillColor: "transparent", strokeColor: "#ffffff", strokeWidth: 2,
     strokeStyle: "solid" as "solid"|"dashed"|"dotted",
     arrowStart: "none" as "none"|"arrow", arrowEnd: "arrow" as "none"|"arrow",
-    fontSize: 18, textColor: "#ffffff", textAlign: "left" as "left"|"center"|"right",
+    fontSize: 40, textColor: "#ffffff", textAlign: "left" as "left"|"center"|"right",
   });
   useEffect(() => {
     toolPropsRef.current = {
@@ -183,6 +183,8 @@ export function MoodboardEditor({ initialData }: Props) {
   const [textEditingId, setTextEditingId] = useState<string | null>(null);
   const textEditingIdRef = useRef<string | null>(null);
   const textareaRef      = useRef<HTMLTextAreaElement | null>(null);
+  /** Hidden div used to measure text width during editing (same font as the textarea). */
+  const measureSpanRef   = useRef<HTMLDivElement | null>(null);
   /** Captures fontSize/h at resize start for proportional scaling */
   const resizeStartRef   = useRef<{ id: string; h: number; fontSize: number } | null>(null);
 
@@ -1981,7 +1983,7 @@ export function MoodboardEditor({ initialData }: Props) {
       const el: TextElement = {
         id: makeId(), type: "text",
         x: snap(canvasX), y: snap(canvasY),
-        w: Math.max(120, tp.fontSize * 8),
+        w: tp.fontSize + 8, // starts narrow; auto-sized immediately via ref callback
         h: lineH,
         zIndex: ++nextZRef.current,
         content: "",
@@ -2016,7 +2018,10 @@ export function MoodboardEditor({ initialData }: Props) {
 
     const ta = textareaRef.current;
     const content = ta?.value ?? "";
-    const newH    = ta ? Math.max(10, ta.scrollHeight) : undefined;
+    // Use offsetWidth/offsetHeight — these reflect the auto-sized dimensions set
+    // by onInput, which is exactly the bounding box we want to store.
+    const newW = ta ? Math.max(10, ta.offsetWidth)  : undefined;
+    const newH = ta ? Math.max(10, ta.offsetHeight) : undefined;
 
     if (!content.trim()) {
       // Empty text → delete the placeholder element
@@ -2027,7 +2032,12 @@ export function MoodboardEditor({ initialData }: Props) {
       updateElements((prev) =>
         prev.map((el) => {
           if (el.id !== id || el.type !== "text") return el;
-          return { ...(el as TextElement), content, ...(newH !== undefined ? { h: newH } : {}) };
+          return {
+            ...(el as TextElement),
+            content,
+            ...(newW !== undefined ? { w: newW } : {}),
+            ...(newH !== undefined ? { h: newH } : {}),
+          };
         })
       );
     }
@@ -2599,57 +2609,97 @@ export function MoodboardEditor({ initialData }: Props) {
             {textEditingId && (() => {
               const editEl = elements.find((e) => e.id === textEditingId) as TextElement | undefined;
               if (!editEl || editEl.type !== "text") return null;
+              // Helper: resize textarea to exactly fit its content (width + height).
+              // Called on every input event and on initial mount.
+              const autoSizeTextarea = (ta: HTMLTextAreaElement) => {
+                const span = measureSpanRef.current;
+                const minW = editEl.fontSize + 8; // padding 2×4px included via boxSizing
+                if (span) {
+                  // Put the full text content in the measurement div so we get the
+                  // pixel width of the widest line (white-space:pre → no auto-wrap).
+                  span.textContent = ta.value || "​"; // zero-width space keeps height
+                  ta.style.width = Math.max(minW, span.offsetWidth) + "px";
+                }
+                // Height: collapse then expand to fit scrollHeight
+                ta.style.height = "0px";
+                ta.style.height = Math.max(editEl.fontSize * 1.4, ta.scrollHeight) + "px";
+              };
+
+              const sharedFontStyle: React.CSSProperties = {
+                fontSize: editEl.fontSize,
+                fontWeight: editEl.bold ? "bold" : "normal",
+                fontStyle: editEl.italic ? "italic" : "normal",
+                fontFamily: "inherit",
+                lineHeight: 1.4,
+                padding: "2px 4px",
+                boxSizing: "border-box",
+              };
+
               return (
-                <textarea
-                  key={textEditingId}
-                  ref={(el) => {
-                    textareaRef.current = el;
-                    if (el) {
-                      // Reliable focus: ref callback fires synchronously after DOM insertion.
-                      el.focus();
-                      el.setSelectionRange(el.value.length, el.value.length);
-                    }
-                  }}
-                  defaultValue={editEl.content}
-                  style={{
-                    position: "absolute",
-                    left: editEl.x,
-                    top: editEl.y,
-                    width: editEl.w,
-                    minHeight: editEl.h,
-                    fontSize: editEl.fontSize,
-                    color: editEl.color,
-                    textAlign: editEl.textAlign ?? "left",
-                    fontWeight: editEl.bold ? "bold" : "normal",
-                    fontStyle: editEl.italic ? "italic" : "normal",
-                    lineHeight: 1.4,
-                    fontFamily: "inherit",
-                    padding: "2px 4px",
-                    background: "transparent",
-                    border: "2px solid rgba(99,102,241,0.75)",
-                    outline: "none",
-                    resize: "none",
-                    overflow: "hidden",
-                    boxSizing: "border-box",
-                    caretColor: editEl.color,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    zIndex: 999999,
-                    pointerEvents: "all",
-                  }}
-                  onInput={(e) => {
-                    // Auto-grow height to fit content
-                    const ta = e.currentTarget;
-                    ta.style.height = "0px";
-                    ta.style.height = ta.scrollHeight + "px";
-                  }}
-                  onBlur={() => commitTextEdit()}
-                  onKeyDown={(e) => {
-                    e.stopPropagation(); // prevent global shortcuts while typing
-                    if (e.key === "Escape") { e.preventDefault(); commitTextEdit(); }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                />
+                <>
+                  {/* Hidden measurement div — same font as textarea, white-space:pre so it
+                      expands to exactly the widest line's pixel width (no wrapping). */}
+                  <div
+                    ref={measureSpanRef}
+                    aria-hidden
+                    style={{
+                      ...sharedFontStyle,
+                      position: "absolute",
+                      left: -99999,
+                      top: -99999,
+                      visibility: "hidden",
+                      pointerEvents: "none",
+                      whiteSpace: "pre",
+                      display: "inline-block",
+                    }}
+                  />
+
+                  <textarea
+                    key={textEditingId}
+                    ref={(el) => {
+                      textareaRef.current = el;
+                      if (el) {
+                        // Auto-size immediately so the textarea never shows at wrong dimensions.
+                        // (measureSpanRef is mounted first because it appears earlier in JSX.)
+                        autoSizeTextarea(el);
+                        // Reliable focus: ref callback fires synchronously after DOM insertion.
+                        el.focus();
+                        el.setSelectionRange(el.value.length, el.value.length);
+                      }
+                    }}
+                    defaultValue={editEl.content}
+                    style={{
+                      ...sharedFontStyle,
+                      position: "absolute",
+                      left: editEl.x,
+                      top: editEl.y,
+                      // Width and height are set dynamically by autoSizeTextarea;
+                      // editEl.w/h are just the initial fallback before the first paint.
+                      width: editEl.w,
+                      height: editEl.h,
+                      color: editEl.color,
+                      textAlign: editEl.textAlign ?? "left",
+                      background: "transparent",
+                      border: "2px solid rgba(99,102,241,0.75)",
+                      outline: "none",
+                      resize: "none",
+                      overflow: "hidden",
+                      caretColor: editEl.color,
+                      // pre: text only wraps at explicit \n — no auto word-wrap.
+                      // Width grows to fit the longest line.
+                      whiteSpace: "pre",
+                      zIndex: 999999,
+                      pointerEvents: "all",
+                    }}
+                    onInput={(e) => autoSizeTextarea(e.currentTarget)}
+                    onBlur={() => commitTextEdit()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation(); // prevent global shortcuts while typing
+                      if (e.key === "Escape") { e.preventDefault(); commitTextEdit(); }
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  />
+                </>
               );
             })()}
 
