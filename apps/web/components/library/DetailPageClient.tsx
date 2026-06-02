@@ -355,7 +355,8 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
       {/* ── Image mobile — swipe pour naviguer, pinch pour zoomer ── */}
       <div
-        className="md:hidden flex-shrink-0 relative w-full aspect-video bg-[var(--bg-surface)] overflow-hidden"
+        className="md:hidden flex-shrink-0 relative w-full bg-[var(--bg-surface)] overflow-hidden"
+        style={{ minHeight: "42vw", maxHeight: "62vw" }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}

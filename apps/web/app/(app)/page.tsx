@@ -4,7 +4,7 @@ export default async function HomePage() {
   const session = await auth();
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
         <header className="mb-12">
           <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-2">
@@ -16,7 +16,7 @@ export default async function HomePage() {
         </header>
 
         {/* Sections homepage — à remplir progressivement */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <HomeSection title="Récents" href="/library" />
           <HomeSection title="Collections" href="/collections" />
           <HomeSection title="Ajouter" href="/upload" />

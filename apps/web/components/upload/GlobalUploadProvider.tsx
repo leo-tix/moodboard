@@ -670,7 +670,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                     animate={{ x: 0 }}
                     exit={{ x: "100%" }}
                     transition={{ type: "spring", bounce: 0, duration: 0.32 }}
-                    className="fixed top-0 right-0 bottom-0 w-[480px] bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-[9999] flex flex-col"
+                    className="fixed top-0 right-0 bottom-0 w-full sm:w-[480px] bg-[var(--bg-base)] border-l border-[var(--border-subtle)] z-[9999] flex flex-col"
                   >
                     {/* Slide-over header */}
                     <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] flex-shrink-0">

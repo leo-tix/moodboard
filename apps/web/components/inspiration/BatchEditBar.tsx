@@ -122,9 +122,20 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
     >
       <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border-t border-[var(--border-default)] px-4 py-3"
            style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+
+        {/* Mobile: compact header row */}
+        <div className="flex items-center justify-between mb-2 md:hidden">
+          <p className="text-sm font-medium text-[var(--text-primary)]">
+            {selectedIds.length} sélectionnée{selectedIds.length > 1 ? "s" : ""}
+          </p>
+          <button onClick={onClear} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
+            Désélectionner
+          </button>
+        </div>
+
         <div className="flex items-start gap-4 max-w-5xl overflow-x-auto scrollbar-none" style={{ touchAction: "pan-x" }}>
-          {/* Count + controls */}
-          <div className="flex-shrink-0 pt-4">
+          {/* Count + controls — desktop only */}
+          <div className="hidden md:block flex-shrink-0 pt-4">
             <p className="text-sm font-medium text-[var(--text-primary)]">
               {selectedIds.length} sélectionnée{selectedIds.length > 1 ? "s" : ""}
             </p>
@@ -136,7 +147,7 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
             </button>
           </div>
 
-          <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
+          <div className="hidden md:block w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
 
           {/* Title */}
           <div className="w-44 flex-shrink-0">

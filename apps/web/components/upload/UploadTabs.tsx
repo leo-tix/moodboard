@@ -20,7 +20,7 @@ export function UploadTabs() {
   return (
     <div className="space-y-6">
       {/* Tab switcher */}
-      <div className="flex gap-1 p-1 bg-[var(--bg-surface)] rounded-lg w-fit">
+      <div className="flex flex-wrap gap-1 p-1 bg-[var(--bg-surface)] rounded-lg w-fit">
         {TABS.map((t) => (
           <button
             key={t.id}

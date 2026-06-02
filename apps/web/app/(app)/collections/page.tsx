@@ -32,7 +32,7 @@ export default async function CollectionsPage() {
   const suggestions = await getSuggestedCollections(collections.map((c) => c.name));
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">

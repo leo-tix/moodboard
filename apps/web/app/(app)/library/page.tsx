@@ -25,18 +25,18 @@ export default async function LibraryPage() {
   });
 
   return (
-    <div className="p-6">
-      <header className="mb-4 flex items-center justify-between">
-        <div>
+    <div className="p-4 md:p-6">
+      <header className="mb-4 flex items-center justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">Archive</p>
-          <h1 className="text-2xl font-light text-[var(--text-primary)]">
+          <h1 className="text-xl md:text-2xl font-light text-[var(--text-primary)] flex items-baseline gap-2 flex-wrap">
             Bibliothèque
             {inspirations.length > 0 && (
-              <span className="ml-3 text-sm font-normal text-[var(--text-tertiary)]">{inspirations.length}</span>
+              <span className="text-sm font-normal text-[var(--text-tertiary)]">{inspirations.length}</span>
             )}
           </h1>
         </div>
-        <a href="/upload" className="px-4 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors">
+        <a href="/upload" className="flex-shrink-0 px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors">
           + Ajouter
         </a>
       </header>

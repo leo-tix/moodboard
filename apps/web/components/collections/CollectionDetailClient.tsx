@@ -160,7 +160,7 @@ export function CollectionDetailClient({
             <h1 className="text-2xl font-light text-[var(--text-primary)]">{name}</h1>
             <button
               onClick={() => { setNameValue(name); setIsEditingName(true); }}
-              className="opacity-0 group-hover/title:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-sm"
+              className="opacity-60 md:opacity-0 md:group-hover/title:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-sm"
               title="Renommer"
             >
               ✎

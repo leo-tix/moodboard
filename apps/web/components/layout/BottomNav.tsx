@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
 import { TriageBadge } from "@/components/triage/TriageBadge";
 
 const NAV_ITEMS = [
-  { href: "/",            label: "Accueil",  icon: "○" },
-  { href: "/library",     label: "Biblio",   icon: "◻" },
-  { href: "/upload",      label: "Ajouter",  icon: "+" , primary: true },
-  { href: "/triage",      label: "Triage",   icon: "⇄" },
-  { href: "/moodboards",  label: "Planches", icon: "⬚" },
+  { href: "/library",     label: "Biblio",      icon: "◻" },
+  { href: "/collections", label: "Collections", icon: "▣" },
+  { href: "/upload",      label: "Ajouter",     icon: "+", primary: true },
+  { href: "/triage",      label: "Triage",      icon: "⇄" },
+  { href: "/search",      label: "Recherche",   icon: "◎" },
 ];
 
 export function BottomNav() {

@@ -187,7 +187,7 @@ export function CategoryManager() {
   }
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 md:p-8 max-w-2xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-lg font-medium text-[var(--text-primary)]">Catégories</h1>

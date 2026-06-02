@@ -5,6 +5,7 @@ import { InspirationGrid, type InspirationGridItem } from "@/components/inspirat
 import { LibraryClient } from "@/components/inspiration/LibraryClient";
 import { SearchBar } from "@/components/search/SearchBar";
 import { FilterPanel } from "@/components/search/FilterPanel";
+import { FilterDrawer } from "@/components/search/FilterDrawer";
 import type { Prisma } from "@prisma/client";
 import { Prisma as PrismaClient } from "@prisma/client";
 
@@ -150,8 +151,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     .map((t) => ({ name: t.name, slug: t.slug, count: t._count.inspirations }));
 
   return (
-    <div className="p-6">
-      <header className="mb-6">
+    <div className="p-4 md:p-6">
+      <header className="mb-4 md:mb-6">
         <div className="flex items-center gap-3 mb-1">
           <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase">Explorer</p>
           {/* Toggle archives */}
@@ -201,8 +202,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         )
       ) : (
         <div className="flex gap-8">
+          {/* Mobile: drawer toggle + panel; Desktop: inline sidebar */}
           <Suspense>
-            <FilterPanel categories={categories} popularTags={tagsForPanel} />
+            <FilterDrawer hasActiveFilters={!!(categoryId || tags.length || yearFrom || yearTo || colorHex)}>
+              <FilterPanel categories={categories} popularTags={tagsForPanel} />
+            </FilterDrawer>
           </Suspense>
 
           <div className="flex-1 min-w-0">

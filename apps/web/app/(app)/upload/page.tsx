@@ -5,8 +5,8 @@ export const metadata: Metadata = { title: "Ajouter" };
 
 export default function UploadPage() {
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <header className="mb-8">
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      <header className="mb-6 md:mb-8">
         <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">
           Import
         </p>

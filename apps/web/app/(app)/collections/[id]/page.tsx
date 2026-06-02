@@ -47,7 +47,7 @@ export default async function CollectionDetailPage({ params }: Props) {
   if (!collection) notFound();
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <div className="flex items-center gap-2 mb-6">
         <Link
           href="/collections"
