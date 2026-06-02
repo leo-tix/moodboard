@@ -4,10 +4,12 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { DropZone } from "@/components/upload/DropZone";
 import { YouTubeImportClient } from "@/components/youtube/YouTubeImportClient";
+import { SocialImportClient } from "@/components/upload/SocialImportClient";
 
 const TABS = [
-  { id: "files",   label: "Fichiers", icon: "↑" },
-  { id: "youtube", label: "YouTube",  icon: "▶" },
+  { id: "files",   label: "Fichiers",              icon: "↑" },
+  { id: "youtube", label: "YouTube",               icon: "▶" },
+  { id: "social",  label: "Pinterest / Instagram", icon: "◈" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -38,6 +40,7 @@ export function UploadTabs() {
 
       {tab === "files"   && <DropZone />}
       {tab === "youtube" && <YouTubeImportClient />}
+      {tab === "social"  && <SocialImportClient />}
     </div>
   );
 }

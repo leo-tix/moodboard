@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const target = `#${hex}`;
 
   const inspirations = await db.inspiration.findMany({
-    where: { status: "READY", colorPalette: { some: {} } },
+    where: { status: "READY", isArchived: false, isAccepted: true, colorPalette: { some: {} } },
     include: {
       colorPalette: { orderBy: { order: "asc" } },
       images: {

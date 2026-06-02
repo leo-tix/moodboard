@@ -22,7 +22,10 @@ export const createInspirationSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 
-export const updateInspirationSchema = createInspirationSchema.partial();
+export const updateInspirationSchema = createInspirationSchema.partial().extend({
+  isArchived: z.boolean().optional(),
+  isAccepted: z.boolean().optional(),
+});
 
 export type CreateInspirationInput = z.infer<typeof createInspirationSchema>;
 export type UpdateInspirationInput = z.infer<typeof updateInspirationSchema>;

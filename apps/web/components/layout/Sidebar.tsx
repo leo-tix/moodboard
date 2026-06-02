@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { TriageBadge } from "@/components/triage/TriageBadge";
 
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: "○" },
@@ -11,7 +12,8 @@ const NAV_ITEMS = [
   { href: "/collections", label: "Collections", icon: "▣" },
   { href: "/moodboards", label: "Planches", icon: "⬚" },
   { href: "/search", label: "Recherche", icon: "◎" },
-  { href: "/upload", label: "Ajouter", icon: "+" },
+  { href: "/upload",  label: "Ajouter",  icon: "+" },
+  { href: "/triage",  label: "Triage",   icon: "⇄" },
 ];
 
 export function Sidebar() {
@@ -57,8 +59,22 @@ export function Sidebar() {
                   transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
                 />
               )}
-              <span className="relative z-10 font-mono text-xs">{item.icon}</span>
-              <span className="relative z-10 hidden xl:block">{item.label}</span>
+              {/* Icon — with superposed badge in icon-only mode (md, not xl) */}
+              <span className="relative z-10 font-mono text-xs flex-shrink-0">
+                {item.icon}
+                {item.href === "/triage" && (
+                  <span className="absolute -top-2 -right-2.5 xl:hidden pointer-events-none">
+                    <TriageBadge />
+                  </span>
+                )}
+              </span>
+              <span className="relative z-10 hidden xl:block flex-1">{item.label}</span>
+              {/* Badge inline on xl (full label visible) */}
+              {item.href === "/triage" && (
+                <span className="relative z-10 hidden xl:flex">
+                  <TriageBadge />
+                </span>
+              )}
             </Link>
           );
         })}

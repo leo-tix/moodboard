@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const limit = limitParam ? Math.min(parseInt(limitParam, 10) || 200, 500) : 200;
 
   const rows = await db.inspiration.findMany({
-    where: { status: "READY" },
+    where: { status: "READY", isArchived: false, isAccepted: true },
     select: {
       id: true,
       title: true,

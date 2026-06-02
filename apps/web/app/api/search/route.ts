@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
 
   // Construction des filtres Prisma
   const where: Prisma.InspirationWhereInput = {
-    status: "READY",
+    status:     "READY",
+    isArchived: false,
+    isAccepted: true,
 
     // Filtre texte — recherche sur titre, auteur, studio, description, notes, tags
     ...(q && {

@@ -7,7 +7,7 @@ export const revalidate = 60;
 
 export default async function LibraryPage() {
   const inspirations = await db.inspiration.findMany({
-    where: { status: "READY" },
+    where: { status: "READY", isAccepted: true, isArchived: false },
     include: {
       images: {
         select: { storageKey: true, thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true, isAnimated: true },

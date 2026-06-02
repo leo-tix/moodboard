@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CategorySelect, type Category, type CategoryValue } from "./CategorySelect";
 
 export interface CategorySelection {
@@ -16,7 +16,6 @@ interface CategoryMultiSelectProps {
 
 export function CategoryMultiSelect({ categories, value, onChange }: CategoryMultiSelectProps) {
   const [localCats, setLocalCats] = useState<Category[]>(categories);
-  const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<CategoryValue>({ categoryId: "", subcategoryId: "" });
 
   useEffect(() => { setLocalCats(categories); }, [categories]);
@@ -32,22 +31,23 @@ export function CategoryMultiSelect({ categories, value, onChange }: CategoryMul
     onChange(value.filter((s) => s.categoryId !== categoryId));
   };
 
-  const confirmAdd = () => {
-    if (!draft.categoryId) return;
-    // Replace if same category already selected, otherwise append
-    const exists = value.find((s) => s.categoryId === draft.categoryId);
+  // Called when the user makes a final selection in the dropdown (sub-cat click or "Toutes")
+  const handleConfirm = useCallback((confirmed: CategoryValue) => {
+    if (!confirmed.categoryId) return;
+    const exists = value.find((s) => s.categoryId === confirmed.categoryId);
     if (exists) {
+      // Update subcategory if same category already selected
       onChange(value.map((s) =>
-        s.categoryId === draft.categoryId
-          ? { ...s, subcategoryId: draft.subcategoryId || null }
+        s.categoryId === confirmed.categoryId
+          ? { ...s, subcategoryId: confirmed.subcategoryId || null }
           : s
       ));
     } else {
-      onChange([...value, { categoryId: draft.categoryId, subcategoryId: draft.subcategoryId || null }]);
+      onChange([...value, { categoryId: confirmed.categoryId, subcategoryId: confirmed.subcategoryId || null }]);
     }
+    // Reset picker for the next selection
     setDraft({ categoryId: "", subcategoryId: "" });
-    setAdding(false);
-  };
+  }, [value, onChange]);
 
   return (
     <div className="space-y-2">
@@ -72,43 +72,15 @@ export function CategoryMultiSelect({ categories, value, onChange }: CategoryMul
         </div>
       )}
 
-      {/* Add selector */}
-      {adding ? (
-        <div className="space-y-1.5">
-          <CategorySelect
-            categories={localCats}
-            value={draft}
-            onChange={setDraft}
-            showCreateButton
-            onCategoryCreated={(cat) => setLocalCats((prev) => [...prev, cat])}
-          />
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={confirmAdd}
-              disabled={!draft.categoryId}
-              className="px-3 py-1 bg-[var(--text-primary)] text-[var(--bg-base)] text-xs rounded disabled:opacity-40 transition-opacity"
-            >
-              Ajouter
-            </button>
-            <button
-              type="button"
-              onClick={() => { setAdding(false); setDraft({ categoryId: "", subcategoryId: "" }); }}
-              className="px-3 py-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-xs transition-colors"
-            >
-              Annuler
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-dashed border-[var(--border-subtle)] rounded px-3 py-1.5 w-full"
-        >
-          + {value.length === 0 ? "Ajouter une catégorie" : "Ajouter une autre catégorie"}
-        </button>
-      )}
+      {/* Picker — always visible, selection = immediate add */}
+      <CategorySelect
+        categories={localCats}
+        value={draft}
+        onChange={setDraft}
+        onConfirm={handleConfirm}
+        showCreateButton
+        onCategoryCreated={(cat) => setLocalCats((prev) => [...prev, cat])}
+      />
     </div>
   );
 }

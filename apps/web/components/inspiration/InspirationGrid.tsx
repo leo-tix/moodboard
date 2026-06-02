@@ -19,6 +19,8 @@ export interface InspirationGridItem {
     isAnimated?: boolean;
   }[];
   tags: { tag: { name: string } }[];
+  /** Nombre de planches moodboard contenant cette image (affiché en badge) */
+  moodboardCount?: number;
 }
 
 interface InspirationGridProps {
@@ -137,6 +139,7 @@ export function InspirationGrid({
                   }
                   tags={item.tags.map((t) => t.tag.name)}
                   year={item.year}
+                  moodboardCount={item.moodboardCount}
                   selectable={selectable}
                   selected={selectedIds?.has(item.id)}
                   onSelect={onSelect}

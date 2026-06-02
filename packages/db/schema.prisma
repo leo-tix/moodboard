@@ -119,6 +119,11 @@ model Inspiration {
   // Notes personnelles
   notes          String?
 
+  // Triage — archivé (masqué de la bibliothèque, conservé en DB)
+  isArchived     Boolean        @default(false)
+  // Triage — accepté explicitement par l'utilisateur (visible dans la bibliothèque)
+  isAccepted     Boolean        @default(false)
+
   // Statut traitement
   status         InspirationStatus @default(PROCESSING)
 

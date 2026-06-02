@@ -18,6 +18,8 @@ interface InspirationCardProps {
   tags?: string[];
   year?: number | null;
   className?: string;
+  /** Nombre de planches moodboard où cette image est présente */
+  moodboardCount?: number;
   // Selection
   selectable?: boolean;
   selected?: boolean;
@@ -37,6 +39,7 @@ export function InspirationCard({
   tags = [],
   year,
   className,
+  moodboardCount,
   selectable,
   selected,
   onSelect,
@@ -72,6 +75,16 @@ export function InspirationCard({
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="text-[var(--text-tertiary)] text-xs">Sans image</span>
+        </div>
+      )}
+
+      {/* Badge moodboards */}
+      {moodboardCount != null && moodboardCount > 0 && (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[9px] font-medium px-1.5 py-0.5 rounded-full pointer-events-none">
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1" y="3" width="8" height="6" rx="1"/><path d="M3 3V2a2 2 0 014 0v1"/>
+          </svg>
+          {moodboardCount}
         </div>
       )}
 

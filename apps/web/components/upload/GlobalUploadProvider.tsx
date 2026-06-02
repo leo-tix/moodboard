@@ -156,7 +156,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
       document.removeEventListener("drop", onDrop);
       window.removeEventListener("paste", onPaste);
     };
-  }, [isUploadPage, enqueue]);
+  }, [isUploadPage, isMoodboardEditor, enqueue]);
 
   // ── AI: analyze + auto-apply ──────────────────────────────────────────────
 
@@ -397,7 +397,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
             {/* ── Floating upload panel ──────────────────────────────────── */}
             <AnimatePresence>
-              {files.length > 0 && (
+              {files.length > 0 && !isMoodboardEditor && (
                 <motion.div
                   key="upload-panel"
                   initial={{ y: 24, opacity: 0, scale: 0.97 }}

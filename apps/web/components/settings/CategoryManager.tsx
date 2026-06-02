@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -22,43 +22,106 @@ interface Category {
   _count: { inspirationCategories: number };
 }
 
+interface CatEditFields {
+  name: string;
+  icon: string;
+  description: string;
+}
+
 export function CategoryManager() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // New category form
+  // ── Inline editable fields — always visible, debounced auto-save ──
+  const [editMap, setEditMap] = useState<Record<string, CatEditFields>>({});
+  // Ref always points to the latest editMap (avoids stale closures in setTimeout)
+  const editMapRef = useRef<Record<string, CatEditFields>>({});
+  editMapRef.current = editMap;
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [savingCat, setSavingCat] = useState<string | null>(null);
+
+  // ── New category form ──
   const [newCat, setNewCat] = useState({ name: "", icon: "", description: "" });
   const [addingCat, setAddingCat] = useState(false);
   const [showNewCatForm, setShowNewCatForm] = useState(false);
 
-  // Editing state per category
-  const [editingCat, setEditingCat] = useState<string | null>(null);
-  const [editCatData, setEditCatData] = useState({ name: "", icon: "", description: "" });
-  const [savingCat, setSavingCat] = useState<string | null>(null);
-
-  // New subcategory per category
+  // ── New subcategory per category ──
   const [newSubName, setNewSubName] = useState<Record<string, string>>({});
   const [addingSub, setAddingSub] = useState<string | null>(null);
 
-  // Delete confirm
+  // ── Delete confirm ──
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const fieldClass =
     "bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-[var(--border-default)] transition-colors placeholder:text-[var(--text-tertiary)]";
 
+  // ── Merge categories into editMap without overwriting in-flight edits ──
+  const mergeEditMap = useCallback((cats: Category[]) => {
+    setEditMap((prev) => {
+      const next = { ...prev };
+      for (const c of cats) {
+        if (!next[c.id]) {
+          next[c.id] = {
+            name: c.name,
+            icon: c.icon ?? "",
+            description: c.description ?? "",
+          };
+        }
+      }
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     fetch("/api/categories")
       .then((r) => r.json())
-      .then(setCategories)
+      .then((cats: Category[]) => {
+        setCategories(cats);
+        mergeEditMap(cats);
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [mergeEditMap]);
 
-  const reload = () =>
-    fetch("/api/categories")
-      .then((r) => r.json())
-      .then(setCategories);
+  const reload = useCallback(async () => {
+    const cats: Category[] = await fetch("/api/categories").then((r) => r.json());
+    setCategories(cats);
+    mergeEditMap(cats);
+  }, [mergeEditMap]);
+
+  // ── Debounced auto-save ──
+  const handleCatFieldChange = useCallback(
+    (catId: string, field: keyof CatEditFields, value: string) => {
+      // Update local state immediately
+      setEditMap((prev) => ({
+        ...prev,
+        [catId]: { ...prev[catId], [field]: value },
+      }));
+
+      // Debounce PATCH
+      if (debounceTimers.current[catId]) clearTimeout(debounceTimers.current[catId]);
+      debounceTimers.current[catId] = setTimeout(async () => {
+        const data = editMapRef.current[catId];
+        if (!data) return;
+        setSavingCat(catId);
+        try {
+          await fetch(`/api/categories/${catId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: data.name.trim() || undefined,
+              icon: data.icon.trim() || undefined,
+              description: data.description.trim() || undefined,
+            }),
+          });
+        } finally {
+          setSavingCat(null);
+        }
+      }, 800);
+    },
+    [] // editMapRef.current is always fresh — no stale closure
+  );
 
   const createCategory = async () => {
     if (!newCat.name.trim()) return;
@@ -83,39 +146,17 @@ export function CategoryManager() {
     }
   };
 
-  const startEditCat = (cat: Category) => {
-    setEditingCat(cat.id);
-    setEditCatData({
-      name: cat.name,
-      icon: cat.icon ?? "",
-      description: cat.description ?? "",
-    });
-  };
-
-  const saveCategory = async (id: string) => {
-    setSavingCat(id);
-    try {
-      await fetch(`/api/categories/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: editCatData.name.trim() || undefined,
-          icon: editCatData.icon.trim() || undefined,
-          description: editCatData.description.trim() || undefined,
-        }),
-      });
-      setEditingCat(null);
-      await reload();
-    } finally {
-      setSavingCat(null);
-    }
-  };
-
   const deleteCategory = async (id: string) => {
     setDeleting(id);
     try {
       await fetch(`/api/categories/${id}`, { method: "DELETE" });
       setConfirmDelete(null);
+      // Remove from editMap
+      setEditMap((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       await reload();
     } finally {
       setDeleting(null);
@@ -159,7 +200,7 @@ export function CategoryManager() {
         </Button>
       </div>
 
-      {/* Formulaire nouvelle catégorie */}
+      {/* ── Formulaire nouvelle catégorie ── */}
       <AnimatePresence>
         {showNewCatForm && (
           <motion.div
@@ -196,11 +237,7 @@ export function CategoryManager() {
                 onChange={(e) => setNewCat((p) => ({ ...p, description: e.target.value }))}
               />
               <div className="flex gap-2 justify-end">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowNewCatForm(false)}
-                >
+                <Button size="sm" variant="ghost" onClick={() => setShowNewCatForm(false)}>
                   Annuler
                 </Button>
                 <Button size="sm" onClick={createCategory} loading={addingCat}>
@@ -212,136 +249,100 @@ export function CategoryManager() {
         )}
       </AnimatePresence>
 
-      {/* Liste des catégories */}
+      {/* ── Liste des catégories ── */}
       <div className="space-y-2">
         {categories.map((cat) => {
           const isExpanded = expandedId === cat.id;
-          const isEditing = editingCat === cat.id;
+          const fields = editMap[cat.id] ?? {
+            name: cat.name,
+            icon: cat.icon ?? "",
+            description: cat.description ?? "",
+          };
 
           return (
             <div
               key={cat.id}
               className="border border-[var(--border-subtle)] rounded-lg overflow-hidden bg-[var(--bg-surface)]"
             >
-              {/* Header catégorie */}
-              <div className="flex items-center gap-3 px-4 py-3">
+              {/* Header — icon + name always editable */}
+              <div className="flex items-center gap-2 px-3 py-2.5">
                 {/* Icon */}
-                {isEditing ? (
-                  <input
-                    className={`${fieldClass} w-10 text-center`}
-                    maxLength={2}
-                    value={editCatData.icon}
-                    onChange={(e) =>
-                      setEditCatData((p) => ({ ...p, icon: e.target.value }))
-                    }
-                  />
-                ) : (
-                  <span className="text-base w-8 text-center flex-shrink-0 text-[var(--text-tertiary)]">
-                    {cat.icon ?? "○"}
+                <input
+                  className={`${fieldClass} w-10 text-center flex-shrink-0`}
+                  maxLength={2}
+                  value={fields.icon}
+                  onChange={(e) => handleCatFieldChange(cat.id, "icon", e.target.value)}
+                  placeholder="○"
+                  title="Icône"
+                />
+
+                {/* Name */}
+                <input
+                  className={`${fieldClass} flex-1 min-w-0`}
+                  value={fields.name}
+                  onChange={(e) => handleCatFieldChange(cat.id, "name", e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  placeholder="Nom…"
+                />
+
+                {/* Meta + status */}
+                <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0">
+                  {cat._count.inspirationCategories} réf.
+                </span>
+                {savingCat === cat.id && (
+                  <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0 animate-pulse">
+                    ●
                   </span>
                 )}
 
-                {/* Name / edit */}
-                {isEditing ? (
-                  <input
-                    className={`${fieldClass} flex-1`}
-                    value={editCatData.name}
-                    onChange={(e) =>
-                      setEditCatData((p) => ({ ...p, name: e.target.value }))
-                    }
-                    onKeyDown={(e) => e.key === "Enter" && saveCategory(cat.id)}
-                    autoFocus
-                  />
-                ) : (
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm text-[var(--text-primary)]">{cat.name}</span>
-                    <span className="ml-2 text-[10px] text-[var(--text-tertiary)]">
-                      {cat._count.inspirationCategories} réf.
-                    </span>
-                  </div>
-                )}
-
                 {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {isEditing ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditingCat(null)}
-                      >
-                        Annuler
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => saveCategory(cat.id)}
-                        loading={savingCat === cat.id}
-                      >
-                        Sauver
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() =>
-                          setExpandedId(isExpanded ? null : cat.id)
-                        }
-                        className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors px-2 py-1"
-                      >
-                        {cat.subcategories.length} sous-cat.{" "}
-                        {isExpanded ? "▲" : "▼"}
-                      </button>
-                      <button
-                        onClick={() => startEditCat(cat)}
-                        className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors px-2 py-1"
-                      >
-                        Modifier
-                      </button>
-                      {confirmDelete === cat.id ? (
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-red-400">Confirmer ?</span>
-                          <button
-                            onClick={() => deleteCategory(cat.id)}
-                            disabled={deleting === cat.id}
-                            className="text-[10px] text-red-400 hover:text-red-300 px-1"
-                          >
-                            {deleting === cat.id ? "…" : "Oui"}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1"
-                          >
-                            Non
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDelete(cat.id)}
-                          className="text-[10px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-2 py-1"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : cat.id)}
+                  className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors px-1.5 py-1 flex-shrink-0"
+                  title="Sous-catégories"
+                >
+                  {cat.subcategories.length} ▾
+                </button>
+
+                {confirmDelete === cat.id ? (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className="text-[10px] text-red-400">Supprimer ?</span>
+                    <button
+                      onClick={() => deleteCategory(cat.id)}
+                      disabled={deleting === cat.id}
+                      className="text-[10px] text-red-400 hover:text-red-300 px-1"
+                    >
+                      {deleting === cat.id ? "…" : "Oui"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1"
+                    >
+                      Non
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(cat.id)}
+                    className="text-[10px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-1.5 py-1 flex-shrink-0"
+                    title="Supprimer"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
 
-              {/* Description (édition) */}
-              {isEditing && (
-                <div className="px-4 pb-3">
-                  <input
-                    className={`${fieldClass} w-full`}
-                    placeholder="Description (optionnel)"
-                    value={editCatData.description}
-                    onChange={(e) =>
-                      setEditCatData((p) => ({ ...p, description: e.target.value }))
-                    }
-                  />
-                </div>
-              )}
+              {/* Description — always visible, compact */}
+              <div className="px-3 pb-2.5">
+                <input
+                  className={`${fieldClass} w-full`}
+                  placeholder="Description (optionnel)"
+                  value={fields.description}
+                  onChange={(e) => handleCatFieldChange(cat.id, "description", e.target.value)}
+                />
+              </div>
 
-              {/* Sous-catégories */}
+              {/* ── Sous-catégories ── */}
               <AnimatePresence>
                 {isExpanded && (
                   <motion.div
@@ -374,14 +375,9 @@ export function CategoryManager() {
                           placeholder="Nouvelle sous-catégorie…"
                           value={newSubName[cat.id] ?? ""}
                           onChange={(e) =>
-                            setNewSubName((p) => ({
-                              ...p,
-                              [cat.id]: e.target.value,
-                            }))
+                            setNewSubName((p) => ({ ...p, [cat.id]: e.target.value }))
                           }
-                          onKeyDown={(e) =>
-                            e.key === "Enter" && createSubcategory(cat.id)
-                          }
+                          onKeyDown={(e) => e.key === "Enter" && createSubcategory(cat.id)}
                         />
                         <Button
                           size="sm"

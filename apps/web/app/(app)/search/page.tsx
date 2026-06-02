@@ -2,9 +2,11 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { InspirationGrid, type InspirationGridItem } from "@/components/inspiration/InspirationGrid";
+import { LibraryClient } from "@/components/inspiration/LibraryClient";
 import { SearchBar } from "@/components/search/SearchBar";
 import { FilterPanel } from "@/components/search/FilterPanel";
 import type { Prisma } from "@prisma/client";
+import { Prisma as PrismaClient } from "@prisma/client";
 
 export const metadata: Metadata = { title: "Recherche" };
 export const dynamic = "force-dynamic";
@@ -26,6 +28,7 @@ interface SearchPageProps {
     yearTo?: string;
     color?: string;
     page?: string;
+    archived?: string;
   }>;
 }
 
@@ -38,11 +41,14 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const yearTo = params.yearTo ? parseInt(params.yearTo) : null;
   const colorHex = params.color ? params.color.replace("#", "").toUpperCase() : "";
   const isColorSearch = /^[0-9A-F]{6}$/.test(colorHex);
+  const isArchivedMode = params.archived === "true";
 
   const hasFilters = q || categoryId || tags.length > 0 || yearFrom || yearTo || isColorSearch;
 
   const textWhere: Prisma.InspirationWhereInput = {
-    status: "READY",
+    status:     "READY",
+    isAccepted: isArchivedMode ? undefined : true,
+    isArchived: isArchivedMode ? true : false,
     ...(q && {
       OR: [
         { title: { contains: q, mode: "insensitive" } },
@@ -68,7 +74,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   const [inspirationsRaw, categories, popularTags] = await Promise.all([
     db.inspiration.findMany({
-      where: isColorSearch ? { status: "READY", colorPalette: { some: {} } } : textWhere,
+      where: isColorSearch
+        ? { status: "READY", isAccepted: isArchivedMode ? undefined : true, isArchived: isArchivedMode ? true : false, colorPalette: { some: {} } }
+        : textWhere,
       include: {
         colorPalette: isColorSearch ? { orderBy: { order: "asc" } } : false,
         images: {
@@ -112,6 +120,31 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     inspirations = inspirationsRaw;
   }
 
+  // ── En mode archives : compter les moodboards qui contiennent chaque image ──
+  let moodboardCountMap: Record<string, number> = {};
+  if (isArchivedMode && inspirations.length > 0) {
+    const ids = inspirations.map((i) => i.id);
+    try {
+      const rows = await db.$queryRaw<{ inspiration_id: string; count: bigint }[]>(
+        PrismaClient.sql`
+          SELECT
+            elem->>'inspirationId' AS inspiration_id,
+            COUNT(DISTINCT id)::integer AS count
+          FROM moodboards,
+            jsonb_array_elements("canvasData") AS elem
+          WHERE elem->>'type' = 'image'
+            AND elem->>'inspirationId' = ANY(${ids})
+          GROUP BY elem->>'inspirationId'
+        `
+      );
+      for (const row of rows) {
+        moodboardCountMap[row.inspiration_id] = Number(row.count);
+      }
+    } catch {
+      // Non-bloquant — le badge ne s'affiche pas si la requête échoue
+    }
+  }
+
   const tagsForPanel = popularTags
     .filter((t) => t._count.inspirations > 0)
     .map((t) => ({ name: t.name, slug: t.slug, count: t._count.inspirations }));
@@ -119,59 +152,100 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   return (
     <div className="p-6">
       <header className="mb-6">
-        <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">Explorer</p>
-        <h1 className="text-2xl font-light text-[var(--text-primary)] mb-4">Recherche</h1>
-        <Suspense>
-          <SearchBar autoFocus />
-        </Suspense>
+        <div className="flex items-center gap-3 mb-1">
+          <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase">Explorer</p>
+          {/* Toggle archives */}
+          <a
+            href={isArchivedMode ? "/search" : "/search?archived=true"}
+            className={`text-[10px] px-2.5 py-1 rounded-full border transition-colors ${
+              isArchivedMode
+                ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            }`}
+          >
+            {isArchivedMode ? "✕ Quitter les archives" : "⊘ Voir les archives"}
+          </a>
+        </div>
+        <h1 className="text-2xl font-light text-[var(--text-primary)] mb-4">
+          {isArchivedMode ? "Archives" : "Recherche"}
+          {isArchivedMode && (
+            <span className="ml-3 text-sm font-normal text-amber-400/80">
+              {inspirations.length} image{inspirations.length !== 1 ? "s" : ""} archivée{inspirations.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </h1>
+        {!isArchivedMode && (
+          <Suspense>
+            <SearchBar autoFocus />
+          </Suspense>
+        )}
       </header>
 
-      <div className="flex gap-8">
-        <Suspense>
-          <FilterPanel categories={categories} popularTags={tagsForPanel} />
-        </Suspense>
+      {/* Mode archives — grille sélectionnable avec BatchEditBar */}
+      {isArchivedMode ? (
+        inspirations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <p className="text-[var(--text-tertiary)] text-sm">Aucune image archivée</p>
+            <a href="/triage" className="text-xs text-[var(--accent,#a78bfa)] mt-2 hover:opacity-80 transition-opacity">
+              ← Retour au triage
+            </a>
+          </div>
+        ) : (
+          <LibraryClient
+          isArchivedMode
+          inspirations={(inspirations as InspirationGridItem[]).map((i) => ({
+            ...i,
+            moodboardCount: moodboardCountMap[i.id] ?? 0,
+          }))}
+        />
+        )
+      ) : (
+        <div className="flex gap-8">
+          <Suspense>
+            <FilterPanel categories={categories} popularTags={tagsForPanel} />
+          </Suspense>
 
-        <div className="flex-1 min-w-0">
-          {/* Color search badge */}
-          {isColorSearch && (
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-5 h-5 rounded-sm border border-[var(--border-subtle)]" style={{ backgroundColor: `#${colorHex}` }} />
-              <p className="text-xs text-[var(--text-secondary)]">
-                Couleurs similaires à <span className="font-mono">#{colorHex}</span>
-              </p>
-              {inspirations.length > 0 && (
-                <span className="text-[10px] text-[var(--text-tertiary)]">— {inspirations.length} résultat{inspirations.length > 1 ? "s" : ""}</span>
-              )}
-            </div>
-          )}
-
-          {hasFilters && !isColorSearch && (
-            <p className="text-xs text-[var(--text-tertiary)] mb-4">
-              {inspirations.length === 0
-                ? "Aucun résultat"
-                : `${inspirations.length} résultat${inspirations.length > 1 ? "s" : ""}${q ? ` pour "${q}"` : ""}`}
-            </p>
-          )}
-
-          {!hasFilters ? (
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <p className="text-[var(--text-tertiary)] text-sm mb-1">Tape quelque chose pour commencer</p>
-              <p className="text-[var(--text-tertiary)] text-xs">ou utilise les filtres pour explorer ta bibliothèque</p>
-            </div>
-          ) : inspirations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <p className="text-[var(--text-tertiary)] text-sm">Aucun résultat</p>
-              {isColorSearch && (
-                <p className="text-[var(--text-tertiary)] text-xs mt-1">
-                  Essaie une couleur plus proche de ta bibliothèque
+          <div className="flex-1 min-w-0">
+            {isColorSearch && (
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-5 h-5 rounded-sm border border-[var(--border-subtle)]" style={{ backgroundColor: `#${colorHex}` }} />
+                <p className="text-xs text-[var(--text-secondary)]">
+                  Couleurs similaires à <span className="font-mono">#{colorHex}</span>
                 </p>
-              )}
-            </div>
-          ) : (
-            <InspirationGrid inspirations={inspirations as InspirationGridItem[]} columns={3} />
-          )}
+                {inspirations.length > 0 && (
+                  <span className="text-[10px] text-[var(--text-tertiary)]">— {inspirations.length} résultat{inspirations.length > 1 ? "s" : ""}</span>
+                )}
+              </div>
+            )}
+
+            {hasFilters && !isColorSearch && (
+              <p className="text-xs text-[var(--text-tertiary)] mb-4">
+                {inspirations.length === 0
+                  ? "Aucun résultat"
+                  : `${inspirations.length} résultat${inspirations.length > 1 ? "s" : ""}${q ? ` pour "${q}"` : ""}`}
+              </p>
+            )}
+
+            {!hasFilters ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center">
+                <p className="text-[var(--text-tertiary)] text-sm mb-1">Tape quelque chose pour commencer</p>
+                <p className="text-[var(--text-tertiary)] text-xs">ou utilise les filtres pour explorer ta bibliothèque</p>
+              </div>
+            ) : inspirations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center">
+                <p className="text-[var(--text-tertiary)] text-sm">Aucun résultat</p>
+                {isColorSearch && (
+                  <p className="text-[var(--text-tertiary)] text-xs mt-1">
+                    Essaie une couleur plus proche de ta bibliothèque
+                  </p>
+                )}
+              </div>
+            ) : (
+              <InspirationGrid inspirations={inspirations as InspirationGridItem[]} columns={3} />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

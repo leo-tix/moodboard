@@ -16,21 +16,23 @@ interface Category {
 }
 
 interface BatchEditBarProps {
-  selectedIds: string[];
-  onClear: () => void;
-  onSaved: () => void;
+  selectedIds:     string[];
+  onClear:         () => void;
+  onSaved:         () => void;
+  isArchivedMode?: boolean;
 }
 
 const fieldClass =
   "w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-[var(--border-default)] transition-colors placeholder:text-[var(--text-tertiary)]";
 const sectionLabel = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5";
 
-export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProps) {
+export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = false }: BatchEditBarProps) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState({ categoryId: "", subcategoryId: "" });
   const [addTags, setAddTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -45,6 +47,20 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
   }, []);
 
   const hasPatch = title.trim() || category.categoryId || addTags.length > 0;
+
+  const restore = async () => {
+    setRestoring(true);
+    try {
+      await fetch("/api/inspirations/batch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedIds, patch: { restore: true } }),
+      });
+      onSaved();
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   const analyzeAll = async () => {
     setAnalyzing(true);
@@ -159,26 +175,39 @@ export function BatchEditBar({ selectedIds, onClear, onSaved }: BatchEditBarProp
 
           {/* Actions */}
           <div className="flex-shrink-0 flex flex-col justify-center gap-2 pt-3">
-            <Button size="sm" onClick={save} loading={saving} disabled={!hasPatch}>
-              Appliquer
-            </Button>
-            <button
-              type="button"
-              onClick={() => setShowCollectionModal(true)}
-              className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-right"
-            >
-              ▣ Collections
-            </button>
-            <button
-              type="button"
-              onClick={analyzeAll}
-              disabled={analyzing}
-              className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 justify-end font-medium"
-            >
-              {analyzing
-                ? `✦ ${analyzeProgress}/${selectedIds.length}…`
-                : "✦ Analyser avec l'IA"}
-            </button>
+            {/* Mode archives : Restaurer en priorité */}
+            {isArchivedMode && (
+              <Button size="sm" onClick={restore} loading={restoring}>
+                ↩ Restaurer vers triage
+              </Button>
+            )}
+
+            {!isArchivedMode && (
+              <Button size="sm" onClick={save} loading={saving} disabled={!hasPatch}>
+                Appliquer
+              </Button>
+            )}
+            {!isArchivedMode && (
+              <button
+                type="button"
+                onClick={() => setShowCollectionModal(true)}
+                className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-right"
+              >
+                ▣ Collections
+              </button>
+            )}
+            {!isArchivedMode && (
+              <button
+                type="button"
+                onClick={analyzeAll}
+                disabled={analyzing}
+                className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 justify-end font-medium"
+              >
+                {analyzing
+                  ? `✦ ${analyzeProgress}/${selectedIds.length}…`
+                  : "✦ Analyser avec l'IA"}
+              </button>
+            )}
             {confirmDelete ? (
               <div className="flex items-center gap-1.5 justify-end">
                 <span className="text-[10px] text-red-400">Confirmer ?</span>

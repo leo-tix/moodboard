@@ -35,6 +35,8 @@ interface CategorySelectProps {
   categories: Category[];
   value: CategoryValue;
   onChange: (value: CategoryValue) => void;
+  /** Called when the user makes a final selection (sub-cat click or "Toutes") — triggers immediate add in multi-select */
+  onConfirm?: (value: CategoryValue) => void;
   className?: string;
   dropUp?: boolean;
   showCreateButton?: boolean;
@@ -48,6 +50,7 @@ export function CategorySelect({
   categories: categoriesProp,
   value,
   onChange,
+  onConfirm,
   className,
   dropUp = false,
   showCreateButton = false,
@@ -119,7 +122,12 @@ export function CategorySelect({
   const selectedSub = selectedCategory?.subcategories.find((s) => s.id === value.subcategoryId);
 
   const selectCategory = (categoryId: string) => onChange({ categoryId, subcategoryId: "" });
-  const selectSub = (subcategoryId: string) => { onChange({ ...value, subcategoryId }); setOpen(false); };
+  const selectSub = (subcategoryId: string) => {
+    const next = { ...value, subcategoryId };
+    onChange(next);
+    onConfirm?.(next);
+    setOpen(false);
+  };
   const clear = (e: React.MouseEvent) => {
     e.stopPropagation();
     onChange({ categoryId: "", subcategoryId: "" });

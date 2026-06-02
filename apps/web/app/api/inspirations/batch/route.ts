@@ -8,13 +8,14 @@ const batchSchema = z.object({
   ids: z.array(z.string()).min(1).max(200),
   patch: z.object({
     title: z.string().min(1).max(255).optional(),
-    // addCategory: adds a category to all without removing existing ones
     addCategory: z.object({
       categoryId: z.string(),
       subcategoryId: z.string().nullable().optional(),
     }).optional(),
     year: z.number().int().nullable().optional(),
     addTags: z.array(z.string()).optional(),
+    // restore: remet les images archivées en triage (isArchived=false, isAccepted=false)
+    restore: z.boolean().optional(),
   }),
 });
 
@@ -27,7 +28,16 @@ export async function PATCH(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const { ids, patch } = parsed.data;
-  const { addTags, addCategory, ...scalarFields } = patch;
+  const { addTags, addCategory, restore, ...scalarFields } = patch;
+
+  // Restaurer des archives → remet en triage
+  if (restore) {
+    await db.inspiration.updateMany({
+      where: { id: { in: ids } },
+      data: { isArchived: false, isAccepted: false },
+    });
+    return NextResponse.json({ success: true, restored: ids.length });
+  }
 
   // Scalar fields (title, year)
   const scalarData: Record<string, unknown> = {};

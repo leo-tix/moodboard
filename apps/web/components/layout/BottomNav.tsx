@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { TriageBadge } from "@/components/triage/TriageBadge";
 
 const NAV_ITEMS = [
   { href: "/",            label: "Accueil",  icon: "○" },
   { href: "/library",     label: "Biblio",   icon: "◻" },
   { href: "/upload",      label: "Ajouter",  icon: "+" , primary: true },
+  { href: "/triage",      label: "Triage",   icon: "⇄" },
   { href: "/moodboards",  label: "Planches", icon: "⬚" },
-  { href: "/collections", label: "Collections", icon: "▣" },
 ];
 
 export function BottomNav() {
@@ -59,7 +60,14 @@ export function BottomNav() {
                   : "text-[var(--text-tertiary)]"
               )}
             >
-              <span className="font-mono text-[11px] leading-none">{item.icon}</span>
+              <span className="relative font-mono text-[11px] leading-none">
+                {item.icon}
+                {item.href === "/triage" && (
+                  <span className="absolute -top-2 -right-2.5 pointer-events-none">
+                    <TriageBadge />
+                  </span>
+                )}
+              </span>
               <span className="text-[9px] tracking-wide leading-none">{item.label}</span>
             </Link>
           );

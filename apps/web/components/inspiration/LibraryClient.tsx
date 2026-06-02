@@ -18,7 +18,8 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 interface LibraryClientProps {
-  inspirations: InspirationGridItem[];
+  inspirations:   InspirationGridItem[];
+  isArchivedMode?: boolean;
 }
 
 // ─── Generic dropdown ─────────────────────────────────────────────────────────
@@ -174,7 +175,7 @@ function SortDropdown({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function LibraryClient({ inspirations }: LibraryClientProps) {
+export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryClientProps) {
   // ── Filter state ──
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeYear, setActiveYear] = useState<string | null>(null);
@@ -202,6 +203,14 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
     setSelectedIds(new Set());
     setSelectMode(false);
   }, []);
+
+  // IDs des images non présentes dans aucune planche (archives uniquement)
+  const unusedIds = useMemo(
+    () => isArchivedMode
+      ? new Set(inspirations.filter((i) => (i.moodboardCount ?? 0) === 0).map((i) => i.id))
+      : new Set<string>(),
+    [inspirations, isArchivedMode]
+  );
 
   // ── Derived filter options ──
   const categories = useMemo(() => {
@@ -396,12 +405,27 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
-                className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-full border border-[var(--border-default)] hover:border-[var(--border-strong)] transition-colors"
-              >
-                Sélectionner
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Bouton "non utilisées" — archives uniquement */}
+                {isArchivedMode && unusedIds.size > 0 && (
+                  <button
+                    onClick={() => {
+                      setSelectMode(true);
+                      setSelectedIds(new Set(unusedIds));
+                    }}
+                    className="text-xs text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-full border border-amber-500/40 hover:border-amber-500/70 transition-colors whitespace-nowrap"
+                    title="Sélectionner toutes les images absentes de toute planche"
+                  >
+                    ⊘ Non-utilisées ({unusedIds.size})
+                  </button>
+                )}
+                <button
+                  onClick={() => { setSelectMode(true); setSelectedIds(new Set()); }}
+                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-full border border-[var(--border-default)] hover:border-[var(--border-strong)] transition-colors"
+                >
+                  Sélectionner
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -459,6 +483,7 @@ export function LibraryClient({ inspirations }: LibraryClientProps) {
           <BatchEditBar
             selectedIds={Array.from(selectedIds)}
             onClear={clearSelection}
+            isArchivedMode={isArchivedMode}
             onSaved={() => {
               clearSelection();
               window.location.reload();

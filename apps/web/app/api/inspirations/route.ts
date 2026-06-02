@@ -16,6 +16,8 @@ export async function GET(req: NextRequest) {
   const where = {
     ...(status !== "all" ? { status: status as "READY" | "PROCESSING" | "ERROR" } : {}),
     ...(categoryId ? { categoryId } : {}),
+    isArchived: false,
+    isAccepted: true,
   };
 
   const [inspirations, total] = await Promise.all([
