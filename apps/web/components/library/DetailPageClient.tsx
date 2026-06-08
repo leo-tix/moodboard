@@ -141,6 +141,11 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
   const [stripItems, setStripItems] = useState<StripItem[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pasted, setPasted] = useState(false);
+  const [hasCopied, setHasCopied] = useState(false);
+  // Key trick: incrementing forces MetadataPanel to remount with new initialData after paste
+  const [panelKey, setPanelKey] = useState(0);
+  const [panelData, setPanelData] = useState(data.initialData);
 
   // Persist panel visibility across navigations
   const togglePanel = useCallback(() => {
@@ -170,6 +175,10 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
       // Panel hidden state
       if (sessionStorage.getItem("moodboard:panelHidden") === "true") {
         setPanelHidden(true);
+      }
+      // Check if there's copied metadata available to paste
+      if (sessionStorage.getItem("moodboard:copiedMeta")) {
+        setHasCopied(true);
       }
     } catch { /* sessionStorage unavailable */ }
   }, []);
@@ -261,21 +270,58 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
   const handleFallback = useCallback((items: StripItem[]) => setStripItems(items), []);
 
-  // ── Copy metadata to clipboard ──
-  const handleCopyMetadata = useCallback(async () => {
-    const d = data.initialData;
-    const lines: string[] = [];
-    if (d.title)      lines.push(`Titre : ${d.title}`);
-    if (d.author)     lines.push(`Auteur : ${d.author}`);
-    if (d.year)       lines.push(`Année : ${d.year}`);
-    if (d.tags?.length) lines.push(`Tags : ${d.tags.join(", ")}`);
-    if (d.sourceUrl)  lines.push(`URL : ${d.sourceUrl}`);
+  // ── Copy metadata (in-app, via sessionStorage) ──
+  const handleCopyMetadata = useCallback(() => {
+    const d = panelData;
     try {
-      await navigator.clipboard.writeText(lines.join("\n"));
+      const payload = {
+        author:     d.author,
+        year:       d.year,
+        tags:       d.tags ?? [],
+        categories: d.categories ?? [],
+        sourceUrl:  d.sourceUrl,
+        description: d.description,
+      };
+      sessionStorage.setItem("moodboard:copiedMeta", JSON.stringify(payload));
+      setHasCopied(true);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard not available */ }
-  }, [data.initialData]);
+    } catch { /* sessionStorage unavailable */ }
+  }, [panelData]);
+
+  // ── Paste metadata onto current image ──
+  const handlePasteMetadata = useCallback(async () => {
+    try {
+      const raw = sessionStorage.getItem("moodboard:copiedMeta");
+      if (!raw) return;
+      const payload = JSON.parse(raw) as {
+        author?: string; year?: number;
+        tags?: string[]; categories?: { categoryId: string; subcategoryId: string | null }[];
+        sourceUrl?: string; description?: string;
+      };
+      // Merge onto current panelData (keep title, replace the rest)
+      const merged = {
+        ...panelData,
+        author:      payload.author ?? panelData.author,
+        year:        payload.year ?? panelData.year,
+        tags:        payload.tags ?? panelData.tags,
+        categories:  payload.categories ?? panelData.categories,
+        sourceUrl:   payload.sourceUrl ?? panelData.sourceUrl,
+        description: payload.description ?? panelData.description,
+      };
+      // Persist immediately via API
+      await fetch(`/api/inspirations/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      });
+      // Remount MetadataPanel with new data
+      setPanelData(merged);
+      setPanelKey((k) => k + 1);
+      setPasted(true);
+      setTimeout(() => setPasted(false), 2000);
+    } catch { /* error */ }
+  }, [panelData, data.id]);
 
   // ── Render ──
   return (
@@ -327,14 +373,23 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
 
-        {/* Copy metadata */}
+        {/* Copy / Paste metadata */}
         <button
           onClick={handleCopyMetadata}
-          title="Copier les métadonnées"
-          className="hidden sm:flex w-6 h-6 items-center justify-center rounded transition-colors flex-shrink-0 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+          title="Copier les métadonnées (auteur, année, tags, catégories…)"
+          className="hidden sm:flex items-center gap-1 h-6 px-1.5 rounded transition-colors flex-shrink-0 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
         >
-          {copied ? "✓" : "⎘"}
+          {copied ? "✓ Copié" : "⎘ Copier"}
         </button>
+        {hasCopied && (
+          <button
+            onClick={handlePasteMetadata}
+            title="Coller les métadonnées sur cette image"
+            className="hidden sm:flex items-center gap-1 h-6 px-1.5 rounded transition-colors flex-shrink-0 text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 hover:bg-[var(--bg-surface)]"
+          >
+            {pasted ? "✓ Collé" : "⎘ Coller"}
+          </button>
+        )}
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
 
@@ -403,8 +458,9 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             <div className="w-8 h-1 rounded-full bg-[var(--border-default)]" />
           </div>
           <MetadataPanel
+            key={panelKey}
             id={data.id}
-            initialData={data.initialData}
+            initialData={panelData}
             colorPalette={data.colorPalette}
             aiAnalysis={data.aiAnalysis}
             initialCollections={data.initialCollections}
@@ -434,8 +490,9 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         {/* Metadata panel — sidebar desktop */}
         <div className={`flex-none w-80 border-l border-[var(--border-subtle)] flex flex-col ${panelHidden ? "hidden" : ""}`}>
           <MetadataPanel
+            key={panelKey}
             id={data.id}
-            initialData={data.initialData}
+            initialData={panelData}
             colorPalette={data.colorPalette}
             aiAnalysis={data.aiAnalysis}
             initialCollections={data.initialCollections}
