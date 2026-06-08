@@ -14,10 +14,8 @@ interface TriageItem {
   id:          string;
   title:       string;
   author:      string | null;
-  studio:      string | null;
   year:        number | null;
   description: string | null;
-  notes:       string | null;
   sourceUrl:   string | null;
   categories:  { categoryId: string; subcategoryId: string | null }[];
   tags:        { tag: { name: string } }[];
@@ -27,7 +25,6 @@ interface TriageItem {
 interface LocalFields {
   title:      string;
   author:     string;
-  studio:     string;
   year:       string;
   categories: CategorySelection[];
   tags:       string[];
@@ -43,7 +40,6 @@ function itemToLocal(item: TriageItem): LocalFields {
   return {
     title:      item.title,
     author:     item.author ?? "",
-    studio:     item.studio ?? "",
     year:       item.year ? String(item.year) : "",
     categories: item.categories.map((c) => ({
       categoryId:    c.categoryId,
@@ -188,7 +184,7 @@ export function TriageClient() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: f.title, author: f.author || undefined, studio: f.studio || undefined,
+          title: f.title, author: f.author || undefined,
           year: parseInt(f.year) || undefined, categories: f.categories, tags: f.tags,
         }),
       });
@@ -231,7 +227,7 @@ export function TriageClient() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: f.title, author: f.author || undefined, studio: f.studio || undefined,
+          title: f.title, author: f.author || undefined,
           year: parseInt(f.year) || undefined, categories: f.categories, tags: f.tags,
         }),
       });
@@ -391,15 +387,9 @@ export function TriageClient() {
         <p className={lbl}>Tags</p>
         <TagInput value={fields.tags} onChange={(v) => updateField("tags", v)} placeholder="Entrée pour valider…" withSuggestions />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <p className={lbl}>Auteur</p>
-          <AutocompleteInput field="author" value={fields.author} onChange={(v) => updateField("author", v)} placeholder="—" inputClassName={fld} />
-        </div>
-        <div>
-          <p className={lbl}>Studio</p>
-          <AutocompleteInput field="studio" value={fields.studio} onChange={(v) => updateField("studio", v)} placeholder="—" inputClassName={fld} />
-        </div>
+      <div>
+        <p className={lbl}>Auteur</p>
+        <AutocompleteInput field="author" value={fields.author} onChange={(v) => updateField("author", v)} placeholder="—" inputClassName={fld} />
       </div>
       <div>
         <p className={lbl}>Année</p>

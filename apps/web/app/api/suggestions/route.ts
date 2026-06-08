@@ -28,20 +28,6 @@ export async function GET(req: NextRequest) {
           .then((r) => r.map((i) => i.author).filter((a): a is string => !!a && a.length > 0));
         break;
 
-      case "studio":
-        suggestions = await db.inspiration
-          .findMany({
-            where: q
-              ? { studio: { contains: q, mode: "insensitive" } }
-              : { studio: { not: null } },
-            select: { studio: true },
-            distinct: ["studio"],
-            take: 8,
-            orderBy: { updatedAt: "desc" },
-          })
-          .then((r) => r.map((i) => i.studio).filter((s): s is string => !!s && s.length > 0));
-        break;
-
       case "year": {
         const years = await db.inspiration
           .findMany({

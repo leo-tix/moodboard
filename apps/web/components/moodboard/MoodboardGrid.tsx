@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MoodboardData, CanvasElement } from "@/lib/moodboard/types";
-import { getImageUrl } from "@/lib/storage/urls";
+import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 
 interface Props {
   initialMoodboards: MoodboardData[];
@@ -147,10 +147,14 @@ function MoodboardPreview({
         };
 
         if (el.type === "image") {
+          // Use thumbnailKey when available for faster preview loading
+          const previewSrc = el.thumbnailKey
+            ? getThumbnailUrl(el.thumbnailKey)
+            : getImageUrl(el.storageKey);
           return (
             <div key={el.id} style={baseStyle}>
               <img
-                src={getImageUrl(el.storageKey)}
+                src={previewSrc}
                 alt=""
                 loading="lazy"
                 draggable={false}

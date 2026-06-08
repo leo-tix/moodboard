@@ -1,6 +1,31 @@
 import type { NextConfig } from "next";
 
+const securityHeaders = [
+  // Prevent MIME type sniffing
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Prevent clickjacking
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  // Enable XSS protection in older browsers
+  { key: "X-XSS-Protection", value: "1; mode=block" },
+  // Strict referrer policy
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Permissions policy — disable unused browser features
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=()",
+  },
+];
+
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: securityHeaders,
+      },
+    ];
+  },
+
   images: {
     remotePatterns: [
       // Cloudflare R2 public bucket

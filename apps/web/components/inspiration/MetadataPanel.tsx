@@ -13,13 +13,11 @@ interface MetadataPanelProps {
     title: string;
     description: string;
     author: string;
-    studio: string;
     year?: number;
     country: string;
     exposition?: string;
     location?: string;
     source?: string;
-    notes: string;
     sourceUrl: string;
     categories?: CategorySelection[];
     tags?: string[];
@@ -168,10 +166,6 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
     if (aiResult?.moodDescriptor) update("description", aiResult.moodDescriptor);
   };
 
-  const applyTechnicalAsNotes = () => {
-    if (aiResult?.technicalNotes) update("notes", aiResult.technicalNotes);
-  };
-
   const acceptCategory = (catId: string) => {
     const newCats = [...categoriesRef.current, { categoryId: catId, subcategoryId: null }];
     handleCategoriesChange(newCats);
@@ -184,9 +178,6 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
     }
     if (aiResult?.moodDescriptor && !dataRef.current.description) {
       update("description", aiResult.moodDescriptor);
-    }
-    if (aiResult?.technicalNotes && !dataRef.current.notes) {
-      update("notes", aiResult.technicalNotes);
     }
     acceptAllTags();
     pendingCategories.forEach((cat) => acceptCategory(cat.id));
@@ -267,18 +258,6 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
               <button type="button" onClick={applyMoodAsDescription}
                 className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
                 → Appliquer comme description
-              </button>
-            </div>
-          )}
-
-          {aiResult.technicalNotes && (
-            <div className="rounded bg-[var(--bg-elevated)] p-2.5 space-y-1.5">
-              <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
-                {aiResult.technicalNotes}
-              </p>
-              <button type="button" onClick={applyTechnicalAsNotes}
-                className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity">
-                → Appliquer comme notes
               </button>
             </div>
           )}
@@ -410,15 +389,9 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
         <textarea className={`${fld} resize-none`} rows={3} value={data.description} onChange={(e) => update("description", e.target.value)} placeholder="—" />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <p className={lbl}>Auteur</p>
-          <AutocompleteInput field="author" value={data.author} onChange={(v) => update("author", v)} placeholder="—" inputClassName={fld} />
-        </div>
-        <div>
-          <p className={lbl}>Studio</p>
-          <AutocompleteInput field="studio" value={data.studio} onChange={(v) => update("studio", v)} placeholder="—" inputClassName={fld} />
-        </div>
+      <div>
+        <p className={lbl}>Auteur</p>
+        <AutocompleteInput field="author" value={data.author} onChange={(v) => update("author", v)} placeholder="—" inputClassName={fld} />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -450,11 +423,6 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
       <div>
         <p className={lbl}>URL</p>
         <input type="url" className={fld} value={data.sourceUrl} onChange={(e) => update("sourceUrl", e.target.value)} placeholder="https://" />
-      </div>
-
-      <div>
-        <p className={lbl}>Notes</p>
-        <textarea className={`${fld} resize-none`} rows={3} value={data.notes} onChange={(e) => update("notes", e.target.value)} placeholder="—" />
       </div>
 
       {colorPalette && colorPalette.length > 0 && (

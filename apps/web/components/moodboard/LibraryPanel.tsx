@@ -23,6 +23,12 @@ type AddPayload = {
   isAnimated?: boolean;
 };
 
+interface Category {
+  id: string;
+  name: string;
+  icon?: string | null;
+}
+
 interface Props {
   onAdd: (item: AddPayload) => void;
   onTouchAdd?: (item: AddPayload, clientX: number, clientY: number) => void;
@@ -30,8 +36,6 @@ interface Props {
 
 const COL_COUNT = 2;
 
-// Shortest-column-first masonry using real aspect ratios.
-// Each column is an ordered array; the algorithm fills the shortest column next.
 function buildMasonryColumns(items: LibraryItem[]): LibraryItem[][] {
   const cols: LibraryItem[][] = Array.from({ length: COL_COUNT }, () => []);
   const heights = new Array<number>(COL_COUNT).fill(0);
@@ -47,9 +51,12 @@ function buildMasonryColumns(items: LibraryItem[]): LibraryItem[][] {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
-  const [items,   setItems]   = useState<LibraryItem[]>([]);
-  const [search,  setSearch]  = useState("");
-  const [loading, setLoading] = useState(true);
+  const [items,        setItems]        = useState<LibraryItem[]>([]);
+  const [search,       setSearch]       = useState("");
+  const [debouncedQ,   setDebouncedQ]   = useState("");
+  const [loading,      setLoading]      = useState(true);
+  const [categories,   setCategories]   = useState<Category[]>([]);
+  const [activeCat,    setActiveCat]    = useState<string>("");
 
   // ── Drag ghost (touch long-press drag) ────────────────────────────────────
   const [dragGhost, setDragGhost] = useState<{
@@ -69,6 +76,7 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
   };
   const dragRef      = useRef<DragState | null>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelDrag = useCallback(() => {
     if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
@@ -79,9 +87,29 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
 
   useEffect(() => cancelDrag, [cancelDrag]);
 
-  // ── Fetch library ─────────────────────────────────────────────────────────
+  // ── Fetch categories ──────────────────────────────────────────────────────
   useEffect(() => {
-    fetch("/api/library/strip?limit=200")
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then((data: Category[]) => setCategories(data))
+      .catch(() => {});
+  }, []);
+
+  // ── Debounce search input ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setDebouncedQ(search.trim()), 300);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [search]);
+
+  // ── Fetch library (with filters) ─────────────────────────────────────────
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams({ limit: "200" });
+    if (debouncedQ)  params.set("q", debouncedQ);
+    if (activeCat)   params.set("categoryId", activeCat);
+
+    fetch(`/api/library/strip?${params}`)
       .then((r) => r.json())
       .then((data) => {
         const raw: Array<{
@@ -89,21 +117,15 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
           thumbnailKey: string | null; width: number | null;
           height: number | null; isAnimated?: boolean;
         }> = data.items ?? [];
-        // Keep only items that have both keys — others can't be displayed or added
         setItems(
           raw.filter((i): i is LibraryItem => !!i.storageKey && !!i.thumbnailKey)
         );
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [debouncedQ, activeCat]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return q ? items.filter((i) => i.title.toLowerCase().includes(q)) : items;
-  }, [items, search]);
-
-  const columns = useMemo(() => buildMasonryColumns(filtered), [filtered]);
+  const columns = useMemo(() => buildMasonryColumns(items), [items]);
 
   // ── Touch long-press drag handlers ────────────────────────────────────────
   const handleItemTouchStart = useCallback((item: LibraryItem, e: React.TouchEvent) => {
@@ -181,7 +203,6 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
     if (!dragRef.current?.isActive) cancelDrag();
   }, [cancelDrag]);
 
-  // ── Shared button props factory ───────────────────────────────────────────
   const itemPayload = (item: LibraryItem): AddPayload => ({
     inspirationId: item.id,
     storageKey:    item.storageKey,
@@ -196,20 +217,57 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
     <div className="flex flex-col h-full">
 
       {/* Header */}
-      <div className="flex-shrink-0 px-3 py-2.5 border-b border-[var(--border-subtle)]">
-        <p className="text-xs font-medium text-[var(--text-secondary)] mb-2">Bibliothèque</p>
+      <div className="flex-shrink-0 px-3 py-2.5 border-b border-[var(--border-subtle)] space-y-2">
+        <p className="text-xs font-medium text-[var(--text-secondary)]">Bibliothèque</p>
+
+        {/* Search */}
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Rechercher…"
           className="w-full text-xs bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded px-2 py-1.5 text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--border-default)]"
         />
+
+        {/* Category pills */}
+        {categories.length > 0 && (
+          <div className="flex gap-1 flex-wrap">
+            <button
+              onClick={() => setActiveCat("")}
+              className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors whitespace-nowrap ${
+                !activeCat
+                  ? "bg-[var(--text-primary)] text-[var(--bg-base)] border-[var(--text-primary)]"
+                  : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              }`}
+            >
+              Tout
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCat(activeCat === cat.id ? "" : cat.id)}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors whitespace-nowrap ${
+                  activeCat === cat.id
+                    ? "bg-[var(--text-primary)] text-[var(--bg-base)] border-[var(--text-primary)]"
+                    : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                }`}
+              >
+                {cat.icon ? `${cat.icon} ` : ""}{cat.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Result count */}
+        {!loading && (debouncedQ || activeCat) && (
+          <p className="text-[10px] text-[var(--text-tertiary)]">
+            {items.length} résultat{items.length !== 1 ? "s" : ""}
+          </p>
+        )}
       </div>
 
       {/* Scrollable masonry */}
       <div className="flex-1 overflow-y-auto p-2">
         {loading ? (
-          // Skeleton: two columns with staggered heights to mimic masonry
           <div className="flex gap-1.5">
             {[
               [9/16, 4/3, 1, 9/16, 3/4],
@@ -226,7 +284,7 @@ export function LibraryPanel({ onAdd, onTouchAdd }: Props) {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : items.length === 0 ? (
           <p className="text-xs text-[var(--text-tertiary)] text-center py-8">Aucun résultat</p>
         ) : (
           <div className="flex gap-1.5">

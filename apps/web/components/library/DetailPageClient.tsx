@@ -17,13 +17,11 @@ export interface DetailPageData {
     title: string;
     description: string;
     author: string;
-    studio: string;
     year: number | undefined;
     country: string;
     exposition: string;
     location: string;
     source: string;
-    notes: string;
     sourceUrl: string;
     categories: { categoryId: string; subcategoryId: string | null }[];
     tags: string[];
@@ -142,6 +140,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
   const [panelHidden, setPanelHidden] = useState(false);
   const [stripItems, setStripItems] = useState<StripItem[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Persist panel visibility across navigations
   const togglePanel = useCallback(() => {
@@ -262,6 +261,22 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
   const handleFallback = useCallback((items: StripItem[]) => setStripItems(items), []);
 
+  // ── Copy metadata to clipboard ──
+  const handleCopyMetadata = useCallback(async () => {
+    const d = data.initialData;
+    const lines: string[] = [];
+    if (d.title)      lines.push(`Titre : ${d.title}`);
+    if (d.author)     lines.push(`Auteur : ${d.author}`);
+    if (d.year)       lines.push(`Année : ${d.year}`);
+    if (d.tags?.length) lines.push(`Tags : ${d.tags.join(", ")}`);
+    if (d.sourceUrl)  lines.push(`URL : ${d.sourceUrl}`);
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard not available */ }
+  }, [data.initialData]);
+
   // ── Render ──
   return (
     <div className={`flex flex-col ${isModal ? "h-full" : "md:h-screen"} overflow-hidden`}>
@@ -312,6 +327,17 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
 
+        {/* Copy metadata */}
+        <button
+          onClick={handleCopyMetadata}
+          title="Copier les métadonnées"
+          className="hidden sm:flex w-6 h-6 items-center justify-center rounded transition-colors flex-shrink-0 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+        >
+          {copied ? "✓" : "⎘"}
+        </button>
+
+        <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
+
         {/* Zoom controls */}
         <div className="hidden sm:flex items-center gap-0.5 flex-shrink-0">
           <button onClick={zoomOut} disabled={zoomIdx === 0}
@@ -353,29 +379,46 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         </button>
       </div>
 
-      {/* ── Image mobile — swipe pour naviguer, pinch pour zoomer ── */}
+      {/* ── Mobile layout : image sticky + metadata bottom sheet ── */}
       <div
-        className="md:hidden flex-shrink-0 relative w-full bg-[var(--bg-surface)] overflow-hidden"
-        style={{ minHeight: "42vw", maxHeight: "62vw" }}
+        className="md:hidden flex-1 min-h-0 overflow-y-auto"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
-        {isZoomed && (
-          <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
-            {formatZoom(zoom)}
+        {/* Image pleine largeur, sticky au scroll */}
+        <div className="sticky top-0 z-0 w-full bg-[var(--bg-surface)]" style={{ height: "56vw" }}>
+          <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
+          {isZoomed && (
+            <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
+              {formatZoom(zoom)}
+            </div>
+          )}
+        </div>
+
+        {/* Metadata bottom sheet — slide over image on scroll */}
+        <div className="relative z-10 bg-[var(--bg-base)] rounded-t-2xl -mt-6 min-h-[50vh]">
+          {/* Drag handle */}
+          <div className="flex justify-center pt-2.5 pb-1">
+            <div className="w-8 h-1 rounded-full bg-[var(--border-default)]" />
           </div>
-        )}
+          <MetadataPanel
+            id={data.id}
+            initialData={data.initialData}
+            colorPalette={data.colorPalette}
+            aiAnalysis={data.aiAnalysis}
+            initialCollections={data.initialCollections}
+          />
+        </div>
       </div>
 
-      {/* ── Main content ── */}
-      <div className="flex-1 min-h-0 flex flex-col md:flex-row md:overflow-hidden">
+      {/* ── Desktop layout ── */}
+      <div className="hidden md:flex flex-1 min-h-0 overflow-hidden">
 
         {/* Image desktop — molette pour zoomer */}
         <div
           ref={imageAreaRef}
-          className="hidden md:flex relative flex-1 bg-[var(--bg-surface)] overflow-hidden items-center justify-center"
+          className="relative flex-1 bg-[var(--bg-surface)] overflow-hidden flex items-center justify-center"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -388,8 +431,8 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
           )}
         </div>
 
-        {/* Metadata panel — scrollable sur mobile */}
-        <div className={`flex-1 min-h-0 overflow-y-auto md:flex-none md:w-80 border-t md:border-t-0 md:border-l border-[var(--border-subtle)] flex flex-col ${panelHidden ? "md:hidden" : ""}`}>
+        {/* Metadata panel — sidebar desktop */}
+        <div className={`flex-none w-80 border-l border-[var(--border-subtle)] flex flex-col ${panelHidden ? "hidden" : ""}`}>
           <MetadataPanel
             id={data.id}
             initialData={data.initialData}

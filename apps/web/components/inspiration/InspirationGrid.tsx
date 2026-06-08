@@ -30,6 +30,8 @@ interface InspirationGridProps {
   selectedIds?: Set<string>;
   onSelect?: (id: string) => void;
   onBeforeNavigate?: () => void;
+  /** If true, saves the current list to sessionStorage as nav context before any card navigation */
+  saveNavContext?: boolean;
   emptyMessage?: string;
 }
 
@@ -80,8 +82,24 @@ export function InspirationGrid({
   selectedIds,
   onSelect,
   onBeforeNavigate,
+  saveNavContext,
   emptyMessage,
 }: InspirationGridProps) {
+  const handleBeforeNavigate = saveNavContext
+    ? () => {
+        try {
+          const context = {
+            items: inspirations.map((item) => ({
+              id: item.id,
+              title: item.title,
+              thumbnailKey: (item.images.find((i) => i.isMain) ?? item.images[0])?.thumbnailKey ?? null,
+            })),
+          };
+          sessionStorage.setItem("moodboard:libraryNav", JSON.stringify(context));
+        } catch { /* sessionStorage unavailable */ }
+        onBeforeNavigate?.();
+      }
+    : onBeforeNavigate;
   const colCount = useColCount(columns);
   const masonryCols = useMemo(
     () => buildMasonryColumns(inspirations, colCount),
@@ -143,7 +161,7 @@ export function InspirationGrid({
                   selectable={selectable}
                   selected={selectedIds?.has(item.id)}
                   onSelect={onSelect}
-                  onBeforeNavigate={!selectable ? onBeforeNavigate : undefined}
+                  onBeforeNavigate={!selectable ? handleBeforeNavigate : undefined}
                 />
               </motion.div>
             );

@@ -23,14 +23,12 @@ export async function GET(req: NextRequest) {
     isArchived: false,
     isAccepted: true,
 
-    // Filtre texte — recherche sur titre, auteur, studio, description, notes, tags
+    // Filtre texte — recherche sur titre, auteur, description, tags
     ...(q && {
       OR: [
         { title: { contains: q, mode: "insensitive" } },
         { author: { contains: q, mode: "insensitive" } },
-        { studio: { contains: q, mode: "insensitive" } },
         { description: { contains: q, mode: "insensitive" } },
-        { notes: { contains: q, mode: "insensitive" } },
         { country: { contains: q, mode: "insensitive" } },
         { tags: { some: { tag: { name: { contains: q, mode: "insensitive" } } } } },
       ],

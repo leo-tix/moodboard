@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { DetailPageClient, type DetailPageData } from "@/components/library/DetailPageClient";
 
@@ -10,7 +10,14 @@ interface Props {
 
 export function DetailModal({ data }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const close = () => router.back();
+
+  // Fix: Next.js keeps the @modal slot alive during soft navigation to unrelated routes.
+  // If the current pathname no longer points to a library detail page, hide the modal.
+  if (!/^\/library\//.test(pathname)) {
+    return null;
+  }
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
