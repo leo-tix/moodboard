@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Data Deletion — Moodboard",
   description: "How to request deletion of your data from Moodboard.",
+  robots: { index: false, follow: false },
 };
 
 export default function DataDeletionPage() {
@@ -27,8 +28,8 @@ export default function DataDeletionPage() {
           </p>
 
           <p className="text-lg font-medium">
-            <a href="mailto:leopaul343@gmail.com" className="text-blue-600 underline">
-              leopaul343@gmail.com
+            <a href="mailto:hello@leotix.fr" className="text-blue-600 underline">
+              hello@leotix.fr
             </a>
           </p>
 

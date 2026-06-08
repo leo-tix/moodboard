@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Privacy Policy — Moodboard",
   description: "Privacy policy for the Moodboard personal creative reference tool.",
+  robots: { index: false, follow: false },
 };
 
 export default function PrivacyPage() {
@@ -66,8 +67,8 @@ export default function PrivacyPage() {
               incorrectly stored, please contact:
             </p>
             <p className="mt-2 font-medium">
-              <a href="mailto:leopaul343@gmail.com" className="text-blue-600 underline">
-                leopaul343@gmail.com
+              <a href="mailto:hello@leotix.fr" className="text-blue-600 underline">
+                hello@leotix.fr
               </a>
             </p>
           </div>
@@ -84,8 +85,8 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-2">7. Contact</h2>
             <p>
               For any privacy-related question or request, contact:{" "}
-              <a href="mailto:leopaul343@gmail.com" className="text-blue-600 underline">
-                leopaul343@gmail.com
+              <a href="mailto:hello@leotix.fr" className="text-blue-600 underline">
+                hello@leotix.fr
               </a>
             </p>
           </div>
