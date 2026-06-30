@@ -243,60 +243,86 @@ function findCard(img) {
 }
 
 // ── Site-specific: eyecannndy.com ─────────────────────────────────────────────
+
+// Returns true if the element is inside a navigation/header zone
+function inNav(el) {
+  return !!el.closest('nav, header, [class*="nav" i], [class*="menu" i], [class*="header" i], [id*="nav" i]');
+}
+
+// Deduplicate doubled text inserted by icon spans: "FEATUREDFEATURED" → "FEATURED"
+function dedupeText(t) {
+  if (t.length % 2 !== 0) return t;
+  const half = t.slice(0, t.length / 2);
+  return half === t.slice(t.length / 2) ? half : t;
+}
+
 function extractEyecandyMeta() {
   const r = { title: '', author: '', description: '', tags: [], year: '' };
   const seen = new Set();
 
-  // h1 → title + year "(2022)"
-  const h1 = document.querySelector('h1');
-  if (h1) {
-    const full = h1.textContent.trim();
+  // ① Heading outside nav/header → title + year
+  for (const h of document.querySelectorAll('h1, h2, h3')) {
+    if (inNav(h)) continue;
+    const full = h.textContent.trim();
+    if (!full || full.length < 3) continue;
     const ym = full.match(/\((\d{4})\)/);
     if (ym) r.year = ym[1];
     r.title = full.replace(/\s*\(\d{4}\)\s*/, '').trim();
+    break; // first non-nav heading wins
   }
 
-  // Description: first paragraph not matching a metadata label
-  const META_LABEL = /^(technique|director|dop|cinematographer|editor|colorist|production|composer|camera)\s*[-–:]/i;
+  // ② Description: first long paragraph outside nav, not a metadata row
+  const META_ROW = /^(technique|director|dop|cinematographer|editor|colorist|production|composer|camera|original source)\s*[-–:]/i;
   for (const p of document.querySelectorAll('p')) {
+    if (inNav(p)) continue;
     const t = p.textContent.trim();
-    if (t.length > 60 && !META_LABEL.test(t)) {
-      r.description = t.slice(0, 500);
-      break;
-    }
+    if (t.length > 60 && !META_ROW.test(t)) { r.description = t.slice(0, 500); break; }
   }
 
-  // Metadata rows: "Director – Duffer Brothers", "Colorist – Company 3, Skip Kimball"
-  for (const el of document.querySelectorAll('p, div, li')) {
-    if (el.children.length > 20) continue;
-    const raw = el.textContent.trim();
-    const match = raw.match(/^(Technique|Director|DOP|Cinematographer|Editor|Colorist|Production Design|Composer|Production|Camera)\s*[-–:]\s*/i);
-    if (!match) continue;
+  // ③ Metadata rows: "Label - value, value"
+  const SKIP_LABEL = new Set(['original source', 'source']);
+  const SKIP_VALUE = new Set(['link', 'here', 'source', 'click here']);
 
-    const label = match[1].toLowerCase();
+  for (const el of document.querySelectorAll('p, div, li')) {
+    if (inNav(el) || el.children.length > 20) continue;
+    const raw = el.textContent.trim();
+    const m = raw.match(/^(Technique|Director|DOP|Cinematographer|Editor|Colorist|Production Design|Composer|Production|Camera|Original Source)\s*[-–:]\s*/i);
+    if (!m) continue;
+
+    const label = m[1].toLowerCase();
+    if (SKIP_LABEL.has(label)) continue;
+
     const links = Array.from(el.querySelectorAll('a')).map(a => a.textContent.trim()).filter(Boolean);
-    const values = links.length
-      ? links
-      : raw.replace(match[0], '').split(',').map(s => s.trim()).filter(Boolean);
+    const values = (links.length ? links : raw.replace(m[0], '').split(',').map(s => s.trim()))
+      .filter(v => v && !SKIP_VALUE.has(v.toLowerCase()));
 
     if (label === 'director') {
       r.author = values.join(', ');
     } else {
       for (const v of values) {
-        if (!seen.has(v.toUpperCase())) { seen.add(v.toUpperCase()); r.tags.push(v); }
+        const key = v.toUpperCase();
+        if (!seen.has(key)) { seen.add(key); r.tags.push(v); }
       }
     }
   }
 
-  // Tag pills: all-caps short link texts (the pink badges)
-  const PILL_RE = /^[A-Z0-9][A-Z0-9\s.'&,-]{0,33}$/;
-  for (const a of document.querySelectorAll('a')) {
-    const t = a.textContent.trim();
-    if (!t || !PILL_RE.test(t)) continue;
-    if (!seen.has(t)) { seen.add(t); r.tags.push(t); }
+  // ④ Tag pills — look for elements with pill/tag class names, outside nav
+  const PILL_SEL = [
+    '[class*="tag"i]', '[class*="pill"i]', '[class*="badge"i]',
+    '[class*="keyword"i]', '[class*="label"i]',
+    'a[href*="/technique/"]', 'a[href*="/tag/"]',
+    'a[href*="/keyword/"]', 'a[href*="/mood/"]',
+  ].join(', ');
+
+  for (const el of document.querySelectorAll(PILL_SEL)) {
+    if (inNav(el)) continue;
+    let t = dedupeText(el.textContent.trim());
+    if (!t || t.length > 40 || SKIP_VALUE.has(t.toLowerCase())) continue;
+    const key = t.toUpperCase();
+    if (!seen.has(key)) { seen.add(key); r.tags.push(t); }
   }
 
-  r.tags = [...new Set(r.tags)].slice(0, 20);
+  r.tags = [...new Set(r.tags)].slice(0, 25);
   return r;
 }
 
