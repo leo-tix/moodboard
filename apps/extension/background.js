@@ -55,6 +55,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             author:       msg.author       || '',
             description:  msg.description  || '',
             tags:         msg.tags         || [],
+            year:         msg.year         || '',
           }),
         });
 
@@ -112,6 +113,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
               author:      msg.author      || '',
               description: msg.description || '',
               tags:        msg.tags        || [],
+              year:        msg.year        || '',
             }),
           });
           let result = {};

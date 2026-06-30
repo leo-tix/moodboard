@@ -242,9 +242,80 @@ function findCard(img) {
   return null;
 }
 
+// ── Site-specific: eyecannndy.com ─────────────────────────────────────────────
+function extractEyecandyMeta() {
+  const r = { title: '', author: '', description: '', tags: [], year: '' };
+  const seen = new Set();
+
+  // h1 → title + year "(2022)"
+  const h1 = document.querySelector('h1');
+  if (h1) {
+    const full = h1.textContent.trim();
+    const ym = full.match(/\((\d{4})\)/);
+    if (ym) r.year = ym[1];
+    r.title = full.replace(/\s*\(\d{4}\)\s*/, '').trim();
+  }
+
+  // Description: first paragraph not matching a metadata label
+  const META_LABEL = /^(technique|director|dop|cinematographer|editor|colorist|production|composer|camera)\s*[-–:]/i;
+  for (const p of document.querySelectorAll('p')) {
+    const t = p.textContent.trim();
+    if (t.length > 60 && !META_LABEL.test(t)) {
+      r.description = t.slice(0, 500);
+      break;
+    }
+  }
+
+  // Metadata rows: "Director – Duffer Brothers", "Colorist – Company 3, Skip Kimball"
+  for (const el of document.querySelectorAll('p, div, li')) {
+    if (el.children.length > 20) continue;
+    const raw = el.textContent.trim();
+    const match = raw.match(/^(Technique|Director|DOP|Cinematographer|Editor|Colorist|Production Design|Composer|Production|Camera)\s*[-–:]\s*/i);
+    if (!match) continue;
+
+    const label = match[1].toLowerCase();
+    const links = Array.from(el.querySelectorAll('a')).map(a => a.textContent.trim()).filter(Boolean);
+    const values = links.length
+      ? links
+      : raw.replace(match[0], '').split(',').map(s => s.trim()).filter(Boolean);
+
+    if (label === 'director') {
+      r.author = values.join(', ');
+    } else {
+      for (const v of values) {
+        if (!seen.has(v.toUpperCase())) { seen.add(v.toUpperCase()); r.tags.push(v); }
+      }
+    }
+  }
+
+  // Tag pills: all-caps short link texts (the pink badges)
+  const PILL_RE = /^[A-Z0-9][A-Z0-9\s.'&,-]{0,33}$/;
+  for (const a of document.querySelectorAll('a')) {
+    const t = a.textContent.trim();
+    if (!t || !PILL_RE.test(t)) continue;
+    if (!seen.has(t)) { seen.add(t); r.tags.push(t); }
+  }
+
+  r.tags = [...new Set(r.tags)].slice(0, 20);
+  return r;
+}
+
+// Site-specific dispatcher
+const SITE_EXTRACTORS = {
+  'eyecannndy.com': extractEyecandyMeta,
+  'eyecandy.com':   extractEyecandyMeta,
+};
+
 function extractMetadata(img) {
   try {
-    const meta = { title: '', author: '', description: '', tags: [] };
+    const host = location.hostname.replace(/^www\./, '');
+
+    // Site-specific extractor (bypasses generic logic)
+    if (SITE_EXTRACTORS[host]) {
+      return SITE_EXTRACTORS[host]();
+    }
+
+    const meta = { title: '', author: '', description: '', tags: [], year: '' };
 
     // 1. JSON-LD structured data
     for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
@@ -256,11 +327,13 @@ function extractMetadata(img) {
         meta.title       = meta.title       || String(d.name || d.headline || '');
         meta.author      = meta.author      || String(d.author?.name || d.creator?.name || '');
         meta.description = meta.description || String(d.description || '');
+        if (!meta.year && d.datePublished) {
+          const y = String(d.datePublished).match(/(\d{4})/);
+          if (y) meta.year = y[1];
+        }
         const kw = d.keywords;
         if (kw) {
-          const list = typeof kw === 'string'
-            ? kw.split(',')
-            : Array.isArray(kw) ? kw : [];
+          const list = typeof kw === 'string' ? kw.split(',') : Array.isArray(kw) ? kw : [];
           meta.tags.push(...list.map(k => String(k).trim()).filter(Boolean));
         }
       } catch {}
@@ -290,7 +363,19 @@ function extractMetadata(img) {
       }
     }
 
-    // 3. URL path segments → auto-tags
+    // 3. Page h1 fallback for title (detail pages where the image isn't inside a card)
+    if (!meta.title) {
+      const h1 = document.querySelector('h1');
+      if (h1) meta.title = h1.textContent.trim();
+    }
+
+    // 4. Year from title "(YYYY)"
+    if (!meta.year && meta.title) {
+      const ym = meta.title.match(/\((\d{4})\)/);
+      if (ym) meta.year = ym[1];
+    }
+
+    // 5. URL path segments → auto-tags
     const skipWords = new Set(['www','com','html','index','post','article','page','blog','news','en','fr','de','es','it','p','s','r']);
     const existing = new Set(meta.tags.map(t => String(t).toLowerCase()));
     const pathTags = location.pathname.split('/').filter(Boolean)
@@ -300,13 +385,13 @@ function extractMetadata(img) {
       .slice(0, 3);
     meta.tags.push(...pathTags);
 
-    // 4. Instagram-specific author
+    // 6. Instagram-specific author
     if (!meta.author && location.hostname.includes('instagram.com')) {
       const a = document.querySelector('header a[href*="/"]');
       if (a) meta.author = a.textContent.trim();
     }
 
-    // 5. Open Graph / meta fallbacks
+    // 7. Open Graph / meta fallbacks
     if (!meta.title)
       meta.title = document.querySelector('meta[property="og:title"]')?.getAttribute('content')
         || document.querySelector('meta[name="twitter:title"]')?.getAttribute('content')
@@ -320,12 +405,11 @@ function extractMetadata(img) {
 
     meta.title       = String(meta.title).slice(0, 200).trim();
     meta.description = String(meta.description).slice(0, 500).trim();
-    meta.tags        = [...new Set(meta.tags.map(t => String(t).trim()).filter(Boolean))].slice(0, 10);
+    meta.tags        = [...new Set(meta.tags.map(t => String(t).trim()).filter(Boolean))].slice(0, 20);
 
     return meta;
   } catch {
-    // Never let metadata extraction break the save
-    return { title: document.title || '', author: '', description: '', tags: [] };
+    return { title: document.title || '', author: '', description: '', tags: [], year: '' };
   }
 }
 
