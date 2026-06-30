@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { LibraryClient } from "@/components/inspiration/LibraryClient";
+import { PwaInstallButton } from "@/components/pwa/PwaInstallButton";
 
 export const metadata: Metadata = { title: "Bibliothèque" };
 export const revalidate = 60;
@@ -36,9 +37,12 @@ export default async function LibraryPage() {
             )}
           </h1>
         </div>
-        <a href="/upload" className="flex-shrink-0 px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors">
-          + Ajouter
-        </a>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <PwaInstallButton />
+          <a href="/upload" className="px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors">
+            + Ajouter
+          </a>
+        </div>
       </header>
       <LibraryClient inspirations={inspirations} />
     </div>

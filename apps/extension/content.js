@@ -256,46 +256,60 @@ function dedupeText(t) {
   return half === t.slice(t.length / 2) ? half : t;
 }
 
-function extractEyecandyMeta() {
+function extractEyecandyMeta(img) {
   const r = { title: '', author: '', description: '', tags: [], year: '' };
   const seen = new Set();
+  const META_ROW = /^(technique|director|dop|cinematographer|editor|colorist|production design|composer|production|camera|original source)\s*[-–:]/i;
+  const SKIP_LABEL = new Set(['original source', 'source']);
+  const SKIP_VALUE = new Set(['link', 'here', 'source', 'click here']);
+  const PILL_SEL = [
+    '[class*="tag"i]', '[class*="pill"i]', '[class*="badge"i]',
+    '[class*="keyword"i]', 'a[href*="/technique/"]', 'a[href*="/tag/"]',
+    'a[href*="/keyword/"]', 'a[href*="/mood/"]',
+  ].join(', ');
 
-  // ① Heading outside nav/header → title + year
-  for (const h of document.querySelectorAll('h1, h2, h3')) {
-    if (inNav(h)) continue;
-    const full = h.textContent.trim();
-    if (!full || full.length < 3) continue;
+  // Scope: card containing the hovered image (listing page) OR main/body (detail page)
+  const card = findCard(img);
+  const scope = card || document.querySelector('main') || document.body;
+
+  // ① Title: heading inside card → page-level heading → img.alt
+  let titleEl = card ? card.querySelector('h1,h2,h3,h4,h5,h6') : null;
+  if (!titleEl) {
+    for (const h of document.querySelectorAll('h1,h2,h3')) {
+      if (inNav(h)) continue;
+      const txt = h.textContent.trim();
+      if (txt.length >= 3) { titleEl = h; break; }
+    }
+  }
+  if (titleEl) {
+    const full = titleEl.textContent.trim();
     const ym = full.match(/\((\d{4})\)/);
     if (ym) r.year = ym[1];
     r.title = full.replace(/\s*\(\d{4}\)\s*/, '').trim();
-    break; // first non-nav heading wins
+  } else if (img.alt && img.alt.length > 3) {
+    r.title = img.alt.trim().replace(/\s*\(\d{4}\)\s*/, '').trim();
+    const ym = img.alt.match(/\((\d{4})\)/);
+    if (ym) r.year = ym[1];
   }
 
-  // ② Description: first long paragraph outside nav, not a metadata row
-  const META_ROW = /^(technique|director|dop|cinematographer|editor|colorist|production|composer|camera|original source)\s*[-–:]/i;
-  for (const p of document.querySelectorAll('p')) {
+  // ② Description: first long paragraph in scope, not a metadata row
+  for (const p of scope.querySelectorAll('p')) {
     if (inNav(p)) continue;
     const t = p.textContent.trim();
     if (t.length > 60 && !META_ROW.test(t)) { r.description = t.slice(0, 500); break; }
   }
 
-  // ③ Metadata rows: "Label - value, value"
-  const SKIP_LABEL = new Set(['original source', 'source']);
-  const SKIP_VALUE = new Set(['link', 'here', 'source', 'click here']);
-
-  for (const el of document.querySelectorAll('p, div, li')) {
+  // ③ Metadata rows scoped to card (listing) or page (detail)
+  for (const el of scope.querySelectorAll('p, div, li')) {
     if (inNav(el) || el.children.length > 20) continue;
     const raw = el.textContent.trim();
     const m = raw.match(/^(Technique|Director|DOP|Cinematographer|Editor|Colorist|Production Design|Composer|Production|Camera|Original Source)\s*[-–:]\s*/i);
     if (!m) continue;
-
     const label = m[1].toLowerCase();
     if (SKIP_LABEL.has(label)) continue;
-
     const links = Array.from(el.querySelectorAll('a')).map(a => a.textContent.trim()).filter(Boolean);
     const values = (links.length ? links : raw.replace(m[0], '').split(',').map(s => s.trim()))
       .filter(v => v && !SKIP_VALUE.has(v.toLowerCase()));
-
     if (label === 'director') {
       r.author = values.join(', ');
     } else {
@@ -306,15 +320,8 @@ function extractEyecandyMeta() {
     }
   }
 
-  // ④ Tag pills — look for elements with pill/tag class names, outside nav
-  const PILL_SEL = [
-    '[class*="tag"i]', '[class*="pill"i]', '[class*="badge"i]',
-    '[class*="keyword"i]', '[class*="label"i]',
-    'a[href*="/technique/"]', 'a[href*="/tag/"]',
-    'a[href*="/keyword/"]', 'a[href*="/mood/"]',
-  ].join(', ');
-
-  for (const el of document.querySelectorAll(PILL_SEL)) {
+  // ④ Tag pills scoped to card (listing) or page (detail)
+  for (const el of scope.querySelectorAll(PILL_SEL)) {
     if (inNav(el)) continue;
     let t = dedupeText(el.textContent.trim());
     if (!t || t.length > 40 || SKIP_VALUE.has(t.toLowerCase())) continue;
@@ -326,7 +333,7 @@ function extractEyecandyMeta() {
   return r;
 }
 
-// Site-specific dispatcher
+// Site-specific dispatcher — receives img for card-scoped extraction
 const SITE_EXTRACTORS = {
   'eyecannndy.com': extractEyecandyMeta,
   'eyecandy.com':   extractEyecandyMeta,
@@ -338,7 +345,7 @@ function extractMetadata(img) {
 
     // Site-specific extractor (bypasses generic logic)
     if (SITE_EXTRACTORS[host]) {
-      return SITE_EXTRACTORS[host]();
+      return SITE_EXTRACTORS[host](img);
     }
 
     const meta = { title: '', author: '', description: '', tags: [], year: '' };
