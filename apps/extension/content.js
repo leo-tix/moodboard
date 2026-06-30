@@ -232,6 +232,8 @@ function showFeedback(text, color) {
 function scheduleHide(delay = 280) {
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
+    // Cancel if cursor is still over any part of our UI
+    if (document.querySelector('[data-mb]:hover')) return;
     if (wrap) wrap.style.display = 'none';
     if (dropdown) dropdown.style.display = 'none';
     currentImg = null;
@@ -261,7 +263,9 @@ document.addEventListener('mouseout', (e) => {
   scheduleHide();
 }, { passive: true });
 
-document.addEventListener('scroll', () => {
+document.addEventListener('scroll', (e) => {
+  // Ignore scroll events originating inside our own dropdown
+  if (e.target instanceof Element && e.target.closest('[data-mb]')) return;
   if (wrap) wrap.style.display = 'none';
   if (dropdown) dropdown.style.display = 'none';
   currentImg = null;
