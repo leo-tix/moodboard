@@ -3,6 +3,7 @@ import Link from "next/link";
 const SETTINGS_NAV = [
   { href: "/settings/general", label: "Général" },
   { href: "/settings/categories", label: "Catégories" },
+  { href: "/settings/extensions", label: "Extensions" },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
