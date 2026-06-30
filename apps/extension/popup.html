@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moodboard Clipper</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 260px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a0a;
+      color: #f0f0f0;
+      padding: 16px;
+      font-size: 13px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    header svg { flex-shrink: 0; }
+
+    header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    label {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      background: #111;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 5px;
+      color: #f0f0f0;
+      font-size: 12px;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: rgba(255,255,255,0.25); }
+
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px;
+      background: #e8e0d4;
+      color: #0a0a0a;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 10px;
+      color: #444;
+      line-height: 1.5;
+    }
+
+    .status {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #4ade80;
+      min-height: 16px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <rect width="20" height="20" rx="4" fill="#1a1a1a"/>
+      <text x="10" y="15" font-family="Georgia,serif" font-size="13" fill="#f0f0f0" text-anchor="middle">M</text>
+    </svg>
+    <h1>Moodboard Clipper</h1>
+  </header>
+
+  <div>
+    <label for="appUrl">URL de votre Moodboard</label>
+    <input
+      id="appUrl"
+      type="url"
+      placeholder="https://votre-app.vercel.app"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <button id="save">Enregistrer</button>
+    <div class="status" id="status"></div>
+    <p class="hint">
+      Survolez n'importe quelle image sur le web et cliquez
+      sur le bouton <strong>Sauvegarder</strong> qui apparaît.
+    </p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
