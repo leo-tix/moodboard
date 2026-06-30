@@ -4,5 +4,5 @@ import { auth } from "@/auth";
 export default auth;
 
 export const config = {
-  matcher: ["/((?!api/auth|login|share|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon).*)"],
+  matcher: ["/((?!api/auth|api/share|api/import|login|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon).*)"],
 };
