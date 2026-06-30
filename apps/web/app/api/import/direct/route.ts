@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { getAuthUserId } from "@/lib/auth/withToken";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
@@ -24,8 +24,8 @@ function refererFor(imageUrl: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = await getAuthUserId(req);
+  if (!userId) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const body = await req.json() as {
     imageUrl: string;
@@ -170,7 +170,15 @@ export async function POST(req: NextRequest) {
       data: { status: "READY" },
     });
 
-    return NextResponse.json({ success: true, inspirationId: inspiration.id });
+    return NextResponse.json({
+      success: true,
+      inspirationId: inspiration.id,
+      storageKey,
+      thumbnailKey,
+      width: processed.width,
+      height: processed.height,
+      title: defaultTitle,
+    });
   } catch (error) {
     console.error("[IMPORT DIRECT ERROR]", error);
     return NextResponse.json({ error: "Erreur lors du traitement" }, { status: 500 });

@@ -13,6 +13,33 @@ interface Props {
 
 export function BookmarkletSection({ bookmarkletCode }: Props) {
   const [copied, setCopied] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [generatingToken, setGeneratingToken] = useState(false);
+
+  async function generateToken() {
+    setGeneratingToken(true);
+    try {
+      const res = await fetch("/api/user/token", { method: "POST" });
+      const data = await res.json() as { token?: string };
+      if (data.token) setToken(data.token);
+    } finally {
+      setGeneratingToken(false);
+    }
+  }
+
+  async function revokeToken() {
+    await fetch("/api/user/token", { method: "DELETE" });
+    setToken(null);
+  }
+
+  function copyToken() {
+    if (!token) return;
+    navigator.clipboard.writeText(token).then(() => {
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    });
+  }
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const promptRef = useRef<BeforeInstallPromptEvent | null>(null);
@@ -53,6 +80,51 @@ export function BookmarkletSection({ bookmarkletCode }: Props) {
 
   return (
     <div className="space-y-8">
+
+      {/* Extension Chrome — Token */}
+      <section>
+        <h3 className="text-xs font-medium text-[var(--text-primary)] mb-1">
+          Extension Chrome — Token d&apos;API
+        </h3>
+        <p className="text-xs text-[var(--text-secondary)] mb-4 leading-relaxed">
+          Générez un token et collez-le dans le popup de l&apos;extension pour enregistrer
+          des images sans ouvrir de fenêtre supplémentaire.
+        </p>
+
+        {token ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[10px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded px-3 py-2 text-[var(--text-secondary)] truncate font-mono">
+                {token}
+              </code>
+              <button
+                onClick={copyToken}
+                className="shrink-0 px-3 py-2 text-xs bg-[var(--accent)] text-[#0a0a0a] font-medium rounded hover:opacity-90 transition-opacity"
+              >
+                {tokenCopied ? "✓ Copié" : "Copier"}
+              </button>
+            </div>
+            <p className="text-[10px] text-[var(--text-tertiary)]">
+              Ce token ne s&apos;affiche qu&apos;une fois. Copiez-le maintenant dans le popup de l&apos;extension.
+            </p>
+            <button
+              onClick={revokeToken}
+              className="text-[10px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors"
+            >
+              Révoquer le token
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={generateToken}
+            disabled={generatingToken}
+            className="px-4 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] rounded hover:border-[var(--border-strong)] transition-colors disabled:opacity-50"
+          >
+            {generatingToken ? "Génération…" : "Générer un token"}
+          </button>
+        )}
+      </section>
+
       {/* Bookmarklet */}
       <section>
         <h3 className="text-xs font-medium text-[var(--text-primary)] mb-1">

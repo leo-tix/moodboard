@@ -8,7 +8,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 260px;
+      width: 280px;
       font-family: system-ui, -apple-system, sans-serif;
       background: #0a0a0a;
       color: #f0f0f0;
@@ -33,13 +33,15 @@
       letter-spacing: 0.05em;
     }
 
+    .field { margin-bottom: 12px; }
+
     label {
       display: block;
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: #555;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
     }
 
     input {
@@ -52,12 +54,14 @@
       padding: 7px 10px;
       outline: none;
       transition: border-color 0.15s;
+      font-family: inherit;
     }
+    input[type="password"] { font-family: monospace; letter-spacing: 0.03em; }
     input:focus { border-color: rgba(255,255,255,0.25); }
 
-    button {
+    button#save {
       width: 100%;
-      margin-top: 10px;
+      margin-top: 4px;
       padding: 8px;
       background: #e8e0d4;
       color: #0a0a0a;
@@ -68,14 +72,19 @@
       cursor: pointer;
       transition: opacity 0.15s;
     }
-    button:hover { opacity: 0.85; }
+    button#save:hover { opacity: 0.85; }
 
     .hint {
-      margin-top: 10px;
+      margin-top: 12px;
       font-size: 10px;
       color: #444;
       line-height: 1.5;
     }
+    .hint a {
+      color: #888;
+      text-decoration: none;
+    }
+    .hint a:hover { color: #aaa; }
 
     .status {
       margin-top: 8px;
@@ -84,6 +93,24 @@
       min-height: 16px;
       text-align: center;
     }
+
+    .token-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .token-row input { flex: 1; }
+    .token-toggle {
+      background: none;
+      border: none;
+      color: #555;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0 2px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .token-toggle:hover { color: #888; }
   </style>
 </head>
 <body>
@@ -96,19 +123,37 @@
   </header>
 
   <div>
-    <label for="appUrl">URL de votre Moodboard</label>
-    <input
-      id="appUrl"
-      type="url"
-      placeholder="https://votre-app.vercel.app"
-      autocomplete="off"
-      spellcheck="false"
-    />
+    <div class="field">
+      <label for="appUrl">URL de votre Moodboard</label>
+      <input
+        id="appUrl"
+        type="url"
+        placeholder="https://votre-app.vercel.app"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+
+    <div class="field">
+      <label for="apiToken">Token d'API</label>
+      <div class="token-row">
+        <input
+          id="apiToken"
+          type="password"
+          placeholder="mb_…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button class="token-toggle" id="toggleToken" title="Afficher / masquer">👁</button>
+      </div>
+    </div>
+
     <button id="save">Enregistrer</button>
     <div class="status" id="status"></div>
+
     <p class="hint">
-      Survolez n'importe quelle image sur le web et cliquez
-      sur le bouton <strong>Sauvegarder</strong> qui apparaît.
+      Générez votre token dans <strong>Moodboard → Paramètres → Extension Chrome</strong>.
+      Survolez ensuite n'importe quelle image et cliquez sur <strong>Sauvegarder</strong>.
     </p>
   </div>
 

@@ -1,37 +1,103 @@
-// Background service worker — ouvre la fenêtre d'import Moodboard
+'use strict';
 
 const DEFAULT_APP_URL = 'http://localhost:3000';
 
-async function getAppUrl() {
+async function cfg() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['appUrl'], (result) => {
-      resolve((result.appUrl || DEFAULT_APP_URL).replace(/\/$/, ''));
-    });
+    chrome.storage.local.get(['appUrl', 'apiToken', 'moodboards', 'moodboardsAt'], resolve);
   });
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action !== 'save') return;
-
-  (async () => {
-    const appUrl = await getAppUrl();
-    const params = new URLSearchParams({
-      imageUrl: msg.imageUrl || '',
-      sourceUrl: msg.sourceUrl || '',
-      author: msg.author || '',
-      title: msg.title || '',
+// Fetch & cache moodboards list (TTL: 5 min)
+async function getMoodboards(appUrl, token) {
+  const now = Date.now();
+  const data = await cfg();
+  if (data.moodboards && data.moodboardsAt && now - data.moodboardsAt < 5 * 60 * 1000) {
+    return data.moodboards;
+  }
+  try {
+    const res = await fetch(`${appUrl}/api/moodboards`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
+    if (!res.ok) return [];
+    const list = await res.json();
+    const boards = list.map((b) => ({ id: b.id, title: b.title }));
+    chrome.storage.local.set({ moodboards: boards, moodboardsAt: now });
+    return boards;
+  } catch {
+    return [];
+  }
+}
 
-    chrome.windows.create({
-      url: `${appUrl}/import/bookmarklet?${params}`,
-      type: 'popup',
-      width: 520,
-      height: 720,
-      focused: true,
-    });
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.action === 'save') {
+    (async () => {
+      const data = await cfg();
+      const appUrl = (data.appUrl || DEFAULT_APP_URL).replace(/\/$/, '');
+      const token  = data.apiToken || '';
 
-    sendResponse({ ok: true });
-  })();
+      if (!token) {
+        sendResponse({ ok: false, error: 'no_token' });
+        return;
+      }
 
-  return true; // keep channel open for async response
+      try {
+        const res = await fetch(`${appUrl}/api/import/direct`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageUrl:   msg.imageUrl,
+            sourceUrl:  msg.sourceUrl,
+            author:     msg.author,
+            title:      msg.title,
+          }),
+        });
+
+        const result = await res.json();
+        if (!res.ok || !result.inspirationId) {
+          sendResponse({ ok: false, error: result.error || 'import_failed' });
+          return;
+        }
+
+        // If a moodboard target is specified, add the image to it
+        if (msg.moodboardId && result.inspirationId) {
+          await fetch(`${appUrl}/api/moodboards/${msg.moodboardId}/items`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              inspirationId: result.inspirationId,
+              storageKey:    result.storageKey,
+              thumbnailKey:  result.thumbnailKey,
+              width:         result.width  || 800,
+              height:        result.height || 600,
+              title:         result.title  || '',
+            }),
+          }).catch(() => {});
+        }
+
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === 'getMoodboards') {
+    (async () => {
+      const data = await cfg();
+      const appUrl = (data.appUrl || DEFAULT_APP_URL).replace(/\/$/, '');
+      const token  = data.apiToken || '';
+      if (!token) { sendResponse([]); return; }
+      const boards = await getMoodboards(appUrl, token);
+      sendResponse(boards);
+    })();
+    return true;
+  }
 });
