@@ -1,6 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
 
 interface Props {
   bookmarkletCode: string;
@@ -8,6 +13,36 @@ interface Props {
 
 export function BookmarkletSection({ bookmarkletCode }: Props) {
   const [copied, setCopied] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+  const promptRef = useRef<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      promptRef.current = e as BeforeInstallPromptEvent;
+      setInstallPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+
+    // Already installed as PWA
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setInstalled(true);
+    }
+
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  async function installPWA() {
+    const prompt = promptRef.current;
+    if (!prompt) return;
+    await prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    if (outcome === "accepted") {
+      setInstalled(true);
+      setInstallPrompt(null);
+    }
+  }
 
   function copyCode() {
     navigator.clipboard.writeText(bookmarkletCode).then(() => {
@@ -88,12 +123,32 @@ export function BookmarkletSection({ bookmarkletCode }: Props) {
           directement depuis le menu &quot;Partager&quot; d&apos;Instagram, Pinterest ou de votre galerie photo.
         </p>
 
+        {/* Install button — shown when Chrome fires beforeinstallprompt */}
+        {installed ? (
+          <div className="mb-4 p-3 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
+            ✓ Application déjà installée
+          </div>
+        ) : installPrompt ? (
+          <button
+            onClick={installPWA}
+            className="mb-4 w-full py-2.5 rounded bg-[var(--accent)] text-[#0a0a0a] text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            Installer Moodboard sur cet appareil
+          </button>
+        ) : (
+          <div className="mb-4 p-3 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed">
+            <strong className="text-[var(--text-primary)]">Android :</strong> ouvrez cette page dans Chrome, puis menu <strong>⋮ → Installer l&apos;application</strong> (ou attendez le bandeau automatique).
+            <br />
+            <strong className="text-[var(--text-primary)] mt-1 block">iOS :</strong> ouvrez dans Safari → bouton Partager ↑ → <strong>Sur l&apos;écran d&apos;accueil</strong>.
+          </div>
+        )}
+
         <div className="space-y-3">
           <div className="p-3 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
             <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest mb-2">Android (Chrome)</p>
             <ol className="text-xs text-[var(--text-secondary)] space-y-1 list-decimal list-inside">
               <li>Ouvrez Moodboard dans Chrome</li>
-              <li>Menu ⋮ → &quot;Ajouter à l&apos;écran d&apos;accueil&quot;</li>
+              <li>Menu ⋮ → <strong>&quot;Installer l&apos;application&quot;</strong> (pas &quot;Ajouter à l&apos;écran d&apos;accueil&quot;)</li>
               <li>Sur Instagram : maintenez l&apos;image → Partager → Moodboard</li>
             </ol>
           </div>
