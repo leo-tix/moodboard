@@ -15,10 +15,11 @@ export function PwaInstallButton() {
     if ((window.navigator as { standalone?: boolean }).standalone === true) return;
 
     const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    if (isIos) {
-      setState('ios');
-      return;
-    }
+    if (isIos) { setState('ios'); return; }
+
+    // Event may have fired before React hydrated — layout.tsx captures it early
+    const early = (window as { __pwaPrompt?: Event }).__pwaPrompt;
+    if (early) { setPrompt(early); setState('android'); return; }
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
