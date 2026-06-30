@@ -245,7 +245,16 @@ function onWrapLeave() { scheduleHide(); }
 // ── Event listeners ───────────────────────────────────────────────────────────
 document.addEventListener('mouseover', (e) => {
   if (e.target.closest('[data-mb]')) return;
-  const img = e.target.closest('img');
+
+  // Direct hit on an <img>
+  let img = e.target.closest('img');
+
+  // Fallback: overlay div covering the image (Instagram carousel, Pinterest, etc.)
+  if (!img) {
+    const els = document.elementsFromPoint(e.clientX, e.clientY);
+    img = els.find((el) => el.tagName === 'IMG') || null;
+  }
+
   if (!img) return;
   const r = img.getBoundingClientRect();
   if (r.width < 80 || r.height < 80) return;
