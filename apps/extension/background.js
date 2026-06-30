@@ -90,6 +90,37 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'saveMany') {
+    (async () => {
+      const data = await cfg();
+      const appUrl = (data.appUrl || DEFAULT_APP_URL).replace(/\/$/, '');
+      const token  = data.apiToken || '';
+      if (!token) { sendResponse({ ok: false, error: 'no_token' }); return; }
+
+      let saved = 0, failed = 0;
+      for (const imageUrl of msg.imageUrls) {
+        try {
+          const res = await fetch(`${appUrl}/api/import/direct`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              imageUrl,
+              sourceUrl: msg.sourceUrl,
+              author:    msg.author,
+              title:     msg.title,
+            }),
+          });
+          let result = {};
+          try { result = await res.json(); } catch { /* empty */ }
+          if (res.ok && result.inspirationId) saved++;
+          else failed++;
+        } catch { failed++; }
+      }
+      sendResponse({ ok: saved > 0, saved, failed });
+    })();
+    return true;
+  }
+
   if (msg.action === 'getMoodboards') {
     (async () => {
       const data = await cfg();

@@ -140,14 +140,59 @@ function toggleDropdown() {
   }
 }
 
+// Returns { total: N|null, nextSel } if a carousel is detected, else null
+function detectCarousel(img) {
+  const nextSel = 'button[aria-label*="Next" i], button[aria-label*="Suivant" i], button[aria-label*="Siguiente" i], button[aria-label*="Weiter" i], button[aria-label*="Avanti" i]';
+  if (!document.querySelector(nextSel)) return null;
+
+  let el = img.parentElement;
+  for (let d = 0; d < 12; d++) {
+    if (!el || ['BODY', 'HTML'].includes(el.tagName)) break;
+    const tabs = el.querySelectorAll('[role="tab"]');
+    if (tabs.length > 1) return { total: tabs.length, nextSel };
+    el = el.parentElement;
+  }
+  return { total: null, nextSel }; // carousel confirmed but count unknown
+}
+
 function buildDropdown() {
   if (!dropdown) return;
   dropdown.innerHTML = '';
 
-  const header = document.createElement('div');
-  S(header, { padding: '6px 10px 4px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em' });
-  header.textContent = 'Ajouter à une planche';
-  dropdown.appendChild(header);
+  // ── Carousel section ──────────────────────────────────────────────────────
+  if (currentImg) {
+    const info = detectCarousel(currentImg);
+    if (info) {
+      const carHeader = document.createElement('div');
+      S(carHeader, { padding: '6px 10px 4px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em' });
+      carHeader.textContent = 'Carousel';
+      dropdown.appendChild(carHeader);
+
+      const carItem = document.createElement('div');
+      S(carItem, { padding: '7px 10px', color: 'white', cursor: 'pointer', transition: 'background 0.1s', fontSize: '12px' });
+      carItem.textContent = info.total ? `Tout le carousel (${info.total} images)` : 'Tout le carousel';
+      carItem.addEventListener('mouseenter', () => { carItem.style.background = 'rgba(255,255,255,0.08)'; });
+      carItem.addEventListener('mouseleave', () => { carItem.style.background = ''; });
+      carItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.style.display = 'none';
+        const imgRef = currentImg;
+        const rc = imgRef.getBoundingClientRect();
+        doSaveCarousel(info.total, (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2, info.nextSel);
+      });
+      dropdown.appendChild(carItem);
+
+      const sep = document.createElement('div');
+      S(sep, { height: '1px', background: 'rgba(255,255,255,0.08)', margin: '4px 0' });
+      dropdown.appendChild(sep);
+    }
+  }
+
+  // ── Moodboard section ─────────────────────────────────────────────────────
+  const mbHeader = document.createElement('div');
+  S(mbHeader, { padding: '6px 10px 4px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em' });
+  mbHeader.textContent = 'Ajouter à une planche';
+  dropdown.appendChild(mbHeader);
 
   if (moodboards.length === 0) {
     const empty = document.createElement('div');
@@ -226,6 +271,58 @@ function showFeedback(text, color) {
   const main = wrap.querySelector('button:first-child');
   if (main) { main.textContent = text; main.style.color = color; }
   setTimeout(() => { if (main) { main.textContent = 'Sauvegarder'; main.style.color = 'white'; } }, 2200);
+}
+
+function showStatus(text) {
+  if (!wrap) return;
+  const main = wrap.querySelector('button:first-child');
+  if (main) { main.textContent = text; main.style.color = 'rgba(255,255,255,0.5)'; }
+}
+
+async function doSaveCarousel(total, cx, cy, nextSel) {
+  const urls = [];
+  const seen = new Set();
+  const limit = total || 20;
+
+  for (let i = 0; i < limit; i++) {
+    showStatus(`Récup. ${i + 1}/${total || '?'}…`);
+
+    if (i > 0) {
+      const btn = document.querySelector(nextSel);
+      if (!btn) break;
+      btn.click();
+      await new Promise((res) => setTimeout(res, 550));
+    }
+
+    const els = document.elementsFromPoint(cx, cy);
+    const img = els.find((el) => el.tagName === 'IMG');
+    if (!img) break;
+
+    const url = bestUrl(img);
+    if (seen.has(url)) break; // looped back to first slide
+    seen.add(url);
+    urls.push(url);
+  }
+
+  if (urls.length === 0) { showFeedback('✕ Aucune image', '#f87171'); return; }
+
+  showStatus(`Envoi ${urls.length}…`);
+
+  chrome.runtime.sendMessage({
+    action: 'saveMany',
+    imageUrls: urls,
+    sourceUrl: location.href,
+    author: guessAuthor(),
+    title: document.title || '',
+  }, (resp) => {
+    if (resp?.ok) {
+      const n = resp.saved;
+      showFeedback(`✓ ${n}/${urls.length} sauvegardée${n > 1 ? 's' : ''}`, '#4ade80');
+      scheduleHide(3500);
+    } else {
+      showFeedback(`✕ ${resp?.error || 'Erreur'}`, '#f87171');
+    }
+  });
 }
 
 // ── Hide logic ────────────────────────────────────────────────────────────────
