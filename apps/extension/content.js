@@ -215,7 +215,8 @@ function doSave(moodboardId) {
     } else if (resp?.error === 'no_token') {
       showFeedback('⚠ Token manquant', '#fb923c');
     } else {
-      showFeedback('✕ Erreur', '#f87171');
+      const msg = resp?.error ? String(resp.error).slice(0, 28) : 'Erreur';
+      showFeedback(`✕ ${msg}`, '#f87171');
     }
   });
 }

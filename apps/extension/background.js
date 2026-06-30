@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_APP_URL = 'http://localhost:3000';
+const DEFAULT_APP_URL = 'https://moodboard.leotix.fr';
 
 async function cfg() {
   return new Promise((resolve) => {
@@ -56,9 +56,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           }),
         });
 
-        const result = await res.json();
+        let result;
+        try { result = await res.json(); } catch { result = {}; }
         if (!res.ok || !result.inspirationId) {
-          sendResponse({ ok: false, error: result.error || 'import_failed' });
+          sendResponse({ ok: false, error: result.error || `HTTP ${res.status}` });
           return;
         }
 
