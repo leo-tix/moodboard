@@ -228,12 +228,99 @@ function bestUrl(img) {
   return parts[0]?.url || img.src;
 }
 
-function guessAuthor() {
-  for (const sel of ['article header a', 'header a[href*="/"]']) {
-    const el = document.querySelector(sel);
-    if (el?.textContent?.trim()) return el.textContent.trim();
+// ── Metadata extraction ───────────────────────────────────────────────────────
+
+function findCard(img) {
+  const vpArea = window.innerWidth * window.innerHeight;
+  let el = img.parentElement;
+  for (let i = 0; i < 10; i++) {
+    if (!el || ['BODY', 'HTML', 'MAIN', 'HEADER', 'FOOTER', 'NAV'].includes(el.tagName)) break;
+    const r = el.getBoundingClientRect();
+    if (r.width * r.height < vpArea * 0.55 && el.querySelector('h1,h2,h3,h4,h5,h6')) return el;
+    el = el.parentElement;
   }
-  return '';
+  return null;
+}
+
+function extractMetadata(img) {
+  const meta = { title: '', author: '', description: '', tags: [] };
+
+  // 1. JSON-LD structured data
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      let d = JSON.parse(script.textContent);
+      if (Array.isArray(d)) d = d[0];
+      if (d?.['@graph']) d = d['@graph'][0];
+      if (!d) continue;
+      meta.title    = meta.title    || d.name || d.headline || '';
+      meta.author   = meta.author   || d.author?.name || d.creator?.name || '';
+      meta.description = meta.description || d.description || '';
+      const kw = d.keywords;
+      if (kw) {
+        const list = typeof kw === 'string' ? kw.split(',').map(k => k.trim()) : kw;
+        meta.tags.push(...list.filter(Boolean));
+      }
+    } catch {}
+  }
+
+  // 2. Nearest card/article containing this image
+  const card = findCard(img);
+  if (card) {
+    if (!meta.title) {
+      const h = card.querySelector('h1,h2,h3,h4,h5,h6');
+      if (h) meta.title = h.textContent.trim();
+    }
+    if (!meta.description) {
+      const p = card.querySelector('p');
+      if (p) meta.description = p.textContent.trim().slice(0, 400);
+    }
+    if (!meta.author) {
+      const a = card.querySelector('[rel="author"],[class*="author"],[class*="byline"],[data-author]');
+      if (a) meta.author = a.textContent.trim();
+    }
+    for (const a of card.querySelectorAll('a[href]')) {
+      const href = a.getAttribute('href') || '';
+      if (/\/(tag|category|technique|style|type|topic|genre|medium|theme)\//i.test(href)) {
+        const t = a.textContent.trim();
+        if (t && !meta.tags.includes(t)) meta.tags.push(t);
+      }
+    }
+  }
+
+  // 3. URL path segments → auto-tags (eyecannndy.com/technique/typography → ["technique","typography"])
+  const skipWords = new Set(['www','com','html','index','post','article','page','blog','news','en','fr','de','es','it','p','s','r']);
+  const pathTags = location.pathname.split('/').filter(Boolean)
+    .filter(p => !/^\d+$/.test(p) && p.length < 40)
+    .map(p => p.replace(/-/g, ' '))
+    .filter(t => !skipWords.has(t.toLowerCase()))
+    .filter(t => !meta.tags.map(x => x.toLowerCase()).includes(t.toLowerCase()))
+    .slice(0, 3);
+  meta.tags.push(...pathTags);
+
+  // 4. Instagram-specific author
+  if (!meta.author && location.hostname.includes('instagram.com')) {
+    const a = document.querySelector('header a[href*="/"]');
+    if (a) meta.author = a.textContent.trim();
+  }
+
+  // 5. Open Graph / meta fallbacks
+  if (!meta.title)
+    meta.title = document.querySelector('meta[property="og:title"]')?.getAttribute('content')
+      || document.querySelector('meta[name="twitter:title"]')?.getAttribute('content')
+      || document.title || '';
+  if (!meta.description)
+    meta.description = document.querySelector('meta[property="og:description"]')?.getAttribute('content')
+      || document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+  if (!meta.author)
+    meta.author = document.querySelector('meta[name="author"]')?.getAttribute('content')
+      || document.querySelector('meta[property="article:author"]')?.getAttribute('content') || '';
+
+  // Cleanup
+  meta.title       = meta.title.slice(0, 200).trim();
+  meta.description = meta.description.slice(0, 500).trim();
+  meta.tags        = [...new Set(meta.tags.map(t => t.trim()).filter(Boolean))].slice(0, 10);
+
+  return meta;
 }
 
 function doSave(moodboardId) {
@@ -245,14 +332,14 @@ function doSave(moodboardId) {
   }
 
   showFeedback('…', 'rgba(255,255,255,0.5)');
+  const meta = extractMetadata(currentImg);
 
   chrome.runtime.sendMessage({
     action: 'save',
     imageUrl,
     sourceUrl: location.href,
-    author: guessAuthor(),
-    title: document.title || '',
     moodboardId: moodboardId || null,
+    ...meta,
   }, (resp) => {
     if (resp?.ok) {
       showFeedback(moodboardId ? '✓ Dans la planche' : '✓ Sauvegardé', '#4ade80');
@@ -308,12 +395,13 @@ async function doSaveCarousel(total, cx, cy, nextSel) {
 
   showStatus(`Envoi ${urls.length}…`);
 
+  const meta = extractMetadata(currentImg || document.querySelector('img'));
+
   chrome.runtime.sendMessage({
     action: 'saveMany',
     imageUrls: urls,
     sourceUrl: location.href,
-    author: guessAuthor(),
-    title: document.title || '',
+    ...meta,
   }, (resp) => {
     if (resp?.ok) {
       const n = resp.saved;

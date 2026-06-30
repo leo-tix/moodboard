@@ -49,10 +49,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            imageUrl:   msg.imageUrl,
-            sourceUrl:  msg.sourceUrl,
-            author:     msg.author,
-            title:      msg.title,
+            imageUrl:     msg.imageUrl,
+            sourceUrl:    msg.sourceUrl,
+            title:        msg.title        || '',
+            author:       msg.author       || '',
+            description:  msg.description  || '',
+            tags:         msg.tags         || [],
           }),
         });
 
@@ -105,9 +107,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify({
               imageUrl,
-              sourceUrl: msg.sourceUrl,
-              author:    msg.author,
-              title:     msg.title,
+              sourceUrl:   msg.sourceUrl,
+              title:       msg.title       || '',
+              author:      msg.author      || '',
+              description: msg.description || '',
+              tags:        msg.tags        || [],
             }),
           });
           let result = {};
