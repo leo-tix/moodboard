@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
           title: defaultTitle,
           author: author?.trim() || undefined,
           description: description?.trim() || undefined,
-          year: year?.trim() || undefined,
+          year: year?.trim() ? parseInt(year.trim(), 10) || undefined : undefined,
           sourceUrl: sourceUrl?.trim() || imageUrl,
           status: "PROCESSING",
           mediaType: "IMAGE",
