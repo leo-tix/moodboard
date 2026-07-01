@@ -126,7 +126,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Case 4: other URL (assume direct image link) ──────────────────────────
+  // ── Case 4: YouTube link — send to the stills/mosaic import module ────────
+  if (sharedUrl && /youtube\.com|youtu\.be/i.test(sharedUrl)) {
+    return NextResponse.redirect(
+      new URL(`/import/youtube?url=${encodeURIComponent(sharedUrl)}`, req.url),
+    );
+  }
+
+  // ── Case 5: other URL (assume direct image link) ──────────────────────────
   if (sharedUrl) {
     const params = new URLSearchParams({ imageUrl: sharedUrl });
     if (sharedTitle) params.set("title", sharedTitle);

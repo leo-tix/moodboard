@@ -1,4 +1,4 @@
-const CACHE = 'mb-v6';
+const CACHE = 'mb-v7';
 const SHARE_DB = 'moodboard-share';
 
 function extractUrl(text) {
@@ -12,6 +12,10 @@ function isInstagramUrl(url) {
 
 function isPinterestUrl(url) {
   return /pinterest\.[a-z.]+|pin\.it/i.test(url);
+}
+
+function isYouTubeUrl(url) {
+  return /youtube\.com|youtu\.be/i.test(url);
 }
 
 function openShareDb() {
@@ -59,6 +63,10 @@ async function handleShareTarget(request) {
 
   if (sharedUrl && isPinterestUrl(sharedUrl)) {
     return Response.redirect(`/share/social?url=${encodeURIComponent(sharedUrl)}`, 303);
+  }
+
+  if (sharedUrl && isYouTubeUrl(sharedUrl)) {
+    return Response.redirect(`/import/youtube?url=${encodeURIComponent(sharedUrl)}`, 303);
   }
 
   if (sharedUrl) {

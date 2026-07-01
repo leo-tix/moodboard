@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { YouTubeImportClient } from "@/components/youtube/YouTubeImportClient";
+import { YouTubeUrlParam } from "@/components/youtube/YouTubeUrlParam";
 
 export const metadata: Metadata = { title: "Import YouTube" };
 
@@ -13,7 +15,9 @@ export default function YouTubeImportPage() {
           Extrayez 5 stills ou composez une mosaïque 3×3 depuis n&apos;importe quelle vidéo.
         </p>
       </header>
-      <YouTubeImportClient />
+      <Suspense>
+        <YouTubeUrlParam />
+      </Suspense>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -40,8 +40,8 @@ function compileNotes(meta: YouTubeMetadata): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function YouTubeImportClient() {
-  const [url, setUrl] = useState("");
+export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}) {
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [info, setInfo] = useState<VideoInfo | null>(null);
 
@@ -67,8 +67,9 @@ export function YouTubeImportClient() {
 
   // ── Load video info then metadata ─────────────────────────────────────────
 
-  const loadInfo = async () => {
-    if (!url.trim()) return;
+  const loadInfo = async (urlOverride?: string) => {
+    const targetUrl = (urlOverride ?? url).trim();
+    if (!targetUrl) return;
     setLoadingInfo(true);
     setError(null);
     setMetadata(null);
@@ -76,7 +77,7 @@ export function YouTubeImportClient() {
       const res = await fetch("/api/youtube/info", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({ url: targetUrl }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -96,6 +97,12 @@ export function YouTubeImportClient() {
       setLoadingInfo(false);
     }
   };
+
+  // Auto-load when arriving with a pre-filled URL (e.g. shared from the YouTube app)
+  useEffect(() => {
+    if (initialUrl?.trim()) loadInfo(initialUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchMetadata = async (videoId: string, title: string, author: string) => {
     setLoadingMeta(true);
@@ -330,7 +337,7 @@ export function YouTubeImportClient() {
                   onKeyDown={(e) => e.key === "Enter" && !loadingInfo && loadInfo()}
                 />
                 <button
-                  onClick={loadInfo}
+                  onClick={() => loadInfo()}
                   disabled={loadingInfo || !url.trim()}
                   className="px-4 py-2 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center gap-2 flex-shrink-0"
                 >
