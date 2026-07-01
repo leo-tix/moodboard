@@ -133,6 +133,16 @@ export interface MoodboardData {
   background: string;
   shareToken: string | null;
   shareExpiry: string | null;
+  order: number;
+  folderId: string | null;
+  /** Total image count on the real board — canvasData above may be trimmed for preview */
+  imageCount?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MoodboardFolderData {
+  id: string;
+  name: string;
+  order: number;
 }

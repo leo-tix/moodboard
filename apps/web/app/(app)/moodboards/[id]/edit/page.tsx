@@ -41,6 +41,8 @@ export default async function MoodboardEditPage({ params }: Props) {
         background: moodboard.background,
         shareToken: moodboard.shareToken,
         shareExpiry: moodboard.shareExpiry?.toISOString() ?? null,
+        order: moodboard.order,
+        folderId: moodboard.folderId,
         createdAt: moodboard.createdAt.toISOString(),
         updatedAt: moodboard.updatedAt.toISOString(),
       }}

@@ -324,8 +324,22 @@ model Moodboard {
   background     String    @default("#0a0a0a")
   shareToken     String?   @unique @default(uuid())
   shareExpiry    DateTime?
+  order          Int       @default(0)
+  folderId       String?
+  folder         MoodboardFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@map("moodboards")
+}
+
+model MoodboardFolder {
+  id         String      @id @default(cuid())
+  name       String
+  order      Int         @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  moodboards Moodboard[]
+
+  @@map("moodboard_folders")
 }
