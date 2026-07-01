@@ -84,8 +84,14 @@ export async function POST(req: NextRequest) {
   }
 
   const formData = await req.formData();
-  const sharedUrl = (formData.get("url") as string | null)?.trim() || "";
   const sharedTitle = (formData.get("title") as string | null)?.trim() || "";
+  const sharedText = (formData.get("text") as string | null)?.trim() || "";
+  // Instagram/Pinterest "Share to" sends the link as plain text (ACTION_SEND),
+  // not the structured 'url' param — fall back to extracting it from text.
+  const sharedUrl =
+    (formData.get("url") as string | null)?.trim() ||
+    sharedText.match(/https?:\/\/\S+/i)?.[0] ||
+    "";
 
   // ── Case 1: files shared (image or carousel) ─────────────────────────────
   const files = formData.getAll("image").filter(
@@ -107,7 +113,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.redirect(new URL("/upload?error=processing", req.url));
   }
 
-  // ── Case 2: URL shared ────────────────────────────────────────────────────
+  // ── Case 2: social post link (Instagram/Pinterest) ───────────────────────
+  if (sharedUrl && /instagram\.com|pinterest\.com|pin\.it/i.test(sharedUrl)) {
+    return NextResponse.redirect(
+      new URL(`/share/social?url=${encodeURIComponent(sharedUrl)}`, req.url),
+    );
+  }
+
+  // ── Case 3: other URL (assume direct image link) ─────────────────────────
   if (sharedUrl) {
     const params = new URLSearchParams({ imageUrl: sharedUrl });
     if (sharedTitle) params.set("title", sharedTitle);

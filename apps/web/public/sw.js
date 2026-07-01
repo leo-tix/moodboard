@@ -1,5 +1,14 @@
-const CACHE = 'mb-v3';
+const CACHE = 'mb-v4';
 const SHARE_DB = 'moodboard-share';
+
+function extractUrl(text) {
+  const m = (text || '').match(/https?:\/\/\S+/i);
+  return m ? m[0] : '';
+}
+
+function isSocialPostUrl(url) {
+  return /instagram\.com|pinterest\.com|pin\.it/i.test(url);
+}
 
 function openShareDb() {
   return new Promise((resolve, reject) => {
@@ -27,14 +36,21 @@ async function storeShareBatch(id, files, title) {
 // by one against a per-file endpoint.
 async function handleShareTarget(request) {
   const formData = await request.formData();
-  const sharedUrl = (formData.get('url') || '').trim();
   const sharedTitle = (formData.get('title') || '').trim();
+  const sharedText = (formData.get('text') || '').trim();
+  // Instagram/Pinterest "Share to" sends the link as plain text (ACTION_SEND),
+  // not the structured 'url' param — fall back to extracting it from text.
+  const sharedUrl = (formData.get('url') || '').trim() || extractUrl(sharedText);
   const files = formData.getAll('image').filter((f) => f && f.size > 0);
 
   if (files.length > 0) {
     const id = crypto.randomUUID();
     await storeShareBatch(id, files, sharedTitle);
     return Response.redirect(`/share/upload?id=${id}`, 303);
+  }
+
+  if (sharedUrl && isSocialPostUrl(sharedUrl)) {
+    return Response.redirect(`/share/social?url=${encodeURIComponent(sharedUrl)}`, 303);
   }
 
   if (sharedUrl) {
