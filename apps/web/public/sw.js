@@ -1,4 +1,50 @@
-const CACHE = 'mb-v2';
+const CACHE = 'mb-v3';
+const SHARE_DB = 'moodboard-share';
+
+function openShareDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SHARE_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('batches', { keyPath: 'id' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function storeShareBatch(id, files, title) {
+  const db = await openShareDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('batches', 'readwrite');
+    tx.objectStore('batches').put({ id, files, title, createdAt: Date.now() });
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+// Intercept the OS share POST before it hits the network — a share of
+// several photos can exceed Vercel's 4.5MB serverless payload limit.
+// Instead: stash the files locally and let the client upload them one
+// by one against a per-file endpoint.
+async function handleShareTarget(request) {
+  const formData = await request.formData();
+  const sharedUrl = (formData.get('url') || '').trim();
+  const sharedTitle = (formData.get('title') || '').trim();
+  const files = formData.getAll('image').filter((f) => f && f.size > 0);
+
+  if (files.length > 0) {
+    const id = crypto.randomUUID();
+    await storeShareBatch(id, files, sharedTitle);
+    return Response.redirect(`/share/upload?id=${id}`, 303);
+  }
+
+  if (sharedUrl) {
+    const params = new URLSearchParams({ imageUrl: sharedUrl });
+    if (sharedTitle) params.set('title', sharedTitle);
+    return Response.redirect(`/import/bookmarklet?${params}`, 303);
+  }
+
+  return Response.redirect('/upload', 303);
+}
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -14,8 +60,14 @@ self.addEventListener('fetch', (e) => {
   const { request } = e;
   const url = new URL(request.url);
 
-  // Only handle GET requests from same origin
-  if (request.method !== 'GET' || url.origin !== location.origin) return;
+  if (url.origin !== location.origin) return;
+
+  if (request.method === 'POST' && url.pathname === '/api/share') {
+    e.respondWith(handleShareTarget(request));
+    return;
+  }
+
+  if (request.method !== 'GET') return;
 
   // Don't cache API routes — always network
   if (url.pathname.startsWith('/api/')) {
