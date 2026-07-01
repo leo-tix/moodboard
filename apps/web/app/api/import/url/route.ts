@@ -36,6 +36,46 @@ async function resolvePinterestUrl(url: string): Promise<string> {
   return id ? `https://www.pinterest.com/pin/${id}/` : resolved;
 }
 
+/**
+ * Best-effort scrape of the pin's own page for a real description and
+ * publish year — oEmbed only returns title/author/thumbnail. Pinterest
+ * doesn't server-render most pin data for guests (it's a client-side
+ * GraphQL app), but it does emit SEO meta tags: og:description (generic
+ * boilerplate for plain pins, but the real write-up for Rich Pins like
+ * articles/recipes) and article:published_time (Rich Pins only).
+ * Never throws — this is purely additive, a miss just leaves fields empty.
+ */
+async function fetchPinterestPageMeta(
+  pinUrl: string,
+): Promise<{ description: string; year: number | null }> {
+  try {
+    const res = await fetch(pinUrl, {
+      headers: { "User-Agent": BROWSER_UA },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return { description: "", year: null };
+    const html = await res.text();
+
+    const metaContent = (property: string) =>
+      html.match(new RegExp(`<meta[^>]*property="${property}"[^>]*content="([^"]*)"`))?.[1] ??
+      html.match(new RegExp(`<meta[^>]*content="([^"]*)"[^>]*property="${property}"`))?.[1] ??
+      "";
+
+    const rawDescription = metaContent("og:description")
+      .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+    // Pinterest's generic per-board boilerplate mentions "Pinterest" itself —
+    // a real pin description almost never does, so treat that as "no description"
+    const description = rawDescription && !/pinterest/i.test(rawDescription) ? rawDescription : "";
+
+    const published = metaContent("article:published_time");
+    const year = published ? new Date(published).getFullYear() : NaN;
+
+    return { description, year: Number.isFinite(year) ? year : null };
+  } catch {
+    return { description: "", year: null };
+  }
+}
+
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -52,10 +92,12 @@ export async function POST(req: NextRequest) {
   }
 
   let imageUrl: string | null = null;
-  let title    = "";
-  let author   = "";
-  let source   = "";
-  let sourceUrl = url;
+  let title       = "";
+  let author      = "";
+  let source      = "";
+  let sourceUrl   = url;
+  let description = "";
+  let year: number | null = null;
 
   // ── Pinterest ─────────────────────────────────────────────────────────────
   if (url.includes("pinterest.") || url.includes("pin.it")) {
@@ -79,6 +121,11 @@ export async function POST(req: NextRequest) {
       if (data.title)       title  = data.title;
       if (data.author_name) author = data.author_name;
       source = "Pinterest";
+
+      // Best-effort — never blocks the import if it fails
+      const pageMeta = await fetchPinterestPageMeta(canonicalUrl);
+      description = pageMeta.description;
+      year = pageMeta.year;
     } catch (e) {
       return NextResponse.json(
         { error: `Impossible de récupérer l'épingle Pinterest : ${(e as Error).message}` },
@@ -190,12 +237,14 @@ export async function POST(req: NextRequest) {
     const [inspiration] = await Promise.all([
       db.inspiration.create({
         data: {
-          title:     defaultTitle,
-          author:    author || undefined,
-          source:    source || undefined,
-          sourceUrl: sourceUrl || undefined,
-          status:    "PROCESSING",
-          mediaType: "IMAGE",
+          title:       defaultTitle,
+          author:      author || undefined,
+          source:      source || undefined,
+          sourceUrl:   sourceUrl || undefined,
+          description: description || undefined,
+          year:        year ?? undefined,
+          status:      "PROCESSING",
+          mediaType:   "IMAGE",
         },
       }),
       uploadToR2(storageKey,   processed.original,  "image/webp"),
@@ -242,6 +291,8 @@ export async function POST(req: NextRequest) {
       title:         defaultTitle,
       author,
       source,
+      description,
+      year,
       image:         { storageKey, thumbnailKey, blurHash: processed.blurHash },
     });
   } catch (error) {
