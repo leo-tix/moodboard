@@ -45,7 +45,25 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{})}window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__pwaPrompt=e;});`,
+            __html: `
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').then(function(reg){
+    // Force an update check on every load — sw.js is served no-cache,
+    // so this reliably picks up a new worker instead of waiting up to 24h.
+    reg.update().catch(function(){});
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'visible') reg.update().catch(function(){});
+    });
+  }).catch(function(){});
+  var reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if(reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  });
+}
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__pwaPrompt=e;});
+`.trim(),
           }}
         />
       </head>
