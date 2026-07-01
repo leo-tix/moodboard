@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Case 3: Pinterest link ─────────────────────────────────────────────
-  if (sharedUrl && /pinterest\.com|pin\.it/i.test(sharedUrl)) {
+  if (sharedUrl && /pinterest\.[a-z.]+|pin\.it/i.test(sharedUrl)) {
     return NextResponse.redirect(
       new URL(`/share/social?url=${encodeURIComponent(sharedUrl)}`, req.url),
     );

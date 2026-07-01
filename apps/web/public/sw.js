@@ -1,4 +1,4 @@
-const CACHE = 'mb-v5';
+const CACHE = 'mb-v6';
 const SHARE_DB = 'moodboard-share';
 
 function extractUrl(text) {
@@ -11,7 +11,7 @@ function isInstagramUrl(url) {
 }
 
 function isPinterestUrl(url) {
-  return /pinterest\.com|pin\.it/i.test(url);
+  return /pinterest\.[a-z.]+|pin\.it/i.test(url);
 }
 
 function openShareDb() {

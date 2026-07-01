@@ -22,7 +22,7 @@ export function SocialImportClient() {
   const [result, setResult]     = useState<ImportResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isPinterest = url.includes("pinterest.com") || url.includes("pin.it");
+  const isPinterest = /pinterest\.[a-z.]+|pin\.it/i.test(url);
   const isInstagram = url.includes("instagram.com");
   const isValid     = isPinterest || isInstagram;
 
