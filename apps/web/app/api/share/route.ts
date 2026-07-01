@@ -113,14 +113,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.redirect(new URL("/upload?error=processing", req.url));
   }
 
-  // ── Case 2: social post link (Instagram/Pinterest) ───────────────────────
-  if (sharedUrl && /instagram\.com|pinterest\.com|pin\.it/i.test(sharedUrl)) {
+  // ── Case 2: Instagram link — automatic import unavailable (Meta API not
+  // approved), invite the user to screenshot instead ───────────────────────
+  if (sharedUrl && /instagram\.com/i.test(sharedUrl)) {
+    return NextResponse.redirect(new URL("/share/instagram", req.url));
+  }
+
+  // ── Case 3: Pinterest link ─────────────────────────────────────────────
+  if (sharedUrl && /pinterest\.com|pin\.it/i.test(sharedUrl)) {
     return NextResponse.redirect(
       new URL(`/share/social?url=${encodeURIComponent(sharedUrl)}`, req.url),
     );
   }
 
-  // ── Case 3: other URL (assume direct image link) ─────────────────────────
+  // ── Case 4: other URL (assume direct image link) ──────────────────────────
   if (sharedUrl) {
     const params = new URLSearchParams({ imageUrl: sharedUrl });
     if (sharedTitle) params.set("title", sharedTitle);

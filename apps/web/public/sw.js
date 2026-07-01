@@ -1,4 +1,4 @@
-const CACHE = 'mb-v4';
+const CACHE = 'mb-v5';
 const SHARE_DB = 'moodboard-share';
 
 function extractUrl(text) {
@@ -6,8 +6,12 @@ function extractUrl(text) {
   return m ? m[0] : '';
 }
 
-function isSocialPostUrl(url) {
-  return /instagram\.com|pinterest\.com|pin\.it/i.test(url);
+function isInstagramUrl(url) {
+  return /instagram\.com/i.test(url);
+}
+
+function isPinterestUrl(url) {
+  return /pinterest\.com|pin\.it/i.test(url);
 }
 
 function openShareDb() {
@@ -49,7 +53,11 @@ async function handleShareTarget(request) {
     return Response.redirect(`/share/upload?id=${id}`, 303);
   }
 
-  if (sharedUrl && isSocialPostUrl(sharedUrl)) {
+  if (sharedUrl && isInstagramUrl(sharedUrl)) {
+    return Response.redirect('/share/instagram', 303);
+  }
+
+  if (sharedUrl && isPinterestUrl(sharedUrl)) {
     return Response.redirect(`/share/social?url=${encodeURIComponent(sharedUrl)}`, 303);
   }
 
