@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   CanvasElement,
@@ -118,34 +118,30 @@ function NavigationGuide({ onClose }: { onClose: () => void }) {
 }
 
 // ── Stroke canvas overlay ─────────────────────────────────────────────────────
-// Renders all StrokeElements onto an offscreen canvas that is positioned exactly
-// over the viewport.  Uses the same per-element matrix transform as PencilLayer
-// so stroke positions match perfectly.
+// Renders all StrokeElements onto an offscreen canvas positioned over the
+// viewport. Exposes an imperative notifyPanZoom() (same pattern as the
+// editor's PencilLayer) so pan/zoom updates redraw directly without going
+// through React state/props — avoids a full parent re-render per frame.
 
-function StrokeCanvas({
-  strokeElements,
-  pan,
-  zoom,
-}: {
-  strokeElements: StrokeElement[];
-  pan: { x: number; y: number };
-  zoom: number;
-}) {
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const cacheRef   = useRef(new Map<string, ReturnType<typeof buildCachedStroke>>());
+interface StrokeCanvasHandle {
+  notifyPanZoom: (pan: { x: number; y: number }, zoom: number) => void;
+}
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const parent = canvas.parentElement;
-    if (!parent) return;
+const StrokeCanvas = forwardRef<StrokeCanvasHandle, { strokeElements: StrokeElement[] }>(
+  function StrokeCanvas({ strokeElements }, ref) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const cacheRef  = useRef(new Map<string, ReturnType<typeof buildCachedStroke>>());
+    const stateRef  = useRef({ pan: { x: 0, y: 0 }, zoom: 1 });
 
-    const dpr = window.devicePixelRatio || 1;
-
-    const draw = () => {
+    const draw = useCallback(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const dpr = window.devicePixelRatio || 1;
+      const { pan, zoom } = stateRef.current;
 
       const sorted = [...strokeElements].sort((a, b) => a.zIndex - b.zIndex);
       for (const el of sorted) {
@@ -172,46 +168,85 @@ function StrokeCanvas({
         ctx.restore();
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-    };
+    }, [strokeElements]);
 
-    const resize = () => {
-      const w = parent.clientWidth;
-      const h = parent.clientHeight;
-      canvas.width  = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width  = `${w}px`;
-      canvas.style.height = `${h}px`;
-      draw();
-    };
+    useImperativeHandle(ref, () => ({
+      notifyPanZoom: (pan, zoom) => {
+        stateRef.current = { pan, zoom };
+        draw();
+      },
+    }), [draw]);
 
-    const ro = new ResizeObserver(resize);
-    ro.observe(parent);
-    resize();
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const parent = canvas.parentElement;
+      if (!parent) return;
 
-    return () => ro.disconnect();
-  }, [strokeElements, pan, zoom]);
+      const dpr = window.devicePixelRatio || 1;
+      const resize = () => {
+        const w = parent.clientWidth;
+        const h = parent.clientHeight;
+        canvas.width  = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width  = `${w}px`;
+        canvas.style.height = `${h}px`;
+        draw();
+      };
 
-  return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 148 }}
-    />
-  );
-}
+      const ro = new ResizeObserver(resize);
+      ro.observe(parent);
+      resize();
+
+      return () => ro.disconnect();
+    }, [draw]);
+
+    return (
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 148 }}
+      />
+    );
+  }
+);
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function MoodboardViewer({ data }: Props) {
-  const viewportRef = useRef<HTMLDivElement>(null);
+  const viewportRef      = useRef<HTMLDivElement>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  const strokeCanvasRef  = useRef<StrokeCanvasHandle>(null);
 
-  // ── Visual state ──
-  const [pan,  setPan]  = useState({ x: 80, y: 60 });
-  const [zoom, setZoom] = useState(1);
+  // ── Display-only state — updated at interaction "settle", never mid-gesture.
+  // Pan/zoom themselves live in refs and are applied straight to the DOM
+  // (see applyViewTransform) so dragging/pinching never triggers a React
+  // re-render of the element tree — this is what makes the editor feel fluid
+  // and was missing here, causing the read-only share view to lag.
+  const [displayZoom, setDisplayZoom] = useState(1);
   const [cursor, setCursor] = useState("default");
   const [showGuide, setShowGuide] = useState(true);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [vpSize, setVpSize] = useState({ w: 0, h: 0 });
+
+  // Off-screen culling map — only images are tracked (text/color/etc. are
+  // cheap divs). Diffed: setState only fires when a value actually flips.
+  const visMapRef = useRef<Record<string, boolean>>({});
+  const [visMap, setVisMap] = useState<Record<string, boolean>>({});
+
+  // ── Stable refs (event handlers must not capture stale state) ──
+  const panRef  = useRef({ x: 80, y: 60 });
+  const zoomRef = useRef(1);
+  const isSpaceDown   = useRef(false);
+  const isPanningRef  = useRef(false);
+  const panStart      = useRef({ x: 0, y: 0 });
+  const panOrigin     = useRef({ x: 0, y: 0 });
+
+  // ── Smooth zoom (identical rAF lerp system as the editor) ──
+  const zoomTargetRef = useRef(1);
+  const panTargetRef  = useRef<{ x: number; y: number }>({ x: 80, y: 60 });
+  const zoomRafRef    = useRef<number | null>(null);
+  const zoomStepFnRef = useRef<() => void>(() => {});
 
   // Track viewport size for off-screen culling below (same PAD-margin
   // visibility check the editor uses to avoid requesting/decoding images
@@ -227,19 +262,40 @@ export function MoodboardViewer({ data }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // ── Stable refs (event handlers must not capture stale state) ──
-  const panRef  = useRef({ x: 80, y: 60 });
-  const zoomRef = useRef(1);
-  const isSpaceDown   = useRef(false);
-  const isPanningRef  = useRef(false);
-  const panStart      = useRef({ x: 0, y: 0 });
-  const panOrigin     = useRef({ x: 0, y: 0 });
+  // ── Direct-DOM transform application (no React re-render) ──
+  // Mirrors the editor's applyViewTransform: mutates the canvas wrapper's
+  // CSS transform and the grid background via refs, and only touches React
+  // state for the (diffed) visibility map — the actual pan/zoom values never
+  // flow through setState during interaction.
+  const applyViewTransform = useCallback((px: number, py: number, z: number) => {
+    if (canvasWrapperRef.current) {
+      canvasWrapperRef.current.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
+    }
+    const vp = viewportRef.current;
+    if (vp) {
+      const gridSize = GRID_PX * z;
+      vp.style.backgroundSize     = `${gridSize}px ${gridSize}px`;
+      vp.style.backgroundPosition = `${px % gridSize}px ${py % gridSize}px`;
+    }
+    strokeCanvasRef.current?.notifyPanZoom({ x: px, y: py }, z);
 
-  // ── Smooth zoom (identical rAF lerp system as the editor) ──
-  const zoomTargetRef = useRef(1);
-  const panTargetRef  = useRef<{ x: number; y: number }>({ x: 80, y: 60 });
-  const zoomRafRef    = useRef<number | null>(null);
-  const zoomStepFnRef = useRef<() => void>(() => {});
+    if (vp) {
+      const vpW = vp.clientWidth;
+      const vpH = vp.clientHeight;
+      const PAD = 120;
+      const newMap: Record<string, boolean> = {};
+      let changed = false;
+      for (const el of data.canvasData) {
+        if (el.type !== "image") continue;
+        const sx  = px + el.x * z;
+        const sy  = py + el.y * z;
+        const vis = sx + el.w * z > -PAD && sx < vpW + PAD && sy + el.h * z > -PAD && sy < vpH + PAD;
+        newMap[el.id] = vis;
+        if (visMapRef.current[el.id] !== vis) changed = true;
+      }
+      if (changed) { visMapRef.current = newMap; setVisMap({ ...newMap }); }
+    }
+  }, [data.canvasData]);
 
   // Re-assigned every render so rAF always calls the latest version.
   zoomStepFnRef.current = () => {
@@ -257,8 +313,8 @@ export function MoodboardViewer({ data }: Props) {
     const fpy = done ? tp.y : npy;
     zoomRef.current = fz;
     panRef.current  = { x: fpx, y: fpy };
-    setZoom(fz);
-    setPan({ x: fpx, y: fpy });
+    applyViewTransform(fpx, fpy, fz);
+    if (done) setDisplayZoom(fz); // settle: sync display-only state (toolbar %, LOD)
     zoomRafRef.current = done ? null : requestAnimationFrame(() => zoomStepFnRef.current());
   };
 
@@ -358,14 +414,14 @@ export function MoodboardViewer({ data }: Props) {
         // Scroll → pan (direct, no lerp for trackpad responsiveness)
         const np = { x: panRef.current.x - e.deltaX, y: panRef.current.y - e.deltaY };
         panTargetRef.current = np;
-        setPan(np);
         panRef.current = np;
+        applyViewTransform(np.x, np.y, zoomRef.current);
       }
     };
 
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
-  }, [kickZoomAnimation]);
+  }, [kickZoomAnimation, applyViewTransform]);
 
   // ── Touch gestures (iPad / iPhone) ──
   // Viewer is read-only: every 1-finger drag pans, 2-finger pinch zooms + translates.
@@ -427,8 +483,7 @@ export function MoodboardViewer({ data }: Props) {
         panRef.current        = { x: newPanX, y: newPanY };
         zoomTargetRef.current  = newZoom;
         panTargetRef.current   = { x: newPanX, y: newPanY };
-        setZoom(newZoom);
-        setPan({ x: newPanX, y: newPanY });
+        applyViewTransform(newPanX, newPanY, newZoom);
         return;
       }
       if (e.touches.length === 1 && touchPanRef.current) {
@@ -436,13 +491,17 @@ export function MoodboardViewer({ data }: Props) {
         const touch = e.touches[0];
         const p  = touchPanRef.current;
         const np = { x: p.originX + (touch.clientX - p.startX), y: p.originY + (touch.clientY - p.startY) };
-        setPan(np);
         panRef.current       = np;
         panTargetRef.current  = np;
+        applyViewTransform(np.x, np.y, zoomRef.current);
       }
     };
 
-    const onTouchEnd = () => { touchPanRef.current = null; pinchRef.current = null; };
+    const onTouchEnd = () => {
+      touchPanRef.current = null;
+      pinchRef.current = null;
+      setDisplayZoom(zoomRef.current); // settle: sync toolbar % / LOD after a pinch
+    };
 
     viewport.addEventListener("touchstart",  onTouchStart,  { passive: false });
     viewport.addEventListener("touchmove",   onTouchMove,   { passive: false });
@@ -455,7 +514,7 @@ export function MoodboardViewer({ data }: Props) {
       viewport.removeEventListener("touchcancel", onTouchEnd);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [applyViewTransform]);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -488,8 +547,8 @@ export function MoodboardViewer({ data }: Props) {
         const dy = e.key === "ArrowUp"   ? step : e.key === "ArrowDown"  ? -step : 0;
         const np = { x: panRef.current.x + dx, y: panRef.current.y + dy };
         panTargetRef.current = np;
-        setPan(np);
         panRef.current = np;
+        applyViewTransform(np.x, np.y, zoomRef.current);
         return;
       }
 
@@ -531,7 +590,7 @@ export function MoodboardViewer({ data }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [zoomToFit, applyZoom]);
+  }, [zoomToFit, applyZoom, applyViewTransform]);
 
   // ── Viewport pan (left-click drag = pan, middle-click = pan) ──
   // In read-only view every click-drag pans — there is no selection / rubber-band.
@@ -551,8 +610,8 @@ export function MoodboardViewer({ data }: Props) {
         y: panOrigin.current.y + (ev.clientY - panStart.current.y),
       };
       panTargetRef.current = np;
-      setPan(np);
       panRef.current = np;
+      applyViewTransform(np.x, np.y, zoomRef.current);
     };
     const onUp = () => {
       isPanningRef.current = false;
@@ -562,15 +621,15 @@ export function MoodboardViewer({ data }: Props) {
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-  }, []);
+  }, [applyViewTransform]);
 
-  // ── Grid style ──
-  const gridSize   = GRID_PX * zoom;
+  // ── Grid style (initial paint only — pan/zoom-driven updates go through
+  // applyViewTransform directly on the DOM, not through this React style) ──
   const gridStyle: React.CSSProperties = {
     backgroundColor: data.background,
     backgroundImage: `radial-gradient(circle, rgba(128,128,148,0.18) 1px, transparent 1px)`,
-    backgroundSize: `${gridSize}px ${gridSize}px`,
-    backgroundPosition: `${pan.x % gridSize}px ${pan.y % gridSize}px`,
+    backgroundSize: `${GRID_PX * zoomRef.current}px ${GRID_PX * zoomRef.current}px`,
+    backgroundPosition: `${panRef.current.x % (GRID_PX * zoomRef.current)}px ${panRef.current.y % (GRID_PX * zoomRef.current)}px`,
     cursor: cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
   };
 
@@ -606,13 +665,14 @@ export function MoodboardViewer({ data }: Props) {
         style={{ ...gridStyle, touchAction: "none" }}
         onMouseDown={handleViewportMouseDown}
       >
-        {/* Canvas world (transformed) */}
+        {/* Canvas world (transformed directly via ref — see applyViewTransform) */}
         <div
+          ref={canvasWrapperRef}
           style={{
             position: "absolute",
             top: 0,
             left: 0,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current})`,
             transformOrigin: "0 0",
             width: 0,
             height: 0,
@@ -620,43 +680,34 @@ export function MoodboardViewer({ data }: Props) {
         >
           {data.canvasData
             .filter((el) => el.type !== "stroke")
-            .map((el) => {
-              // Off-screen culling — same PAD-margin check as the editor, so a
-              // large board doesn't fire off hundreds of image requests at once.
-              const PAD = 120;
-              const sx = pan.x + el.x * zoom;
-              const sy = pan.y + el.y * zoom;
-              const isVisible =
-                vpSize.w === 0 || // before first measurement, assume visible
-                (sx + el.w * zoom > -PAD && sx < vpSize.w + PAD &&
-                 sy + el.h * zoom > -PAD && sy < vpSize.h + PAD);
-
-              return (
-                <div
-                  key={el.id}
-                  className="absolute pointer-events-none"
-                  style={{
-                    left:    el.x,
-                    top:     el.y,
-                    width:   el.w,
-                    height:  el.h,
-                    // Sticky notes always render above images/colors/text (purely visual).
-                    zIndex:  el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
-                    opacity: el.opacity ?? 1,
-                  }}
-                >
-                  <ViewerElement element={el} zoom={zoom} isVisible={isVisible} />
-                </div>
-              );
-            })}
+            .map((el) => (
+              <div
+                key={el.id}
+                className="absolute pointer-events-none"
+                style={{
+                  left:    el.x,
+                  top:     el.y,
+                  width:   el.w,
+                  height:  el.h,
+                  // Sticky notes always render above images/colors/text (purely visual).
+                  zIndex:  el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
+                  opacity: el.opacity ?? 1,
+                }}
+              >
+                <ViewerElement
+                  element={el}
+                  zoom={displayZoom}
+                  isVisible={el.type === "image" ? (visMap[el.id] ?? true) : true}
+                />
+              </div>
+            ))}
         </div>
 
-        {/* Stroke canvas overlay — pencil drawings rendered at viewport coords */}
+        {/* Stroke canvas overlay — pencil drawings, redrawn imperatively via ref */}
         {data.canvasData.some((el) => el.type === "stroke") && (
           <StrokeCanvas
+            ref={strokeCanvasRef}
             strokeElements={data.canvasData.filter((el) => el.type === "stroke") as StrokeElement[]}
-            pan={pan}
-            zoom={zoom}
           />
         )}
 
@@ -687,7 +738,7 @@ export function MoodboardViewer({ data }: Props) {
             −
           </button>
           <span className="text-[11px] text-[var(--text-tertiary)] w-10 text-center">
-            {Math.round(zoom * 100)}%
+            {Math.round(displayZoom * 100)}%
           </span>
           <button
             onClick={() => {
@@ -737,7 +788,8 @@ function ViewerElement({
     }
 
     // LOD: same threshold as the editor — thumbnail while small on screen,
-    // full original once it needs more pixels.
+    // full original once it needs more pixels. `zoom` here is the display-only
+    // value (frozen mid-gesture, synced at settle) — matches the editor exactly.
     const screenPx = el.w * zoom;
     const url =
       el.thumbnailKey && screenPx <= 600
