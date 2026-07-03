@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { getImageUrl } from "@/lib/storage/urls";
+import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   CanvasElement,
   ImageElement,
@@ -209,6 +209,21 @@ export function MoodboardViewer({ data }: Props) {
   const [cursor, setCursor] = useState("default");
   const [showGuide, setShowGuide] = useState(true);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [vpSize, setVpSize] = useState({ w: 0, h: 0 });
+
+  // Track viewport size for off-screen culling below (same PAD-margin
+  // visibility check the editor uses to avoid requesting/decoding images
+  // that aren't on screen).
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const ro = new ResizeObserver(() => {
+      setVpSize({ w: vp.clientWidth, h: vp.clientHeight });
+    });
+    ro.observe(vp);
+    setVpSize({ w: vp.clientWidth, h: vp.clientHeight });
+    return () => ro.disconnect();
+  }, []);
 
   // ── Stable refs (event handlers must not capture stale state) ──
   const panRef  = useRef({ x: 80, y: 60 });
@@ -603,23 +618,35 @@ export function MoodboardViewer({ data }: Props) {
         >
           {data.canvasData
             .filter((el) => el.type !== "stroke")
-            .map((el) => (
-              <div
-                key={el.id}
-                className="absolute pointer-events-none"
-                style={{
-                  left:    el.x,
-                  top:     el.y,
-                  width:   el.w,
-                  height:  el.h,
-                  // Sticky notes always render above images/colors/text (purely visual).
-                  zIndex:  el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
-                  opacity: el.opacity ?? 1,
-                }}
-              >
-                <ViewerElement element={el} />
-              </div>
-            ))}
+            .map((el) => {
+              // Off-screen culling — same PAD-margin check as the editor, so a
+              // large board doesn't fire off hundreds of image requests at once.
+              const PAD = 120;
+              const sx = pan.x + el.x * zoom;
+              const sy = pan.y + el.y * zoom;
+              const isVisible =
+                vpSize.w === 0 || // before first measurement, assume visible
+                (sx + el.w * zoom > -PAD && sx < vpSize.w + PAD &&
+                 sy + el.h * zoom > -PAD && sy < vpSize.h + PAD);
+
+              return (
+                <div
+                  key={el.id}
+                  className="absolute pointer-events-none"
+                  style={{
+                    left:    el.x,
+                    top:     el.y,
+                    width:   el.w,
+                    height:  el.h,
+                    // Sticky notes always render above images/colors/text (purely visual).
+                    zIndex:  el.type === "sticky" ? el.zIndex + 100000 : el.zIndex,
+                    opacity: el.opacity ?? 1,
+                  }}
+                >
+                  <ViewerElement element={el} zoom={zoom} isVisible={isVisible} />
+                </div>
+              );
+            })}
         </div>
 
         {/* Stroke canvas overlay — pencil drawings rendered at viewport coords */}
@@ -685,30 +712,42 @@ export function MoodboardViewer({ data }: Props) {
 
 // ── Element renderer (read-only, no editing controls) ────────────────────────
 
-function ViewerElement({ element }: { element: CanvasElement }) {
+function ViewerElement({
+  element,
+  zoom = 1,
+  isVisible = true,
+}: {
+  element: CanvasElement;
+  zoom?: number;
+  isVisible?: boolean;
+}) {
   const br = 8;
 
   if (element.type === "image") {
     const el  = element as ImageElement;
     const fit = el.objectFit ?? "cover";
-    const url = getImageUrl(el.storageKey);
+
+    // Off-screen: skip the image request/decode entirely — same as the editor.
+    if (!isVisible) {
+      return <div className="w-full h-full" style={{ borderRadius: br }} />;
+    }
+
+    // LOD: same threshold as the editor — thumbnail while small on screen,
+    // full original once it needs more pixels.
+    const screenPx = el.w * zoom;
+    const url =
+      el.thumbnailKey && screenPx <= 600
+        ? getThumbnailUrl(el.thumbnailKey)
+        : getImageUrl(el.storageKey);
+
     return (
       <div className="w-full h-full overflow-hidden relative" style={{ borderRadius: br }}>
-        {el.isAnimated ? (
-          <img
-            src={url}
-            alt={el.title}
-            draggable={false}
-            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
-          />
-        ) : (
-          <img
-            src={url}
-            alt={el.title}
-            draggable={false}
-            className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
-          />
-        )}
+        <img
+          src={url}
+          alt={el.title}
+          draggable={false}
+          className={`absolute inset-0 w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
+        />
       </div>
     );
   }
@@ -717,17 +756,27 @@ function ViewerElement({ element }: { element: CanvasElement }) {
     const el = element as TextElement;
     return (
       <div
-        className="w-full h-full flex items-start p-1.5 break-words"
+        className="w-full h-full"
         style={{
-          fontSize:   el.fontSize,
-          color:      el.color,
-          fontWeight: el.bold   ? "bold"   : "normal",
-          fontStyle:  el.italic ? "italic" : "normal",
-          lineHeight: 1.4,
           borderRadius: br,
+          padding: "2px 4px",
+          boxSizing: "border-box",
         }}
       >
-        {el.content}
+        <div
+          style={{
+            fontSize:   el.fontSize,
+            color:      el.color,
+            fontWeight: el.bold   ? "bold"   : "normal",
+            fontStyle:  el.italic ? "italic" : "normal",
+            lineHeight: 1.4,
+            textAlign:  el.textAlign ?? "left",
+            whiteSpace: "pre-wrap",
+            wordBreak:  "break-word",
+          }}
+        >
+          {el.content || " "}
+        </div>
       </div>
     );
   }
