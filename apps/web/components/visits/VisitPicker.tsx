@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
 export interface VisitRef {
   id: string;
@@ -37,6 +38,7 @@ export function VisitPicker({ inspirationId, initialVisit }: VisitPickerProps) {
   const [newPlace, setNewPlace] = useState("");
   const [newExhibition, setNewExhibition] = useState("");
   const [newDate, setNewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newGeo, setNewGeo] = useState<PlaceGeo | null>(null);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -122,6 +124,9 @@ export function VisitPicker({ inspirationId, initialVisit }: VisitPickerProps) {
           exhibition: newExhibition.trim() || undefined,
           visitDate: newDate,
           inspirationIds: [inspirationId],
+          ...(newGeo
+            ? { latitude: newGeo.latitude, longitude: newGeo.longitude, address: newGeo.address }
+            : {}),
         }),
       });
       const created = await res.json();
@@ -211,12 +216,12 @@ export function VisitPicker({ inspirationId, initialVisit }: VisitPickerProps) {
             </>
           ) : (
             <div className="p-3 space-y-2">
-              <input
-                autoFocus
+              <PlaceAutocomplete
                 className={fld}
                 placeholder="Lieu *"
                 value={newPlace}
-                onChange={(e) => setNewPlace(e.target.value)}
+                onChange={setNewPlace}
+                onSelectGeo={setNewGeo}
               />
               <input
                 className={fld}

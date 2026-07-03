@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { CategorySelect } from "@/components/inspiration/CategorySelect";
 import { TagInput } from "@/components/inspiration/TagInput";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
+import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
 interface UploadFile {
   id: string;
@@ -72,6 +73,7 @@ export function DropZone() {
   const [visitPlace, setVisitPlace] = useState("");
   const [visitExhibition, setVisitExhibition] = useState("");
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [visitGeo, setVisitGeo] = useState<PlaceGeo | null>(null);
 
   // Analyse IA — désactivée par défaut (données transmises à Google)
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -308,6 +310,13 @@ export function DropZone() {
             exhibition: visitExhibition.trim() || undefined,
             visitDate,
             inspirationIds: doneIds,
+            ...(visitGeo
+              ? {
+                  latitude: visitGeo.latitude,
+                  longitude: visitGeo.longitude,
+                  address: visitGeo.address,
+                }
+              : {}),
           }),
         });
       }
@@ -727,12 +736,18 @@ export function DropZone() {
                     <div className="px-5 pb-4 grid grid-cols-1 sm:grid-cols-3 gap-5">
                       <div>
                         <label className={sectionLabel}>Lieu *</label>
-                        <input
+                        <PlaceAutocomplete
                           className={fieldClass}
                           placeholder="Musée d'Orsay, Palais de Tokyo…"
                           value={visitPlace}
-                          onChange={(e) => setVisitPlace(e.target.value)}
+                          onChange={setVisitPlace}
+                          onSelectGeo={setVisitGeo}
                         />
+                        {visitGeo && (
+                          <p className="text-[9px] text-[var(--text-tertiary)] mt-1 truncate">
+                            📍 {visitGeo.address}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className={sectionLabel}>Exposition</label>

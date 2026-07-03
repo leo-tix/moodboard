@@ -10,6 +10,9 @@ const patchSchema = z.object({
   exhibition: z.string().max(255).nullable().optional(),
   visitDate: z.string().optional(),
   notes: z.string().max(2000).nullable().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  address: z.string().max(500).nullable().optional(),
   // Rattacher / détacher des inspirations
   addInspirationIds: z.array(z.string()).max(500).optional(),
   removeInspirationIds: z.array(z.string()).max(500).optional(),
@@ -27,12 +30,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { place, exhibition, visitDate, notes, addInspirationIds, removeInspirationIds } = parsed.data;
+  const { place, exhibition, visitDate, notes, latitude, longitude, address, addInspirationIds, removeInspirationIds } = parsed.data;
 
   const data: Record<string, unknown> = {};
   if (place !== undefined) data.place = place.trim();
   if (exhibition !== undefined) data.exhibition = exhibition?.trim() || null;
   if (notes !== undefined) data.notes = notes?.trim() || null;
+  if (latitude !== undefined) data.latitude = latitude;
+  if (longitude !== undefined) data.longitude = longitude;
+  if (address !== undefined) data.address = address?.trim() || null;
   if (visitDate !== undefined) {
     const date = new Date(visitDate);
     if (isNaN(date.getTime())) {
@@ -48,9 +54,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!visit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   if (addInspirationIds && addInspirationIds.length > 0) {
+    // Append en fin de carnet (même logique que POST /api/visits)
+    const [maxImg, maxNote] = await Promise.all([
+      db.inspiration.aggregate({ where: { visitId: id }, _max: { visitOrder: true } }),
+      db.visitNote.aggregate({ where: { visitId: id }, _max: { order: true } }),
+    ]);
+    const nextOrder = Math.max(maxImg._max.visitOrder ?? -1, maxNote._max.order ?? -1) + 1;
     await db.inspiration.updateMany({
       where: { id: { in: addInspirationIds } },
-      data: { visitId: id },
+      data: { visitId: id, visitOrder: nextOrder },
     });
   }
   if (removeInspirationIds && removeInspirationIds.length > 0) {

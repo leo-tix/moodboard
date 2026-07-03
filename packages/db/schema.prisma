@@ -128,6 +128,8 @@ model Inspiration {
   // Visite (musée / exposition) — contexte de collecte
   visitId        String?
   visit          Visit?         @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  // Position dans le carnet de la visite (même espace de tri que VisitNote.order)
+  visitOrder     Int            @default(0)
 
   // Classification
   mediaType      MediaType      @default(IMAGE)
@@ -169,12 +171,32 @@ model Visit {
   exhibition   String?       // Nom de l'exposition (optionnel)
   visitDate    DateTime      // Date de la visite
   notes        String?
+  // Géolocalisation (OpenStreetMap / Photon) — pour la mini-carte
+  latitude     Float?
+  longitude    Float?
+  address      String?       // Adresse d'affichage retournée par le géocodeur
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   inspirations Inspiration[]
+  noteBlocks   VisitNote[]
 
   @@index([visitDate])
   @@map("visits")
+}
+
+// Bloc de note inséré dans le flux d'images d'une visite (carnet).
+// `order` partage le même espace de tri que Inspiration.visitOrder.
+model VisitNote {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  content   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_notes")
 }
 
 enum MediaType {

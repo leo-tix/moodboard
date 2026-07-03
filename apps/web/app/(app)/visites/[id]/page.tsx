@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { LibraryClient } from "@/components/inspiration/LibraryClient";
+import { VisitJournal, type JournalItem } from "@/components/visits/VisitJournal";
+import { VisitMap } from "@/components/visits/VisitMap";
 
 export const revalidate = 0;
 
@@ -22,24 +23,48 @@ export default async function VisiteDetailPage({ params }: Props) {
     include: {
       inspirations: {
         where: { status: "READY", isArchived: false },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          visitOrder: true,
+          createdAt: true,
           images: {
-            select: { storageKey: true, thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true, isAnimated: true },
+            select: { thumbnailKey: true, width: true, height: true },
             orderBy: [{ isMain: "desc" }, { order: "asc" }],
             take: 1,
           },
-          categories: {
-            include: { category: { select: { name: true } } },
-            take: 3,
-          },
-          tags: { include: { tag: { select: { name: true } } }, take: 5 },
         },
-        orderBy: { createdAt: "asc" },
       },
+      noteBlocks: true,
     },
   });
 
   if (!visit) notFound();
+
+  // Fusion images + notes dans une seule séquence de carnet.
+  // Tri : ordre explicite, puis createdAt pour départager (images ajoutées
+  // en lot partagent le même visitOrder → ordre chrono naturel).
+  const merged: { item: JournalItem; order: number; createdAt: Date }[] = [
+    ...visit.inspirations.map((i) => ({
+      item: {
+        type: "image" as const,
+        id: i.id,
+        title: i.title,
+        thumbnailKey: i.images[0]?.thumbnailKey ?? null,
+        width: i.images[0]?.width ?? null,
+        height: i.images[0]?.height ?? null,
+      },
+      order: i.visitOrder,
+      createdAt: i.createdAt,
+    })),
+    ...visit.noteBlocks.map((n) => ({
+      item: { type: "note" as const, id: n.id, content: n.content },
+      order: n.order,
+      createdAt: n.createdAt,
+    })),
+  ];
+  merged.sort((a, b) => a.order - b.order || a.createdAt.getTime() - b.createdAt.getTime());
+  const items = merged.map((m) => m.item);
 
   const date = visit.visitDate.toLocaleDateString("fr-FR", {
     day: "numeric",
@@ -47,31 +72,55 @@ export default async function VisiteDetailPage({ params }: Props) {
     year: "numeric",
   });
 
+  const hasMap = visit.latitude !== null && visit.longitude !== null;
+
   return (
     <div className="p-4 md:p-6">
-      <header className="mb-4">
+      <header className="mb-5">
         <Link
           href="/visites"
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
         >
           ← Carnet de visite
         </Link>
-        <h1 className="text-xl md:text-2xl font-light text-[var(--text-primary)] mt-2 flex items-baseline gap-2 flex-wrap">
-          {visit.place}
-          <span className="text-sm font-normal text-[var(--text-tertiary)]">
-            {visit.inspirations.length}
-          </span>
-        </h1>
-        <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-          {visit.exhibition && <span className="italic">{visit.exhibition} · </span>}
-          {date}
-        </p>
-        {visit.notes && (
-          <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl">{visit.notes}</p>
-        )}
+
+        <div className="mt-2 flex flex-col md:flex-row md:items-start gap-4">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl font-light text-[var(--text-primary)] flex items-baseline gap-2 flex-wrap">
+              {visit.place}
+              <span className="text-sm font-normal text-[var(--text-tertiary)]">
+                {visit.inspirations.length}
+              </span>
+            </h1>
+            <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+              {visit.exhibition && <span className="italic">{visit.exhibition} · </span>}
+              {date}
+            </p>
+            {visit.address && (
+              <p className="text-xs text-[var(--text-tertiary)] mt-1">{visit.address}</p>
+            )}
+            {visit.notes && (
+              <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl whitespace-pre-wrap">
+                {visit.notes}
+              </p>
+            )}
+          </div>
+
+          {/* Mini-carte (si le lieu a été géolocalisé via l'autocomplétion) */}
+          {hasMap && (
+            <div className="w-full md:w-64 lg:w-72 flex-shrink-0 rounded-lg overflow-hidden border border-[var(--border-subtle)]">
+              <VisitMap
+                latitude={visit.latitude!}
+                longitude={visit.longitude!}
+                label={visit.place}
+                className="h-36 md:h-40 w-full"
+              />
+            </div>
+          )}
+        </div>
       </header>
 
-      <LibraryClient inspirations={visit.inspirations} />
+      <VisitJournal visitId={visit.id} initialItems={items} />
     </div>
   );
 }
