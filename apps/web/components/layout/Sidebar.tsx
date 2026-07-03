@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/library", label: "Bibliothèque", icon: "◻" },
   { href: "/collections", label: "Collections", icon: "▣" },
   { href: "/moodboards", label: "Planches", icon: "⬚" },
+  { href: "/visites", label: "Visites", icon: "◈" },
   { href: "/search", label: "Recherche", icon: "◎" },
   { href: "/upload",  label: "Ajouter",  icon: "+" },
   { href: "/triage",  label: "Triage",   icon: "⇄" },

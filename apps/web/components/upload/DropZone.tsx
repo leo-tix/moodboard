@@ -67,6 +67,12 @@ export function DropZone() {
   const [applyingBatch, setApplyingBatch] = useState(false);
   const [batchApplied, setBatchApplied] = useState(false);
 
+  // Contexte de visite (musée / exposition) — appliqué à tout le lot
+  const [visitEnabled, setVisitEnabled] = useState(false);
+  const [visitPlace, setVisitPlace] = useState("");
+  const [visitExhibition, setVisitExhibition] = useState("");
+  const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
+
   // Analyse IA — désactivée par défaut (données transmises à Google)
   const [aiEnabled, setAiEnabled] = useState(false);
 
@@ -261,32 +267,51 @@ export function DropZone() {
     }
   };
 
+  const hasVisitContext = visitEnabled && visitPlace.trim().length > 0;
+
   const applyBatchMetadata = async () => {
     if (!doneIds.length) return;
     const hasPatch = batchTitle.trim() || batchCategory.categoryId || batchTags.length > 0;
-    if (!hasPatch) return;
+    if (!hasPatch && !hasVisitContext) return;
 
     setApplyingBatch(true);
     try {
-      await fetch("/api/inspirations/batch", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ids: doneIds,
-          patch: {
-            ...(batchTitle.trim() ? { title: batchTitle.trim() } : {}),
-            ...(batchCategory.categoryId
-              ? {
-                  addCategory: {
-                    categoryId: batchCategory.categoryId,
-                    subcategoryId: batchCategory.subcategoryId || null,
-                  },
-                }
-              : {}),
-            ...(batchTags.length > 0 ? { addTags: batchTags } : {}),
-          },
-        }),
-      });
+      if (hasPatch) {
+        await fetch("/api/inspirations/batch", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ids: doneIds,
+            patch: {
+              ...(batchTitle.trim() ? { title: batchTitle.trim() } : {}),
+              ...(batchCategory.categoryId
+                ? {
+                    addCategory: {
+                      categoryId: batchCategory.categoryId,
+                      subcategoryId: batchCategory.subcategoryId || null,
+                    },
+                  }
+                : {}),
+              ...(batchTags.length > 0 ? { addTags: batchTags } : {}),
+            },
+          }),
+        });
+      }
+
+      // Contexte de visite : crée (ou réutilise) la visite et rattache le lot
+      if (hasVisitContext) {
+        await fetch("/api/visits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            place: visitPlace.trim(),
+            exhibition: visitExhibition.trim() || undefined,
+            visitDate,
+            inspirationIds: doneIds,
+          }),
+        });
+      }
+
       setBatchApplied(true);
       setTimeout(() => setBatchApplied(false), 2500);
     } finally {
@@ -658,12 +683,92 @@ export function DropZone() {
               </div>
             </div>
 
-            <div className="px-5 pb-5 flex justify-end">
+            {/* ── Contexte de visite (musée / exposition) ── */}
+            <div className="border-t border-[var(--border-subtle)]">
+              <button
+                type="button"
+                onClick={() => setVisitEnabled((v) => !v)}
+                className="w-full flex items-center justify-between px-5 py-3 hover:bg-[var(--bg-elevated)] transition-colors"
+              >
+                <div className="text-left">
+                  <p className="text-xs font-medium text-[var(--text-primary)]">
+                    🏛 Contexte de visite
+                  </p>
+                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                    Photos prises lors d&apos;une visite (musée, galerie, expo…) — regroupées dans le carnet de visite
+                  </p>
+                </div>
+                <div
+                  role="switch"
+                  aria-checked={visitEnabled}
+                  className={cn(
+                    "relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                    visitEnabled ? "bg-[var(--text-primary)]" : "bg-[var(--bg-overlay)]"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
+                      visitEnabled ? "translate-x-3" : "translate-x-0"
+                    )}
+                  />
+                </div>
+              </button>
+
+              <AnimatePresence>
+                {visitEnabled && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-5 pb-4 grid grid-cols-1 sm:grid-cols-3 gap-5">
+                      <div>
+                        <label className={sectionLabel}>Lieu *</label>
+                        <input
+                          className={fieldClass}
+                          placeholder="Musée d'Orsay, Palais de Tokyo…"
+                          value={visitPlace}
+                          onChange={(e) => setVisitPlace(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className={sectionLabel}>Exposition</label>
+                        <input
+                          className={fieldClass}
+                          placeholder="Nom de l'expo (optionnel)"
+                          value={visitExhibition}
+                          onChange={(e) => setVisitExhibition(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className={sectionLabel}>Date de visite</label>
+                        <input
+                          type="date"
+                          className={fieldClass}
+                          value={visitDate}
+                          onChange={(e) => setVisitDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <div className="px-5 pb-5 pt-2 flex justify-end">
               <Button
                 size="sm"
                 onClick={applyBatchMetadata}
                 loading={applyingBatch}
-                disabled={!batchTitle.trim() && !batchCategory.categoryId && batchTags.length === 0}
+                disabled={
+                  !batchTitle.trim() &&
+                  !batchCategory.categoryId &&
+                  batchTags.length === 0 &&
+                  !hasVisitContext
+                }
               >
                 {batchApplied ? "Appliqué ✓" : `Appliquer aux ${doneIds.length} images`}
               </Button>

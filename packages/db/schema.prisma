@@ -125,6 +125,10 @@ model Inspiration {
   source         String?
   sourceUrl      String?
 
+  // Visite (musée / exposition) — contexte de collecte
+  visitId        String?
+  visit          Visit?         @relation(fields: [visitId], references: [id], onDelete: SetNull)
+
   // Classification
   mediaType      MediaType      @default(IMAGE)
 
@@ -152,7 +156,25 @@ model Inspiration {
   @@index([year])
   @@index([status])
   @@index([createdAt])
+  @@index([visitId])
   @@map("inspirations")
+}
+
+// ============================================================
+// VISIT — Carnet de visite (musée / exposition)
+// ============================================================
+model Visit {
+  id           String        @id @default(cuid())
+  place        String        // Lieu : musée, galerie, ville…
+  exhibition   String?       // Nom de l'exposition (optionnel)
+  visitDate    DateTime      // Date de la visite
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  inspirations Inspiration[]
+
+  @@index([visitDate])
+  @@map("visits")
 }
 
 enum MediaType {
