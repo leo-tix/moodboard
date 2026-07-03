@@ -246,7 +246,7 @@ export function CollectionsClient({
                       </p>
                       <button
                         onClick={() => startRename(col)}
-                        className="opacity-0 group-hover/name:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-[9px] flex-shrink-0"
+                        className="opacity-0 group-hover/name:opacity-100 pointer-coarse:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-[9px] flex-shrink-0"
                         title="Renommer"
                       >
                         ✎
@@ -278,7 +278,7 @@ export function CollectionsClient({
                   ) : (
                     <button
                       onClick={() => setDeleteId(col.id)}
-                      className="text-[9px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors mt-0.5 opacity-0 group-hover:opacity-100"
+                      className="text-[9px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors mt-0.5 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
                     >
                       Supprimer
                     </button>

@@ -93,11 +93,13 @@ export function InspirationCard({
         <div
           className={cn(
             "absolute top-2 left-2 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all z-10",
+            // pointer-coarse : toujours visible au tactile (pas de hover possible)
+            "opacity-0 pointer-coarse:opacity-100",
+            (selected || hovered) && "opacity-100",
             selected
               ? "bg-[var(--accent)] border-[var(--accent)]"
-              : "bg-black/40 border-white/40 opacity-0 group-hover:opacity-100"
+              : "bg-black/40 border-white/40"
           )}
-          style={{ opacity: selected || hovered ? 1 : 0 }}
         >
           {selected && <span className="text-[var(--bg-base)] text-[9px] font-bold">✓</span>}
         </div>

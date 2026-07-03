@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MoodboardData, MoodboardFolderData, CanvasElement } from "@/lib/moodboard/types";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
@@ -122,13 +122,17 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
     persistReorder(items);
   };
 
+  const moveToFolder = (boardId: string, folderId: string | null) => {
+    const board = moodboards.find((m) => m.id === boardId);
+    if (!board || board.folderId === folderId) return;
+    setMoodboards((prev) => prev.map((m) => (m.id === boardId ? { ...m, folderId } : m)));
+    persistReorder([{ id: boardId, order: board.order, folderId }]);
+  };
+
   const handleDropOnFolder = (folderId: string | null) => {
     setDragOverFolder(null);
     if (!draggedId) return;
-    const board = moodboards.find((m) => m.id === draggedId);
-    if (!board || board.folderId === folderId) return;
-    setMoodboards((prev) => prev.map((m) => (m.id === draggedId ? { ...m, folderId } : m)));
-    persistReorder([{ id: draggedId, order: board.order, folderId }]);
+    moveToFolder(draggedId, folderId);
   };
 
   return (
@@ -236,7 +240,9 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
             <MoodboardCard
               key={m.id}
               moodboard={m}
+              folders={folders}
               onDelete={handleDelete}
+              onMoveToFolder={moveToFolder}
               dragging={draggedId === m.id}
               dragOver={dragOverId === m.id}
               onDragStart={() => setDraggedId(m.id)}
@@ -294,7 +300,7 @@ function FolderPill({
         <span
           role="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="opacity-0 group-hover/pill:opacity-100 hover:text-red-400 transition-opacity"
+          className="opacity-0 group-hover/pill:opacity-100 pointer-coarse:opacity-100 hover:text-red-400 transition-opacity"
         >
           ✕
         </span>
@@ -439,7 +445,9 @@ function MoodboardPreview({
 
 function MoodboardCard({
   moodboard,
+  folders,
   onDelete,
+  onMoveToFolder,
   dragging,
   dragOver,
   onDragStart,
@@ -448,7 +456,9 @@ function MoodboardCard({
   onDrop,
 }: {
   moodboard: MoodboardData;
+  folders: MoodboardFolderData[];
   onDelete: (id: string) => void;
+  onMoveToFolder: (id: string, folderId: string | null) => void;
   dragging: boolean;
   dragOver: boolean;
   onDragStart: () => void;
@@ -457,10 +467,25 @@ function MoodboardCard({
   onDrop: () => void;
 }) {
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const imageCount = moodboard.imageCount ?? moodboard.canvasData.filter((el) => el.type === "image").length;
   const updatedAt = new Date(moodboard.updatedAt).toLocaleDateString("fr-FR", {
     day: "numeric", month: "short", year: "numeric",
   });
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [menuOpen]);
 
   return (
     <div
@@ -487,13 +512,70 @@ function MoodboardCard({
             {updatedAt} · {imageCount} image{imageCount !== 1 ? "s" : ""}
           </p>
         </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(moodboard.id); }}
-          className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-all text-xs"
-          title="Supprimer"
-        >
-          ✕
-        </button>
+        <div className="flex items-center flex-shrink-0">
+          {/* Menu ⋯ — classement dossier + suppression. Toujours visible au
+              tactile : le drag-and-drop HTML5 ne fonctionne pas sur touch,
+              c'est le seul moyen d'y classer une planche. */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+              className="opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all text-sm"
+              title="Options"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 bottom-full mb-1 z-50 w-44 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p className="px-3 pt-2 pb-1 text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest">
+                  Déplacer dans
+                </p>
+                <div className="max-h-40 overflow-y-auto">
+                  <button
+                    onClick={() => { onMoveToFolder(moodboard.id, null); setMenuOpen(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-1.5 text-[11px] transition-colors",
+                      !moodboard.folderId
+                        ? "text-[var(--text-primary)] bg-[var(--bg-surface)]"
+                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                    )}
+                  >
+                    Sans dossier
+                  </button>
+                  {folders.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => { onMoveToFolder(moodboard.id, f.id); setMenuOpen(false); }}
+                      className={cn(
+                        "w-full text-left px-3 py-1.5 text-[11px] transition-colors truncate",
+                        moodboard.folderId === f.id
+                          ? "text-[var(--text-primary)] bg-[var(--bg-surface)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                      )}
+                    >
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => { setMenuOpen(false); onDelete(moodboard.id); }}
+                  className="w-full text-left px-3 py-2 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+                >
+                  Supprimer la planche
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(moodboard.id); }}
+            className="opacity-0 group-hover:opacity-100 w-6 h-6 hidden md:flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-all text-xs"
+            title="Supprimer"
+          >
+            ✕
+          </button>
+        </div>
       </div>
     </div>
   );
