@@ -4,5 +4,10 @@ import { auth } from "@/auth";
 export default auth;
 
 export const config = {
-  matcher: ["/((?!api/auth|api/share|api/import|login|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon).*)"],
+  // share/<token> (public moodboard viewer, e.g. /share/4938d918-…) must stay
+  // unauthenticated — only the PWA share-target pages (upload/social/done/
+  // instagram) under the same /share/ prefix require a session.
+  matcher: [
+    "/((?!api/auth|api/share|api/import|login|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon|share\\/(?!(?:upload|social|done|instagram)(?:\\/|$))[^\\/]+).*)",
+  ],
 };
