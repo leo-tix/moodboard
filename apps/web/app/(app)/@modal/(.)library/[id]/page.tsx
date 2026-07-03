@@ -34,6 +34,7 @@ export default async function InterceptedLibraryDetail({ params }: Props) {
       },
       aiAnalysis: { select: { moodDescriptor: true, styleKeywords: true } },
       collections: { select: { collection: { select: { id: true, name: true } } } },
+      visit: { select: { id: true, place: true, exhibition: true, visitDate: true } },
     },
   });
 
@@ -67,6 +68,14 @@ export default async function InterceptedLibraryDetail({ params }: Props) {
       id: c.collection.id,
       name: c.collection.name,
     })),
+    initialVisit: inspiration.visit
+      ? {
+          id: inspiration.visit.id,
+          place: inspiration.visit.place,
+          exhibition: inspiration.visit.exhibition,
+          visitDate: inspiration.visit.visitDate.toISOString(),
+        }
+      : null,
   };
 
   return <DetailModal data={data} />;

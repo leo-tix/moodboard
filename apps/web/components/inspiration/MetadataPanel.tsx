@@ -6,6 +6,7 @@ import { TagInput } from "./TagInput";
 import { AutocompleteInput } from "./AutocompleteInput";
 import type { Category } from "./CategorySelect";
 import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
+import { VisitPicker, type VisitRef } from "@/components/visits/VisitPicker";
 
 interface MetadataPanelProps {
   id: string;
@@ -26,6 +27,8 @@ interface MetadataPanelProps {
   aiAnalysis?: { moodDescriptor?: string | null; styleKeywords: string[] } | null;
   /** Collections auxquelles appartient cette inspiration */
   initialCollections?: { id: string; name: string }[];
+  /** Visite (musée / expo) à laquelle cette inspiration est rattachée */
+  initialVisit?: VisitRef | null;
   /** If true, trigger AI analysis automatically on mount */
   autoAnalyze?: boolean;
   /** If true, render the AI section before the form fields */
@@ -36,7 +39,7 @@ const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-wid
 const fld =
   "w-full bg-transparent border-b border-[var(--border-subtle)] focus:border-[var(--border-default)] text-[var(--text-primary)] text-xs py-1 focus:outline-none transition-colors placeholder:text-[var(--text-tertiary)]";
 
-export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initialCollections, autoAnalyze, aiFirst }: MetadataPanelProps) {
+export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initialCollections, initialVisit, autoAnalyze, aiFirst }: MetadataPanelProps) {
   const [data, setData] = useState(initialData);
   const [tags, setTags] = useState<string[]>(initialData.tags ?? []);
   const [categories, setCategories] = useState<CategorySelection[]>(initialData.categories ?? []);
@@ -383,6 +386,8 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
           </div>
         )}
       </div>
+
+      <VisitPicker inspirationId={id} initialVisit={initialVisit} />
 
       <div>
         <p className={lbl}>Description</p>
