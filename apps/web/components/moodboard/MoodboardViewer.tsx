@@ -9,6 +9,8 @@ import type {
   ColorElement,
   StickyElement,
   StrokeElement,
+  ShapeElement,
+  LinearElement,
 } from "@/lib/moodboard/types";
 import { buildCachedStroke, drawCachedStroke } from "@/lib/moodboard/pencil";
 
@@ -64,7 +66,7 @@ const GUIDE_ROWS: [string, string][] = [
 function NavigationGuide({ onClose }: { onClose: () => void }) {
   return (
     <div
-      className="absolute bottom-16 left-4 z-50 w-72 bg-[var(--bg-elevated)]/96 backdrop-blur border border-[var(--border-default)] rounded-xl shadow-2xl overflow-hidden"
+      className="absolute bottom-16 left-4 z-[200] w-72 bg-[var(--bg-elevated)]/96 backdrop-blur border border-[var(--border-default)] rounded-xl shadow-2xl overflow-hidden"
       onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Header */}
@@ -658,9 +660,11 @@ export function MoodboardViewer({ data }: Props) {
           />
         )}
 
-        {/* Space-hold hint — hidden on touch (no keyboard) */}
+        {/* Space-hold hint — hidden on touch (no keyboard). z-[200]: must sit
+            above StrokeCanvas (zIndex 148), otherwise hand-drawn strokes
+            paint over this UI. */}
         {cursor === "grab" && !isTouchDevice && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 pointer-events-none text-[11px] text-[var(--text-tertiary)] bg-[var(--bg-elevated)]/80 px-2 py-1 rounded">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[200] pointer-events-none text-[11px] text-[var(--text-tertiary)] bg-[var(--bg-elevated)]/80 px-2 py-1 rounded">
             Espace + glisser pour déplacer
           </div>
         )}
@@ -669,7 +673,7 @@ export function MoodboardViewer({ data }: Props) {
         {showGuide && <NavigationGuide onClose={() => setShowGuide(false)} />}
 
         {/* Zoom controls (bottom-right, matching editor style) */}
-        <div className="absolute bottom-4 right-4 z-50 flex items-center gap-1 bg-[var(--bg-elevated)]/90 backdrop-blur border border-[var(--border-default)] rounded-lg px-2 py-1 shadow select-none">
+        <div className="absolute bottom-4 right-4 z-[200] flex items-center gap-1 bg-[var(--bg-elevated)]/90 backdrop-blur border border-[var(--border-default)] rounded-lg px-2 py-1 shadow select-none">
           <button
             onClick={() => {
               const vp = viewportRef.current;
@@ -802,6 +806,131 @@ function ViewerElement({
         <p className="text-sm leading-relaxed break-words" style={{ color: el.textColor }}>
           {el.content}
         </p>
+      </div>
+    );
+  }
+
+  if (element.type === "shape") {
+    const el = element as ShapeElement;
+    const sw = el.strokeWidth;
+    const half = sw / 2;
+    const fill = el.fillColor === "transparent" ? "none" : el.fillColor;
+    const dash =
+      el.strokeStyle === "dashed" ? `${sw * 4},${sw * 2}` :
+      el.strokeStyle === "dotted" ? `${sw},${sw * 2}` : undefined;
+
+    return (
+      <div className="w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+        <svg width="100%" height="100%" style={{ overflow: "visible", display: "block" }}>
+          {el.shape === "rectangle" && (
+            <rect
+              x={half} y={half}
+              width={`calc(100% - ${sw}px)`} height={`calc(100% - ${sw}px)`}
+              fill={fill} stroke={el.strokeColor} strokeWidth={sw}
+              strokeDasharray={dash} rx={el.cornerRadius ?? 0}
+            />
+          )}
+          {el.shape === "ellipse" && (
+            <ellipse
+              cx="50%" cy="50%"
+              rx={`calc(50% - ${half}px)`} ry={`calc(50% - ${half}px)`}
+              fill={fill} stroke={el.strokeColor} strokeWidth={sw}
+              strokeDasharray={dash}
+            />
+          )}
+          {el.shape === "diamond" && (
+            <polygon
+              points="50%,0 100%,50% 50%,100% 0,50%"
+              fill={fill} stroke={el.strokeColor} strokeWidth={sw}
+              strokeDasharray={dash}
+              style={{ vectorEffect: "non-scaling-stroke" }}
+            />
+          )}
+        </svg>
+        {el.label && (
+          <div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            style={{
+              fontSize: el.fontSize ?? 14,
+              color: el.labelColor ?? "#ffffff",
+              padding: "4px 8px",
+              textAlign: "center",
+              wordBreak: "break-word",
+              userSelect: "none",
+            }}
+          >
+            {el.label}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (element.type === "linear") {
+    const el = element as LinearElement;
+    const sw = el.strokeWidth;
+    const dash =
+      el.strokeStyle === "dashed" ? `${sw * 4},${sw * 2}` :
+      el.strokeStyle === "dotted" ? `${sw},${sw * 2}` : undefined;
+    const pts = el.points;
+    if (pts.length < 2) return <div className="w-full h-full" />;
+
+    const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+    const markerId = `arrow-end-${el.id}`;
+    const markerStartId = `arrow-start-${el.id}`;
+
+    const arrowW = sw * 3.5;
+    const arrowH = sw * 3;
+
+    return (
+      <div className="w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+        <svg
+          width={el.w || 1}
+          height={el.h || 1}
+          style={{ overflow: "visible", position: "absolute", left: 0, top: 0 }}
+        >
+          <defs>
+            {el.endArrowhead === "arrow" && (
+              <marker
+                id={markerId}
+                markerWidth={arrowW} markerHeight={arrowH}
+                refX={arrowW - 0.5} refY={arrowH / 2}
+                orient="auto"
+              >
+                <path
+                  d={`M0,0 L${arrowW},${arrowH/2} L0,${arrowH}`}
+                  fill="none" stroke={el.strokeColor} strokeWidth={sw * 0.85}
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              </marker>
+            )}
+            {el.startArrowhead === "arrow" && (
+              <marker
+                id={markerStartId}
+                markerWidth={arrowW} markerHeight={arrowH}
+                refX={0.5} refY={arrowH / 2}
+                orient="auto-start-reverse"
+              >
+                <path
+                  d={`M${arrowW},0 L0,${arrowH/2} L${arrowW},${arrowH}`}
+                  fill="none" stroke={el.strokeColor} strokeWidth={sw * 0.85}
+                  strokeLinecap="round" strokeLinejoin="round"
+                />
+              </marker>
+            )}
+          </defs>
+          <path
+            d={pathD}
+            fill="none"
+            stroke={el.strokeColor}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            markerEnd={el.endArrowhead === "arrow" ? `url(#${markerId})` : undefined}
+            markerStart={el.startArrowhead === "arrow" ? `url(#${markerStartId})` : undefined}
+          />
+        </svg>
       </div>
     );
   }
