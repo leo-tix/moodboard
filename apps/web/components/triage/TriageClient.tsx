@@ -7,6 +7,7 @@ import { CategoryMultiSelect, type CategorySelection } from "@/components/inspir
 import { TagInput } from "@/components/inspiration/TagInput";
 import { AutocompleteInput } from "@/components/inspiration/AutocompleteInput";
 import type { Category } from "@/components/inspiration/CategorySelect";
+import { ImmersiveViewer } from "@/components/library/ImmersiveViewer";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,35 +54,117 @@ const fld = "w-full bg-transparent border-b border-[var(--border-subtle)] focus:
 const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5";
 
 // ── Bottom sheet (mobile metadata drawer) ────────────────────────────────────
+// Vrai geste de fermeture par glissement (pattern iOS/Instagram) : le drag ne
+// fonctionnait qu'en tapant précisément la croix ✕, ce qui donnait l'impression
+// que la fiche était "bloquée". La poignée + l'en-tête sont maintenant une zone
+// de drag réelle — la feuille suit le doigt et se ferme au-delà d'un seuil,
+// sinon revient avec un effet ressort. Le contenu (formulaire) garde son propre
+// scroll interne, indépendant du geste de fermeture.
 
 function BottomSheet({
   open, onClose, children,
 }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef(0);
+  const draggingRef = useRef(false);
+  const currentY = useRef(0);
+
+  // Verrouiller le scroll du body pendant que la feuille est ouverte
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  // Reset position au moment de l'ouverture
+  useEffect(() => {
+    if (open && sheetRef.current) {
+      sheetRef.current.style.transition = "none";
+      sheetRef.current.style.transform = "translateY(0)";
+      currentY.current = 0;
+    }
+  }, [open]);
+
+  const onDragStart = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    draggingRef.current = true;
+    dragStartY.current = e.clientY;
+    if (sheetRef.current) sheetRef.current.style.transition = "none";
+  };
+
+  const onDragMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current || !sheetRef.current) return;
+    const dy = Math.max(0, e.clientY - dragStartY.current); // ne monte pas au-dessus de l'ancre
+    currentY.current = dy;
+    sheetRef.current.style.transform = `translateY(${dy}px)`;
+    if (backdropRef.current) {
+      backdropRef.current.style.opacity = String(Math.max(0.15, 1 - dy / 300));
+    }
+  };
+
+  const onDragEnd = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (!sheetRef.current) return;
+    sheetRef.current.style.transition = "transform 0.25s cubic-bezier(0.2,0,0,1)";
+    if (currentY.current > 100) {
+      sheetRef.current.style.transform = "translateY(100%)";
+      if (backdropRef.current) backdropRef.current.style.opacity = "0";
+      setTimeout(onClose, 200);
+    } else {
+      sheetRef.current.style.transform = "translateY(0)";
+      if (backdropRef.current) backdropRef.current.style.opacity = "1";
+    }
+  };
+
   return (
     <>
       {/* Backdrop */}
       {open && (
         <div
+          ref={backdropRef}
           className="fixed inset-0 bg-black/40 z-40 md:hidden"
           onClick={onClose}
         />
       )}
       {/* Sheet */}
       <div
+        ref={sheetRef}
         className={`fixed inset-x-0 bottom-0 z-50 md:hidden transition-transform duration-300 ease-out ${
           open ? "translate-y-0" : "translate-y-full"
         }`}
-        style={{ maxHeight: "80vh" }}
+        style={{ maxHeight: "80vh", touchAction: "none" }}
       >
         <div className="bg-[var(--bg-elevated)] rounded-t-2xl border-t border-[var(--border-default)] flex flex-col overflow-hidden"
              style={{ maxHeight: "80vh" }}>
-          {/* Handle */}
-          <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-[var(--border-subtle)]">
-            <div className="w-10 h-1 bg-[var(--border-default)] rounded-full mx-auto absolute left-1/2 -translate-x-1/2 top-3" />
-            <p className="text-xs font-medium text-[var(--text-primary)] mt-1">Métadonnées</p>
-            <button onClick={onClose} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors text-sm">✕</button>
+          {/* Handle + header — zone de drag pour fermer */}
+          <div
+            className="flex-shrink-0 relative"
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragEnd}
+          >
+            <div className="flex justify-center pt-2.5 pb-1.5 cursor-grab active:cursor-grabbing">
+              <div className="w-10 h-1.5 bg-[var(--border-default)] rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-5 pb-3 border-b border-[var(--border-subtle)]">
+              <p className="text-sm font-medium text-[var(--text-primary)]">Métadonnées</p>
+              <button
+                onClick={onClose}
+                className="w-9 h-9 -mr-2 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors text-sm"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-5 space-y-4" style={{ overscrollBehavior: "contain" }}>
+          <div
+            className="flex-1 overflow-y-auto p-5 space-y-4"
+            style={{ overscrollBehavior: "contain", touchAction: "pan-y" }}
+          >
             {children}
           </div>
         </div>
@@ -102,6 +185,12 @@ export function TriageClient() {
   const [hint,          setHint]          = useState<"left" | "right" | "up" | null>(null);
   const [isExiting,     setIsExiting]     = useState(false);
   const [metaOpen,      setMetaOpen]      = useState(false);
+  const [previewOpen,   setPreviewOpen]   = useState(false);
+  // Rewind (Tinder) — annule la dernière décision accept/archive
+  const [lastAction, setLastAction] = useState<{
+    item: TriageItem; fields: LocalFields; action: "accept" | "archive";
+  } | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   const fieldsRef   = useRef<LocalFields | null>(null);
   fieldsRef.current = fields;
@@ -115,6 +204,7 @@ export function TriageClient() {
   const dragStartY    = useRef(0);
   const dragXRef      = useRef(0);
   const dragYRef      = useRef(0);
+  const movedRef      = useRef(false); // distingue tap (preview) de drag (swipe)
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -232,6 +322,8 @@ export function TriageClient() {
         }),
       });
       setPrevFields({ ...f });
+      // Mémorise pour le rewind — capture item + champs AVANT de faire avancer la queue
+      setLastAction({ item: current, fields: { ...f }, action });
     }
 
     await fetch(`/api/triage/${current.id}`, {
@@ -245,6 +337,26 @@ export function TriageClient() {
     setHint(null);
     clearBg();
   }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Undo (rewind) — Tinder-style : remet la dernière décision en tête de file ──
+
+  const undo = useCallback(async () => {
+    if (!lastAction || undoing) return;
+    setUndoing(true);
+    vibrate(20);
+    try {
+      await fetch(`/api/triage/${lastAction.item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "undo" }),
+      });
+      setQueue((q) => [lastAction.item, ...q]);
+      setFields(lastAction.fields);
+      setLastAction(null);
+    } finally {
+      setUndoing(false);
+    }
+  }, [lastAction, undoing]);
 
   // ── Exit animation ──
 
@@ -283,6 +395,7 @@ export function TriageClient() {
     dragStartY.current = e.clientY;
     dragXRef.current   = 0;
     dragYRef.current   = 0;
+    movedRef.current   = false;
     isDraggingRef.current = true;
     if (cardRef.current) {
       cardRef.current.style.transition = "none";
@@ -298,6 +411,7 @@ export function TriageClient() {
     const dy = e.clientY - dragStartY.current;
     dragXRef.current = dx;
     dragYRef.current = dy;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) movedRef.current = true;
 
     const rot  = dx * 0.05;
     const lift = Math.min(Math.abs(dx) + Math.abs(dy), 120);
@@ -339,6 +453,9 @@ export function TriageClient() {
         cardRef.current.style.transform  = "translateX(0) translateY(0) rotate(0deg) scale(1)";
         cardRef.current.style.boxShadow  = "";
       }
+      // Tap sans déplacement (ni drag ni swipe) → aperçu plein écran de l'image
+      // (pattern Pinterest/Instagram : le tap inspecte, le swipe décide)
+      if (!movedRef.current) setPreviewOpen(true);
     }
   };
 
@@ -352,10 +469,11 @@ export function TriageClient() {
       if (e.key === "ArrowLeft")  animateExit("left",  () => doAction("archive"));
       if (e.key === "ArrowRight") animateExit("right", () => doAction("accept"));
       if (e.key === "ArrowUp")    animateExit("up",    () => doAction("skip"));
+      if (e.key === "z" || e.key === "Z") undo();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [animateExit, doAction, isExiting]);
+  }, [animateExit, doAction, isExiting, undo]);
 
   // ── Copy previous ──
 
@@ -429,6 +547,15 @@ export function TriageClient() {
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
           ⊘ Voir les archives
         </a>
+        {lastAction && (
+          <button
+            onClick={undo}
+            disabled={undoing}
+            className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40"
+          >
+            ↺ Annuler la dernière décision
+          </button>
+        )}
       </div>
     );
   }
@@ -450,13 +577,16 @@ export function TriageClient() {
       style={{ overscrollBehavior: "none" }}
     >
       {/* ── Top bar ── */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div className="flex items-center gap-2">
-          <Link href="/library" className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
+      <div className="flex-shrink-0 flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b border-[var(--border-subtle)]">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Link
+            href="/library"
+            className="w-9 h-9 sm:w-auto sm:h-auto flex items-center justify-center text-sm sm:text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors flex-shrink-0"
+          >
             ←
           </Link>
           {/* Progress dots (max 7) */}
-          <div className="flex items-center gap-1 ml-1">
+          <div className="flex items-center gap-1 ml-0.5 flex-shrink-0">
             {Array.from({ length: Math.min(total, 7) }).map((_, i) => (
               <div
                 key={i}
@@ -467,17 +597,26 @@ export function TriageClient() {
             ))}
             {total > 7 && <span className="text-[10px] text-[var(--text-tertiary)] ml-0.5">+{total - 7}</span>}
           </div>
-          <span className="text-[10px] text-[var(--text-tertiary)] ml-1">{total} restante{total > 1 ? "s" : ""}</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] ml-1 truncate">{total} restante{total > 1 ? "s" : ""}</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           <a href="/search?archived=true"
             className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-2 py-1 rounded-lg hidden sm:block">
             ⊘ Archives
           </a>
+          {/* Rewind (Tinder) — annule la dernière décision accept/archive */}
+          <button
+            onClick={undo}
+            disabled={!lastAction || undoing}
+            title="Annuler la dernière décision (z)"
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-25 disabled:hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] rounded-lg flex-shrink-0"
+          >
+            ↺
+          </button>
           <button
             onClick={() => !isExiting && animateExit("up", () => doAction("skip"))}
-            className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-3 py-1.5 rounded-lg"
+            className="h-9 sm:h-auto flex items-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-3 sm:py-1.5 rounded-lg flex-shrink-0"
             title="Passer (↑)"
           >
             Passer ↑
@@ -583,6 +722,13 @@ export function TriageClient() {
                   <span className="text-[10px] text-white bg-black/50 px-1.5 py-0.5 rounded-full">✓</span>
                 )}
               </div>
+
+              {/* Affordance — tap pour voir en plein écran (Pinterest/Instagram) */}
+              <div className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 1H1v4M8 1h4v4M5 12H1V8M8 12h4V8" />
+                </svg>
+              </div>
             </div>
           </div>
 
@@ -654,6 +800,17 @@ export function TriageClient() {
       <BottomSheet open={metaOpen} onClose={() => setMetaOpen(false)}>
         {metadataFields}
       </BottomSheet>
+
+      {/* ── Aperçu plein écran (tap sur la carte) ── */}
+      {previewOpen && img && (
+        <ImmersiveViewer
+          storageKey={img.storageKey}
+          title={current?.title ?? ""}
+          onClose={() => setPreviewOpen(false)}
+          onPrev={null}
+          onNext={null}
+        />
+      )}
     </div>
   );
 }
