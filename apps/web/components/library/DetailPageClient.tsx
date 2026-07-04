@@ -491,6 +491,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             aiAnalysis={data.aiAnalysis}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
+            scrollable={false}
           />
         </div>
       </div>

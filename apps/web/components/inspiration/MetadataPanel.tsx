@@ -33,13 +33,22 @@ interface MetadataPanelProps {
   autoAnalyze?: boolean;
   /** If true, render the AI section before the form fields */
   aiFirst?: boolean;
+  /**
+   * Whether this panel manages its own internal scroll (desktop sidebar,
+   * fixed height). On mobile the panel is embedded in a page-level scroll
+   * container (bottom-sheet-over-image pattern) — its own overflow-y-auto +
+   * overscroll-behavior:contain would swallow the drag and block scroll
+   * chaining to the page, so the whole sheet only budged when touching the
+   * tiny handle. Pass false there to render as a plain flowing block.
+   */
+  scrollable?: boolean;
 }
 
 const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-widest mb-1";
 const fld =
   "w-full bg-transparent border-b border-[var(--border-subtle)] focus:border-[var(--border-default)] text-[var(--text-primary)] text-xs py-1 focus:outline-none transition-colors placeholder:text-[var(--text-tertiary)]";
 
-export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initialCollections, initialVisit, autoAnalyze, aiFirst }: MetadataPanelProps) {
+export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initialCollections, initialVisit, autoAnalyze, aiFirst, scrollable = true }: MetadataPanelProps) {
   const [data, setData] = useState(initialData);
   const [tags, setTags] = useState<string[]>(initialData.tags ?? []);
   const [categories, setCategories] = useState<CategorySelection[]>(initialData.categories ?? []);
@@ -462,8 +471,11 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
   );
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-6 space-y-5" style={{ overscrollBehaviorY: "contain" }}>
+    <div className={scrollable ? "flex flex-col h-full" : ""}>
+      <div
+        className={scrollable ? "flex-1 overflow-y-auto p-6 space-y-5" : "p-6 space-y-5"}
+        style={scrollable ? { overscrollBehaviorY: "contain" } : undefined}
+      >
         {aiFirst ? (
           <>
             {aiSection}

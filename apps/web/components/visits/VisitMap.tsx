@@ -68,7 +68,12 @@ export function VisitMap({ latitude, longitude, label, className }: VisitMapProp
     <div
       ref={containerRef}
       className={className}
-      style={{ background: "var(--bg-surface)" }}
+      // isolation: isolate — Leaflet's internal panes/controls use z-index up
+      // to 1000, which otherwise escapes to compete with unrelated overlays
+      // elsewhere on the page (e.g. the portaled fullscreen image viewer at
+      // z-[200]) since the map container itself doesn't establish a stacking
+      // context on its own. This contains Leaflet's z-indices to the map box.
+      style={{ background: "var(--bg-surface)", isolation: "isolate" }}
     />
   );
 }

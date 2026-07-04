@@ -43,7 +43,12 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setIsTouchDevice(navigator.maxTouchPoints > 1);
+  }, []);
 
   useEffect(() => {
     if (menuIdx === null) return;
@@ -155,7 +160,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuIdx(menuIdx === idx ? null : idx); }}
                 className={cn(
-                  "w-6 h-6 flex items-center justify-center rounded-full text-xs transition-all",
+                  "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-full text-sm md:text-xs transition-all",
                   item.type === "image"
                     ? "bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
                     : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
@@ -206,7 +211,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             return (
               <div
                 key={`note-${item.id}`}
-                draggable={editingNoteId !== item.id}
+                draggable={!isTouchDevice && editingNoteId !== item.id}
                 onDragStart={() => setDraggedIdx(idx)}
                 onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
                 onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx); }}
@@ -250,7 +255,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           return (
             <div
               key={`img-${item.id}`}
-              draggable
+              draggable={!isTouchDevice}
               onDragStart={() => setDraggedIdx(idx)}
               onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
               onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx); }}
