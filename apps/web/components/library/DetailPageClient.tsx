@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { getImageUrl } from "@/lib/storage/urls";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
 import { GalleryStrip, type StripItem } from "@/components/library/GalleryStrip";
+import { ImmersiveViewer } from "@/components/library/ImmersiveViewer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
   const [panelHidden, setPanelHidden] = useState(false);
   const [stripItems, setStripItems] = useState<StripItem[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [immersive, setImmersive] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pasted, setPasted] = useState(false);
   const [hasCopied, setHasCopied] = useState(false);
@@ -347,11 +349,11 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         {/* Prev */}
         {prevItem ? (
           <Link href={`/library/${prevItem.id}`} replace title={`← ${prevItem.title}`}
-            className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors text-sm">
+            className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors text-base sm:text-sm">
             ‹
           </Link>
         ) : (
-          <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)] text-sm">‹</span>
+          <span className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)] text-base sm:text-sm">‹</span>
         )}
 
         {/* Title + counter */}
@@ -365,30 +367,32 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         {/* Next */}
         {nextItem ? (
           <Link href={`/library/${nextItem.id}`} replace title={`${nextItem.title} →`}
-            className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors text-sm">
+            className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors text-base sm:text-sm">
             ›
           </Link>
         ) : (
-          <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)] text-sm">›</span>
+          <span className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)] text-base sm:text-sm">›</span>
         )}
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
 
-        {/* Copy / Paste metadata */}
+        {/* Copy / Paste metadata — libellé complet sur desktop, icône seule sur mobile */}
         <button
           onClick={handleCopyMetadata}
           title="Copier les métadonnées (auteur, année, tags, catégories…)"
-          className="hidden sm:flex items-center gap-1 h-6 px-1.5 rounded transition-colors flex-shrink-0 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+          className="flex items-center gap-1 h-9 px-2 sm:h-6 sm:px-1.5 rounded transition-colors flex-shrink-0 text-xs sm:text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
         >
-          {copied ? "✓ Copié" : "⎘ Copier"}
+          <span className="sm:hidden">{copied ? "✓" : "⎘"}</span>
+          <span className="hidden sm:inline">{copied ? "✓ Copié" : "⎘ Copier"}</span>
         </button>
         {hasCopied && (
           <button
             onClick={handlePasteMetadata}
             title="Coller les métadonnées sur cette image"
-            className="hidden sm:flex items-center gap-1 h-6 px-1.5 rounded transition-colors flex-shrink-0 text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 hover:bg-[var(--bg-surface)]"
+            className="flex items-center gap-1 h-9 px-2 sm:h-6 sm:px-1.5 rounded transition-colors flex-shrink-0 text-xs sm:text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 hover:bg-[var(--bg-surface)]"
           >
-            {pasted ? "✓ Collé" : "⎘ Coller"}
+            <span className="sm:hidden">{pasted ? "✓" : "⎗"}</span>
+            <span className="hidden sm:inline">{pasted ? "✓ Collé" : "⎘ Coller"}</span>
           </button>
         )}
 
@@ -435,21 +439,42 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         </button>
       </div>
 
-      {/* ── Mobile layout : image sticky + metadata bottom sheet ── */}
+      {/* ── Mobile layout : image sticky + metadata bottom sheet ──
+          Swipe horizontal = image précédente/suivante ; le zoom se fait dans
+          la visionneuse plein écran (tap sur l'image). */}
       <div
         className="md:hidden flex-1 min-h-0 overflow-y-auto"
         onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Image pleine largeur, sticky au scroll */}
-        <div className="sticky top-0 z-0 w-full bg-[var(--bg-surface)]" style={{ height: "56vw" }}>
-          <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
-          {isZoomed && (
-            <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
-              {formatZoom(zoom)}
+        {/* Image pleine largeur — hauteur naturelle (plafonnée), tap = plein écran */}
+        <div
+          className="sticky top-0 z-0 w-full bg-[var(--bg-surface)] flex items-center justify-center"
+          onClick={() => setImmersive(true)}
+          role="button"
+          aria-label="Voir en plein écran"
+        >
+          {data.mainImageStorageKey ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={data.id}
+              src={getImageUrl(data.mainImageStorageKey)}
+              alt={data.title}
+              className="w-full h-auto object-contain"
+              style={{ maxHeight: "62vh", minHeight: "180px" }}
+              draggable={false}
+            />
+          ) : (
+            <div className="w-full flex items-center justify-center" style={{ height: "40vw" }}>
+              <span className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</span>
             </div>
           )}
+          {/* Affordance plein écran */}
+          <div className="absolute bottom-2.5 right-2.5 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 1H1v4M8 1h4v4M5 12H1V8M8 12h4V8" />
+            </svg>
+          </div>
         </div>
 
         {/* Metadata bottom sheet — slide over image on scroll */}
@@ -512,6 +537,22 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
       {/* ── Shortcuts overlay ── */}
       {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
+
+      {/* ── Visionneuse immersive plein écran (mobile : tap sur l'image) ── */}
+      {immersive && (
+        <ImmersiveViewer
+          storageKey={data.mainImageStorageKey}
+          title={data.title}
+          counter={
+            currentIdx !== -1 && stripItems.length > 0
+              ? `${currentIdx + 1} / ${stripItems.length}`
+              : undefined
+          }
+          onClose={() => setImmersive(false)}
+          onPrev={prevItem ? () => router.replace(`/library/${prevItem.id}`) : null}
+          onNext={nextItem ? () => router.replace(`/library/${nextItem.id}`) : null}
+        />
+      )}
     </div>
   );
 }
