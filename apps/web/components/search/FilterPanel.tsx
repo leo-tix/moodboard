@@ -57,7 +57,8 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
   };
 
   return (
-    <aside className="w-52 flex-shrink-0 space-y-6">
+    // Pleine largeur dans le bottom sheet mobile ; colonne fixe en sidebar desktop
+    <aside className="w-full md:w-52 flex-shrink-0 space-y-6">
       {hasFilters && (
         <button
           onClick={clearAll}
@@ -97,8 +98,8 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
               )}
             </div>
           </div>
-          {/* Quick palette presets */}
-          <div className="flex flex-wrap gap-1">
+          {/* Quick palette presets — plus grands au tactile */}
+          <div className="flex flex-wrap gap-1.5 md:gap-1">
             {[
               "#E8E0D4", "#1a1a1a", "#4a3728", "#8B4513", "#D2691E",
               "#2F4F4F", "#1C3A5E", "#4169E1", "#9370DB", "#C71585",
@@ -109,7 +110,7 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
                 title={c}
                 onClick={() => updateParam("color", c.replace("#", ""))}
                 className={cn(
-                  "w-5 h-5 rounded-sm transition-transform hover:scale-110 border",
+                  "w-8 h-8 md:w-5 md:h-5 rounded-md md:rounded-sm transition-transform hover:scale-110 border",
                   activeColor === c.replace("#", "")
                     ? "border-[var(--text-primary)] scale-110"
                     : "border-transparent"
@@ -132,7 +133,7 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
               <button
                 onClick={() => updateParam("categoryId", "")}
                 className={cn(
-                  "w-full text-left text-xs px-2.5 py-1.5 rounded transition-colors",
+                  "w-full text-left text-sm md:text-xs px-2.5 py-2.5 md:py-1.5 rounded transition-colors",
                   !activeCategoryId
                     ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]"
                     : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -146,7 +147,7 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
                 <button
                   onClick={() => updateParam("categoryId", activeCategoryId === cat.id ? "" : cat.id)}
                   className={cn(
-                    "w-full text-left text-xs px-2.5 py-1.5 rounded transition-colors",
+                    "w-full text-left text-sm md:text-xs px-2.5 py-2.5 md:py-1.5 rounded transition-colors",
                     activeCategoryId === cat.id
                       ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]"
                       : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -194,7 +195,7 @@ export function FilterPanel({ categories, popularTags }: FilterPanelProps) {
                   key={tag.slug}
                   onClick={() => toggleTag(tag.slug)}
                   className={cn(
-                    "text-[10px] px-2 py-1 rounded-sm border transition-colors",
+                    "text-xs md:text-[10px] px-3 py-2 md:px-2 md:py-1 rounded-full md:rounded-sm border transition-colors",
                     isActive
                       ? "bg-[var(--text-primary)] text-[var(--bg-base)] border-[var(--text-primary)]"
                       : "bg-transparent text-[var(--text-tertiary)] border-[var(--border-subtle)] hover:text-[var(--text-secondary)] hover:border-[var(--border-default)]"

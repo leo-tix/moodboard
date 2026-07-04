@@ -325,9 +325,12 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
 
   return (
     <>
-      {/* ── Top bar ── */}
-      <div className="sticky top-0 z-30 -mx-6 px-6 py-3 bg-[var(--bg-base)]/90 backdrop-blur-md border-b border-[var(--border-subtle)] mb-6">
-        <div className="flex items-center gap-3">
+      {/* ── Top bar ──
+          Mobile : deux rangées scrollables (pills catégories, puis contrôles) —
+          tout tenait sur une seule ligne impossible à 390px.
+          Les marges négatives suivent le padding de page (p-4 mobile / p-6 md+). */}
+      <div className="sticky top-0 z-30 -mx-4 px-4 md:-mx-6 md:px-6 py-3 bg-[var(--bg-base)]/90 backdrop-blur-md border-b border-[var(--border-subtle)] mb-6">
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
 
           {/* Category pills — scrollable */}
           <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto scrollbar-none">
@@ -358,8 +361,9 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
             ))}
           </div>
 
-          {/* Right-side controls */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Right-side controls — 2e rangée sur mobile ; flex-wrap (pas
+              d'overflow-x : les dropdowns absolus seraient tronqués) */}
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             {years.length > 0 && (
               <Dropdown
                 value={activeYear}
