@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { getThumbnailUrl } from "@/lib/storage/urls";
+import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
 import { CategoryMultiSelect, type CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { TagInput } from "@/components/inspiration/TagInput";
 import { AutocompleteInput } from "@/components/inspiration/AutocompleteInput";
 import type { Category } from "@/components/inspiration/CategorySelect";
-import { ImmersiveViewer } from "@/components/library/ImmersiveViewer";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -62,8 +61,8 @@ const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-wid
 // scroll interne, indépendant du geste de fermeture.
 
 function BottomSheet({
-  open, onClose, children,
-}: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  open, onClose, children, backdrop,
+}: { open: boolean; onClose: () => void; children: React.ReactNode; backdrop?: React.ReactNode }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef(0);
@@ -121,27 +120,32 @@ function BottomSheet({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — image plein écran quand fourni (mode "expanded"), sinon voile noir classique */}
       {open && (
         <div
           ref={backdropRef}
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          className="fixed inset-0 z-40 md:hidden"
           onClick={onClose}
-        />
+        >
+          {backdrop ?? <div className="absolute inset-0 bg-black/40" />}
+        </div>
       )}
-      {/* Sheet */}
+      {/* Sheet — touch-action:none scoped à la seule zone de drag (poignée/en-tête) ;
+          le mettre sur tout le conteneur bloquerait aussi le scroll natif du
+          contenu en dessous (touch-action d'un ancêtre restreint ses descendants). */}
       <div
         ref={sheetRef}
         className={`fixed inset-x-0 bottom-0 z-50 md:hidden transition-transform duration-300 ease-out ${
           open ? "translate-y-0" : "translate-y-full"
         }`}
-        style={{ maxHeight: "80vh", touchAction: "none" }}
+        style={{ maxHeight: "80vh" }}
       >
         <div className="bg-[var(--bg-elevated)] rounded-t-2xl border-t border-[var(--border-default)] flex flex-col overflow-hidden"
              style={{ maxHeight: "80vh" }}>
           {/* Handle + header — zone de drag pour fermer */}
           <div
             className="flex-shrink-0 relative"
+            style={{ touchAction: "none" }}
             onPointerDown={onDragStart}
             onPointerMove={onDragMove}
             onPointerUp={onDragEnd}
@@ -185,7 +189,8 @@ export function TriageClient() {
   const [hint,          setHint]          = useState<"left" | "right" | "up" | null>(null);
   const [isExiting,     setIsExiting]     = useState(false);
   const [metaOpen,      setMetaOpen]      = useState(false);
-  const [previewOpen,   setPreviewOpen]   = useState(false);
+  // Vue étendue : image plein écran + fiche métadonnées éditable simultanément
+  const [expandedView,  setExpandedView]  = useState(false);
   // Rewind (Tinder) — annule la dernière décision accept/archive
   const [lastAction, setLastAction] = useState<{
     item: TriageItem; fields: LocalFields; action: "accept" | "archive";
@@ -453,9 +458,10 @@ export function TriageClient() {
         cardRef.current.style.transform  = "translateX(0) translateY(0) rotate(0deg) scale(1)";
         cardRef.current.style.boxShadow  = "";
       }
-      // Tap sans déplacement (ni drag ni swipe) → aperçu plein écran de l'image
-      // (pattern Pinterest/Instagram : le tap inspecte, le swipe décide)
-      if (!movedRef.current) setPreviewOpen(true);
+      // Tap sans déplacement (ni drag ni swipe) → image plein écran + édition
+      // des métadonnées en simultané (pattern Pinterest/Instagram : le tap
+      // inspecte/édite, le swipe décide)
+      if (!movedRef.current) setExpandedView(true);
     }
   };
 
@@ -801,15 +807,35 @@ export function TriageClient() {
         {metadataFields}
       </BottomSheet>
 
-      {/* ── Aperçu plein écran (tap sur la carte) ── */}
-      {previewOpen && img && (
-        <ImmersiveViewer
-          storageKey={img.storageKey}
-          title={current?.title ?? ""}
-          onClose={() => setPreviewOpen(false)}
-          onPrev={null}
-          onNext={null}
-        />
+      {/* ── Vue étendue (tap sur la carte) — image plein écran en fond +
+          fiche métadonnées éditable par-dessus, comme dans la visionneuse
+          de la bibliothèque (sticky image + sheet), mais ici avec édition. ── */}
+      {img && (
+        <BottomSheet
+          open={expandedView}
+          onClose={() => setExpandedView(false)}
+          backdrop={
+            <div className="w-full h-full bg-black flex items-center justify-center">
+              <img
+                src={getImageUrl(img.storageKey)}
+                alt={current?.title ?? ""}
+                className="max-w-full max-h-full object-contain"
+                draggable={false}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <button
+                onClick={() => setExpandedView(false)}
+                className="absolute w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white/90 text-base"
+                style={{ top: "calc(env(safe-area-inset-top) + 10px)", right: 10 }}
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+          }
+        >
+          {metadataFields}
+        </BottomSheet>
       )}
     </div>
   );
