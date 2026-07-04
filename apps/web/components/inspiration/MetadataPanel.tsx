@@ -361,7 +361,7 @@ export function MetadataPanel({ id, initialData, colorPalette, aiAnalysis, initi
           <button
             type="button"
             onClick={() => setShowCollectionModal(true)}
-            className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity"
+            className="text-[11px] md:text-[9px] py-1.5 md:py-0 px-1 text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity"
           >
             + Ajouter
           </button>

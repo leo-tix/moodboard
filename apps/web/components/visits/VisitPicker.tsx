@@ -155,7 +155,7 @@ export function VisitPicker({ inspirationId, initialVisit }: VisitPickerProps) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="text-[9px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity"
+          className="text-[11px] md:text-[9px] py-1.5 md:py-0 px-1 text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity"
         >
           {visit ? "Changer" : "+ Rattacher"}
         </button>

@@ -7,6 +7,13 @@
       "runtimeArgs": ["--filter", "web", "dev"],
       "port": 3000,
       "autoPort": false
+    },
+    {
+      "name": "moodboard-web-alt",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "web", "dev", "-p", "3001"],
+      "port": 3001,
+      "autoPort": false
     }
   ]
 }

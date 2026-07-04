@@ -105,3 +105,18 @@ body {
   outline-offset: 2px;
 }
 
+
+/* ============================================================
+   MOBILE — anti-zoom iOS sur focus input
+   iOS Safari zoome automatiquement la page quand un champ dont la
+   font-size est < 16px reçoit le focus. On force 16px sur les
+   appareils tactiles uniquement (pointer: coarse) — le rendu
+   desktop dense reste intact.
+   ============================================================ */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

@@ -85,18 +85,23 @@ export function AddToCollectionModal({
         onClick={onClose}
       />
 
-      {/* Modal */}
+      {/* Modal — bottom sheet sur mobile, dialogue centré sur desktop */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 6 }}
+        initial={{ opacity: 0, scale: 0.96, y: 24 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 6 }}
+        exit={{ opacity: 0, scale: 0.96, y: 24 }}
         transition={{ duration: 0.16 }}
-        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] w-72 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-2xl flex flex-col"
-        style={{ maxHeight: "80vh" }}
+        className="fixed z-[61] bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl flex flex-col inset-x-0 bottom-0 w-full rounded-t-2xl md:inset-x-auto md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-72 md:rounded-lg"
+        style={{ maxHeight: "80vh", paddingBottom: "env(safe-area-inset-bottom)" }}
       >
+        {/* Drag handle — mobile uniquement */}
+        <div className="flex md:hidden justify-center pt-2.5 pb-0.5 flex-shrink-0">
+          <div className="w-8 h-1 rounded-full bg-[var(--border-default)]" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] flex-shrink-0">
-          <p className="text-xs font-medium text-[var(--text-primary)]">
+        <div className="flex items-center justify-between px-4 py-2 md:py-3 border-b border-[var(--border-subtle)] flex-shrink-0">
+          <p className="text-sm md:text-xs font-medium text-[var(--text-primary)]">
             Ajouter à une collection
             {inspirationIds.length > 1 && (
               <span className="ml-1.5 text-[var(--text-tertiary)] font-normal">
@@ -106,7 +111,7 @@ export function AddToCollectionModal({
           </p>
           <button
             onClick={onClose}
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors leading-none"
+            className="w-9 h-9 md:w-auto md:h-auto flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors leading-none"
           >
             ✕
           </button>
