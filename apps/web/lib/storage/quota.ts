@@ -77,9 +77,11 @@ export interface FullQuotaStatus {
 }
 
 // ── Calcule le stockage utilisé ────────────────────────────
+// Chaque image écrit 2 objets R2 (original + vignette) — les deux doivent
+// être comptés, sinon le quota affiché sous-estime l'usage réel du bucket.
 export async function getStorageQuota(): Promise<StorageQuota> {
-  const result = await db.image.aggregate({ _sum: { size: true } });
-  const usedBytes = result._sum.size ?? 0;
+  const result = await db.image.aggregate({ _sum: { size: true, thumbnailSize: true } });
+  const usedBytes = (result._sum.size ?? 0) + (result._sum.thumbnailSize ?? 0);
   const maxBytes = QUOTA.MAX_STORAGE_BYTES;
   const usedPercent = usedBytes / maxBytes;
 

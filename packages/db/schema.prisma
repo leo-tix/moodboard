@@ -223,6 +223,9 @@ model Image {
   originalName   String
   mimeType       String
   size           Int
+  // Poids de la vignette R2 — 2e objet stocké par image, absent des totaux
+  // de quota avant ce champ (voir getStorageQuota)
+  thumbnailSize  Int         @default(0)
   width          Int?
   height         Int?
   storageKey     String

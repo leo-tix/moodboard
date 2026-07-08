@@ -260,6 +260,7 @@ export async function POST(req: NextRequest) {
         originalName:  `${source.toLowerCase()}-import.webp`,
         mimeType:      processed.mimeType,
         size:          processed.size,
+        thumbnailSize: processed.thumbnail.length,
         width:         processed.width,
         height:        processed.height,
         storageKey,

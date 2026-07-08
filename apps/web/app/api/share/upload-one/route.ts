@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
         originalName: file.name,
         mimeType: processed.mimeType,
         size: processed.size,
+        thumbnailSize: processed.thumbnail.length,
         width: processed.width,
         height: processed.height,
         storageKey,

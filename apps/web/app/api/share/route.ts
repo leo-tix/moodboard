@@ -47,6 +47,7 @@ async function processOneFile(
       originalName: file.name,
       mimeType: processed.mimeType,
       size: processed.size,
+      thumbnailSize: processed.thumbnail.length,
       width: processed.width,
       height: processed.height,
       storageKey,

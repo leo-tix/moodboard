@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
         originalName: `import-${uuid}.webp`,
         mimeType: processed.mimeType,
         size: processed.size,
+        thumbnailSize: processed.thumbnail.length,
         width: processed.width,
         height: processed.height,
         storageKey,
