@@ -21,6 +21,8 @@ model User {
   email         String     @unique
   passwordHash  String
   name          String?
+  // Avatar : storageKey R2 (même bucket que les images) — null = pas de photo
+  image         String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   apiTokens     ApiToken[]

@@ -4,7 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { getImageUrl } from "@/lib/storage/urls";
 import { TriageBadge } from "@/components/triage/TriageBadge";
+
+interface SidebarUser {
+  name: string | null;
+  email: string;
+  image: string | null;
+}
+
+function initialsOf(name: string | null, email: string): string {
+  const base = (name ?? "").trim() || email;
+  const parts = base.split(/[\s@.]+/).filter(Boolean);
+  return (parts[0]?.[0] ?? "?").toUpperCase();
+}
 
 const NAV_ITEMS = [
   { href: "/", label: "Accueil", icon: "○" },
@@ -17,7 +30,7 @@ const NAV_ITEMS = [
   { href: "/triage",  label: "Triage",   icon: "⇄" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
 
   return (
@@ -81,20 +94,51 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Settings */}
-      <div className="px-2 xl:px-3 py-3 border-t border-[var(--border-subtle)]">
+      {/* Settings + compte */}
+      <div className="px-2 xl:px-3 py-3 border-t border-[var(--border-subtle)] space-y-0.5">
         <Link
-          href="/settings"
+          href="/settings/general"
           title="Réglages"
           className={cn(
             "flex items-center justify-center xl:justify-start gap-3 xl:px-3 py-2.5 rounded-md text-sm transition-colors relative",
-            pathname.startsWith("/settings")
+            (pathname === "/settings" || pathname.startsWith("/settings/")) && !pathname.startsWith("/settings/account")
               ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]"
               : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
           )}
         >
           <span className="font-mono text-xs opacity-50">⚙</span>
           <span className="hidden xl:block">Réglages</span>
+        </Link>
+
+        {/* Compte — avatar + nom, mène aux réglages du compte */}
+        <Link
+          href="/settings/account"
+          title="Compte"
+          className={cn(
+            "flex items-center justify-center xl:justify-start gap-2.5 xl:px-2 py-1.5 rounded-md transition-colors",
+            pathname.startsWith("/settings/account")
+              ? "bg-[var(--bg-elevated)]"
+              : "hover:bg-[var(--bg-elevated)]"
+          )}
+        >
+          <span className="w-7 h-7 rounded-full overflow-hidden bg-[var(--bg-elevated)] border border-[var(--border-default)] flex items-center justify-center flex-shrink-0">
+            {user.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={getImageUrl(user.image)} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-[11px] font-medium text-[var(--text-secondary)]">
+                {initialsOf(user.name, user.email)}
+              </span>
+            )}
+          </span>
+          <span className="hidden xl:block min-w-0">
+            <span className="block text-xs text-[var(--text-primary)] truncate">
+              {user.name || "Mon compte"}
+            </span>
+            <span className="block text-[10px] text-[var(--text-tertiary)] truncate">
+              {user.email}
+            </span>
+          </span>
         </Link>
       </div>
     </aside>

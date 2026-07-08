@@ -17,9 +17,10 @@ const NAV_ITEMS = [
 
 // Destinations secondaires — accessibles via le bouton "Plus"
 const MORE_ITEMS = [
-  { href: "/moodboards", label: "Planches", icon: "⬚" },
-  { href: "/visites",    label: "Visites",  icon: "◈" },
-  { href: "/settings",   label: "Réglages", icon: "⚙" },
+  { href: "/moodboards",      label: "Planches", icon: "⬚" },
+  { href: "/visites",         label: "Visites",  icon: "◈" },
+  { href: "/settings/general", label: "Réglages", icon: "⚙" },
+  { href: "/settings/account", label: "Compte",   icon: "◉" },
 ];
 
 export function BottomNav() {
