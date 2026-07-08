@@ -79,9 +79,17 @@ export interface FullQuotaStatus {
 // ── Calcule le stockage utilisé ────────────────────────────
 // Chaque image écrit 2 objets R2 (original + vignette) — les deux doivent
 // être comptés, sinon le quota affiché sous-estime l'usage réel du bucket.
+// Les avatars (avatars/<userId>-<uuid>.webp) sont un 3e type d'objet R2,
+// hors table Image — additionnés séparément via User.imageSize.
 export async function getStorageQuota(): Promise<StorageQuota> {
-  const result = await db.image.aggregate({ _sum: { size: true, thumbnailSize: true } });
-  const usedBytes = (result._sum.size ?? 0) + (result._sum.thumbnailSize ?? 0);
+  const [images, avatars] = await Promise.all([
+    db.image.aggregate({ _sum: { size: true, thumbnailSize: true } }),
+    db.user.aggregate({ _sum: { imageSize: true } }),
+  ]);
+  const usedBytes =
+    (images._sum.size ?? 0) +
+    (images._sum.thumbnailSize ?? 0) +
+    (avatars._sum.imageSize ?? 0);
   const maxBytes = QUOTA.MAX_STORAGE_BYTES;
   const usedPercent = usedBytes / maxBytes;
 

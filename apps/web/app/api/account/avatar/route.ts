@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     await db.user.update({
       where: { id: session.user.id },
-      data: { image: key },
+      data: { image: key, imageSize: output.length },
     });
 
     if (prev?.image && prev.image !== key) {
@@ -79,7 +79,7 @@ export async function DELETE() {
     deleteFromR2(user.image).catch(() => {});
     await db.user.update({
       where: { id: session.user.id },
-      data: { image: null },
+      data: { image: null, imageSize: 0 },
     });
   }
 
