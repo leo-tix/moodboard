@@ -9,7 +9,8 @@
     "lint": "pnpm --filter web lint",
     "db:generate": "pnpm --filter @moodboard/db generate",
     "db:migrate": "pnpm --filter @moodboard/db migrate:dev",
-    "db:studio": "pnpm --filter @moodboard/db studio"
+    "db:studio": "pnpm --filter @moodboard/db studio",
+    "zip:extension": "powershell -ExecutionPolicy Bypass -File scripts/zip-extension.ps1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
