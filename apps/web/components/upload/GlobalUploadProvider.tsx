@@ -360,13 +360,13 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
 
                     {/* Footer */}
                     <div className="flex items-center justify-end gap-3 px-4 py-3 mt-1">
-                      {/* Bibliothèque → dès que les uploads sont finis */}
+                      {/* Triage → dès que les uploads sont finis */}
                       {uploadsComplete && (
                         <Link
-                          href="/library"
+                          href="/triage"
                           className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
                         >
-                          Voir la bibliothèque →
+                          Voir le triage →
                         </Link>
                       )}
 

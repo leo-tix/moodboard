@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useDragControls, type PanInfo } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+
+// Appui long tactile avant d'armer le drag — laisse le scroll normal de la
+// grille fonctionner (sinon chaque swipe deviendrait un drag). Sur souris,
+// armement immédiat : Framer ne déclenche onDragStart qu'après un vrai
+// déplacement, donc un simple clic n'est jamais affecté.
+const LONG_PRESS_MS = 380;
+const MOVE_CANCEL_PX = 10;
 
 interface InspirationCardProps {
   id: string;
@@ -25,6 +32,10 @@ interface InspirationCardProps {
   selected?: boolean;
   onSelect?: (id: string) => void;
   onBeforeNavigate?: () => void;
+  // Drag vers collection/visite/corbeille — souris immédiate, tactile via appui long
+  onCardDragStart?: (id: string) => void;
+  onCardDrag?: (x: number, y: number) => void;
+  onCardDragEnd?: (x: number, y: number) => void;
 }
 
 export function InspirationCard({
@@ -44,8 +55,55 @@ export function InspirationCard({
   selected,
   onSelect,
   onBeforeNavigate,
+  onCardDragStart,
+  onCardDrag,
+  onCardDragEnd,
 }: InspirationCardProps) {
   const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragControls = useDragControls();
+  const dragEnabled = !!onCardDragStart;
+
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  // Évite qu'un clic/tap déclenché juste après un vrai drag ne navigue ou
+  // ne (dé)sélectionne la carte par accident.
+  const justDraggedRef = useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    pressStart.current = null;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!dragEnabled) return;
+    if (e.pointerType === "mouse") {
+      dragControls.start(e);
+      return;
+    }
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    longPressTimer.current = setTimeout(() => {
+      navigator.vibrate?.(15);
+      dragControls.start(e);
+    }, LONG_PRESS_MS);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!pressStart.current) return;
+    const dx = e.clientX - pressStart.current.x;
+    const dy = e.clientY - pressStart.current.y;
+    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) clearLongPress();
+  };
+
+  const handlePointerUp = () => clearLongPress();
+
+  const guardClick = (fn: () => void) => {
+    if (justDraggedRef.current) return;
+    fn();
+  };
 
   const thumbUrl = thumbnailKey ? getThumbnailUrl(thumbnailKey) : null;
   const aspectRatio = width && height ? width / height : 1;
@@ -58,15 +116,43 @@ export function InspirationCard({
         "relative overflow-hidden rounded-md bg-[var(--bg-surface)] cursor-pointer",
         selected && "ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-[var(--bg-base)]"
       )}
-      style={{ aspectRatio }}
+      style={{ aspectRatio, touchAction: dragging ? "none" : undefined }}
       whileHover={{ scale: selectable ? 1 : 1.005 }}
+      whileDrag={{ scale: 1.06, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" }}
       transition={{ duration: 0.2 }}
+      drag={dragEnabled}
+      dragListener={false}
+      dragControls={dragControls}
+      dragElastic={0.12}
+      dragMomentum={false}
+      dragSnapToOrigin
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onDragStart={() => {
+        clearLongPress();
+        setDragging(true);
+        // Armé dès le DÉBUT du drag, pas à la fin : le "click" natif du
+        // navigateur peut se déclencher avant que onDragEnd n'ait fini de
+        // s'exécuter (pas d'ordre garanti entre les deux), donc poser le flag
+        // seulement dans onDragEnd arrivait parfois trop tard pour l'empêcher.
+        justDraggedRef.current = true;
+        onCardDragStart?.(id);
+      }}
+      onDrag={(_e, info: PanInfo) => onCardDrag?.(info.point.x, info.point.y)}
+      onDragEnd={(_e, info: PanInfo) => {
+        setDragging(false);
+        onCardDragEnd?.(info.point.x, info.point.y);
+        setTimeout(() => { justDraggedRef.current = false; }, 150);
+      }}
     >
       {/* Image — <img> natif pour les animés (Next.js <Image> supprime l'animation GIF) */}
       {thumbUrl ? (
         <img
           src={thumbUrl}
           alt={title}
+          draggable={false}
           className={cn(
             "absolute inset-0 w-full h-full object-cover transition-transform duration-300",
             hovered && !selectable ? "scale-[1.02]" : "scale-100"
@@ -143,7 +229,7 @@ export function InspirationCard({
     return (
       <div
         className={cn("block group", className)}
-        onClick={() => onSelect(id)}
+        onClick={() => guardClick(() => onSelect(id))}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => e.key === "Enter" && onSelect(id)}
@@ -157,7 +243,14 @@ export function InspirationCard({
     <Link
       href={`/library/${id}`}
       className={cn("block group", className)}
-      onClick={onBeforeNavigate}
+      // Sans ça, le navigateur déclenche son propre drag natif du lien (ghost
+      // "favicon + URL") qui prend le pas sur le drag Framer Motion piloté à
+      // la main ci-dessus — même piège que <img draggable={false}> plus haut.
+      draggable={dragEnabled ? false : undefined}
+      onClick={(e) => {
+        if (justDraggedRef.current) { e.preventDefault(); return; }
+        onBeforeNavigate?.();
+      }}
     >
       {cardContent}
     </Link>

@@ -362,10 +362,10 @@ export function DropZone() {
             <div className="flex gap-2">
               {doneFiles.length > 0 && (
                 <button
-                  onClick={() => router.push("/library")}
+                  onClick={() => router.push("/triage")}
                   className="px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 >
-                  Voir la bibliothèque →
+                  Voir le triage →
                 </button>
               )}
               {pendingCount > 0 && (

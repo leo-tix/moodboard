@@ -580,10 +580,10 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
                 </Link>
               )}
               <Link
-                href="/library"
+                href="/triage"
                 className="px-4 py-2 border border-[var(--border-default)] text-[var(--text-secondary)] rounded-md text-sm hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] transition-colors"
               >
-                Bibliothèque
+                Triage
               </Link>
               <button
                 onClick={reset}

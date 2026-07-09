@@ -4,6 +4,9 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { InspirationGrid, type InspirationGridItem } from "./InspirationGrid";
 import { BatchEditBar } from "./BatchEditBar";
+import { LibraryDropZone, type DropTarget, type LibraryDropZoneHandle } from "./LibraryDropZone";
+import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
+import { CreateVisitModal } from "@/components/visits/CreateVisitModal";
 
 const PAGE_SIZE = 48;
 
@@ -185,6 +188,90 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
   // ── Select mode ──
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ── Drag & drop vers collection/visite/corbeille ──
+  const [draggingIds, setDraggingIds] = useState<string[] | null>(null);
+  const [pendingNewCollectionIds, setPendingNewCollectionIds] = useState<string[] | null>(null);
+  const [pendingNewVisitIds, setPendingNewVisitIds] = useState<string[] | null>(null);
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  const draggingIdsRef = useRef<string[] | null>(null);
+  draggingIdsRef.current = draggingIds;
+  const dropZoneRef = useRef<LibraryDropZoneHandle>(null);
+
+  const handleCardDragStart = useCallback((id: string) => {
+    const sel = selectedIdsRef.current;
+    setDraggingIds(sel.has(id) && sel.size > 1 ? Array.from(sel) : [id]);
+  }, []);
+
+  // Ne touche jamais au state React de LibraryClient (~200 cartes) pendant le
+  // geste — sinon on re-render toute la grille à chaque pixel de déplacement
+  // et React finit par lever "Maximum update depth exceeded". La mise à jour
+  // du survol des chips est déléguée entièrement à LibraryDropZone via sa ref.
+  const handleCardDrag = useCallback((x: number, y: number) => {
+    dropZoneRef.current?.updateHover(x, y);
+  }, []);
+
+  const handleDrop = useCallback(async (target: DropTarget, ids: string[]) => {
+    switch (target.type) {
+      case "collection":
+        await fetch(`/api/collections/${target.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inspirationIds: ids }),
+        });
+        break;
+      case "visit":
+        await fetch(`/api/visits/${target.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ addInspirationIds: ids }),
+        });
+        break;
+      case "new-collection":
+        setPendingNewCollectionIds(ids);
+        return;
+      case "new-visit":
+        setPendingNewVisitIds(ids);
+        return;
+      case "trash":
+        await fetch("/api/inspirations/batch", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        window.location.reload();
+        return;
+    }
+    clearSelection();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fin de drag : résout la cible sous le point de relâchement (elementFromPoint,
+  // même logique de hit-test que le survol live dans LibraryDropZone) puis route
+  // vers handleDrop, sauf pour la corbeille qui arme d'abord une confirmation.
+  const handleCardDragEnd = useCallback((x: number, y: number) => {
+    const ids = draggingIdsRef.current;
+    setDraggingIds(null);
+    if (!ids) return;
+
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-key]");
+    const raw = el?.getAttribute("data-drop-target");
+    if (!raw) return; // relâché en dehors de toute zone → rien ne se passe (retour élastique visuel)
+
+    const key = el!.getAttribute("data-drop-key")!;
+    const target = JSON.parse(raw) as DropTarget;
+    if (target.type === "trash") {
+      dropZoneRef.current?.armTrash(ids);
+    } else if (target.type === "collection" || target.type === "visit") {
+      // Cible existante : flash de succès avant que la barre ne se referme
+      dropZoneRef.current?.celebrate(key);
+      handleDrop(target, ids);
+    } else {
+      // "+ Nouvelle collection/visite" → une modale s'ouvre, pas besoin de flash
+      handleDrop(target, ids);
+    }
+  }, [handleDrop]);
 
   // ── Infinite scroll ──
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
@@ -465,12 +552,18 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
         selectedIds={selectedIds}
         onSelect={toggleSelect}
         onBeforeNavigate={!selectMode ? handleBeforeNavigate : undefined}
+        onCardDragStart={!isArchivedMode ? handleCardDragStart : undefined}
+        onCardDrag={!isArchivedMode ? handleCardDrag : undefined}
+        onCardDragEnd={!isArchivedMode ? handleCardDragEnd : undefined}
         emptyMessage={
           hasActiveFilter
             ? "Aucune image ne correspond à ces filtres."
             : undefined
         }
       />
+
+      {/* ── Drop zone flottante — visible pendant un drag ── */}
+      <LibraryDropZone ref={dropZoneRef} draggingIds={draggingIds} onDrop={handleDrop} />
 
       {/* ── Infinite scroll sentinel ── */}
       {displayCount < filtered.length && (
@@ -496,6 +589,28 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
         )}
       </AnimatePresence>
 
+      {/* ── Drop sur "+ Nouvelle collection" / "+ Nouvelle visite" ── */}
+      {pendingNewCollectionIds && (
+        <AddToCollectionModal
+          inspirationIds={pendingNewCollectionIds}
+          autoOpenCreate
+          onClose={() => setPendingNewCollectionIds(null)}
+          onAdded={() => {
+            setPendingNewCollectionIds(null);
+            clearSelection();
+          }}
+        />
+      )}
+      {pendingNewVisitIds && (
+        <CreateVisitModal
+          inspirationIds={pendingNewVisitIds}
+          onClose={() => setPendingNewVisitIds(null)}
+          onCreated={() => {
+            setPendingNewVisitIds(null);
+            clearSelection();
+          }}
+        />
+      )}
     </>
   );
 }

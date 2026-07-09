@@ -16,18 +16,21 @@ interface AddToCollectionModalProps {
   onClose: () => void;
   /** Appelé après chaque ajout réussi */
   onAdded?: (collectionId: string, collectionName: string) => void;
+  /** Ouvre directement le formulaire de création (ex: drop sur "+ Nouvelle collection") */
+  autoOpenCreate?: boolean;
 }
 
 export function AddToCollectionModal({
   inspirationIds,
   onClose,
   onAdded,
+  autoOpenCreate = false,
 }: AddToCollectionModalProps) {
   const [collections, setCollections] = useState<CollectionMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState<string | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreate, setShowCreate] = useState(autoOpenCreate);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const createInputRef = useRef<HTMLInputElement>(null);

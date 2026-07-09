@@ -33,6 +33,10 @@ interface InspirationGridProps {
   /** If true, saves the current list to sessionStorage as nav context before any card navigation */
   saveNavContext?: boolean;
   emptyMessage?: string;
+  /** Active le drag des cartes vers collection/visite/corbeille (souris + tactile via appui long) */
+  onCardDragStart?: (id: string) => void;
+  onCardDrag?: (x: number, y: number) => void;
+  onCardDragEnd?: (x: number, y: number) => void;
 }
 
 // Responsive column count — mobile-first.
@@ -84,6 +88,9 @@ export function InspirationGrid({
   onBeforeNavigate,
   saveNavContext,
   emptyMessage,
+  onCardDragStart,
+  onCardDrag,
+  onCardDragEnd,
 }: InspirationGridProps) {
   const handleBeforeNavigate = saveNavContext
     ? () => {
@@ -162,6 +169,9 @@ export function InspirationGrid({
                   selected={selectedIds?.has(item.id)}
                   onSelect={onSelect}
                   onBeforeNavigate={!selectable ? handleBeforeNavigate : undefined}
+                  onCardDragStart={onCardDragStart}
+                  onCardDrag={onCardDrag}
+                  onCardDragEnd={onCardDragEnd}
                 />
               </motion.div>
             );

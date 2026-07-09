@@ -43,7 +43,7 @@ function BookmarkletImport() {
         throw new Error(data.error ?? "Erreur inconnue");
       }
 
-      router.push(`/library/${data.inspirationId}?fresh=1`);
+      router.push("/triage");
     } catch (e) {
       setError((e as Error).message);
       setSaving(false);
