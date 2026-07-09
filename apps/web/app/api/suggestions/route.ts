@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ suggestions: [] }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ suggestions: [] }, { status: 401 });
+  const userId = session.user.id;
 
   const { searchParams } = new URL(req.url);
   const field = searchParams.get("field") ?? "";
@@ -18,8 +19,8 @@ export async function GET(req: NextRequest) {
         suggestions = await db.inspiration
           .findMany({
             where: q
-              ? { author: { contains: q, mode: "insensitive" } }
-              : { author: { not: null } },
+              ? { userId, author: { contains: q, mode: "insensitive" } }
+              : { userId, author: { not: null } },
             select: { author: true },
             distinct: ["author"],
             take: 8,
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       case "year": {
         const years = await db.inspiration
           .findMany({
-            where: { year: { not: null } },
+            where: { userId, year: { not: null } },
             select: { year: true },
             distinct: ["year"],
             orderBy: { year: "desc" },
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
         if (!q) break;
         suggestions = await db.inspiration
           .findMany({
-            where: { title: { contains: q, mode: "insensitive" } },
+            where: { userId, title: { contains: q, mode: "insensitive" } },
             select: { title: true },
             distinct: ["title"],
             take: 6,
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest) {
       case "tag":
         suggestions = await db.tag
           .findMany({
-            where: q ? { name: { contains: q, mode: "insensitive" } } : {},
+            where: q ? { userId, name: { contains: q, mode: "insensitive" } } : { userId },
             select: { name: true },
             orderBy: { inspirations: { _count: "desc" } },
             take: 10,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireAdmin } from "@/lib/auth/current";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { slugify } from "@/lib/utils";
@@ -12,8 +12,8 @@ type Params = { params: Promise<{ id: string }> };
 
 // POST /api/categories/[id]/subcategories — créer une sous-catégorie
 export async function POST(req: NextRequest, { params }: Params) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Réservé à l'administrateur" }, { status: 403 });
 
   const { id: categoryId } = await params;
   const body = await req.json();

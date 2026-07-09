@@ -21,14 +21,23 @@ const batchSchema = z.object({
 
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const body = await req.json();
   const parsed = batchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { ids, patch } = parsed.data;
+  const { ids: requestedIds, patch } = parsed.data;
   const { addTags, addCategory, restore, ...scalarFields } = patch;
+
+  // Restreint aux inspirations réellement possédées par ce profil (anti-IDOR)
+  const owned = await db.inspiration.findMany({
+    where: { id: { in: requestedIds }, userId },
+    select: { id: true },
+  });
+  const ids = owned.map((i) => i.id);
+  if (ids.length === 0) return NextResponse.json({ success: true, updated: 0 });
 
   // Restaurer des archives → remet en triage
   if (restore) {
@@ -68,8 +77,8 @@ export async function PATCH(req: NextRequest) {
     for (const name of addTags) {
       const slug = name.toLowerCase().replace(/\s+/g, "-");
       const tag = await db.tag.upsert({
-        where: { slug },
-        create: { name, slug },
+        where: { userId_slug: { userId, slug } },
+        create: { userId, name, slug },
         update: {},
       });
       for (const inspirationId of ids) {
@@ -87,7 +96,8 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const body = await req.json();
   const parsed = z.object({ ids: z.array(z.string()).min(1) }).safeParse(body);
@@ -95,13 +105,15 @@ export async function DELETE(req: NextRequest) {
 
   const { ids } = parsed.data;
 
-  // Collect R2 keys before deleting
+  // Collect R2 keys before deleting — scoped au propriétaire (anti-IDOR)
   const inspirations = await db.inspiration.findMany({
-    where: { id: { in: ids } },
+    where: { id: { in: ids }, userId },
     include: { images: { select: { storageKey: true, thumbnailKey: true } } },
   });
+  const ownedIds = inspirations.map((i) => i.id);
+  if (ownedIds.length === 0) return NextResponse.json({ success: true, deleted: 0 });
 
-  await db.inspiration.deleteMany({ where: { id: { in: ids } } });
+  await db.inspiration.deleteMany({ where: { id: { in: ownedIds } } });
 
   // Clean up R2 objects
   const keys = inspirations.flatMap((i) =>

@@ -1,5 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { DetailModal } from "@/components/library/DetailModal";
 import type { DetailPageData } from "@/components/library/DetailPageClient";
 
@@ -7,9 +8,11 @@ interface Props { params: Promise<{ id: string }> }
 
 export default async function InterceptedLibraryDetail({ params }: Props) {
   const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
-  const inspiration = await db.inspiration.findUnique({
-    where: { id },
+  const inspiration = await db.inspiration.findFirst({
+    where: { id, userId: user.id },
     select: {
       id: true,
       title: true,

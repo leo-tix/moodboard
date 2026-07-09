@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { requireAdmin } from "@/lib/auth/current";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { slugify } from "@/lib/utils";
@@ -26,8 +27,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  // Taxonomie partagée entre tous les profils → modification réservée à l'admin
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Réservé à l'administrateur" }, { status: 403 });
 
   const body = await req.json();
   const parsed = createSchema.safeParse(body);

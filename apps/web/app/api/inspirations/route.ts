@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 // GET /api/inspirations — liste paginée
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const { searchParams } = new URL(req.url);
   const page = parseInt(searchParams.get("page") ?? "1");
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status") ?? "READY";
 
   const where = {
+    userId,
     ...(status !== "all" ? { status: status as "READY" | "PROCESSING" | "ERROR" } : {}),
     ...(categoryId ? { categoryId } : {}),
     isArchived: false,

@@ -7,10 +7,16 @@ interface Params { params: Promise<{ id: string }> }
 // PATCH /api/moodboard-folders/[id]
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
+
+  const owned = await db.moodboardFolder.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string") data.name = body.name.trim() || "Sans titre";
@@ -24,9 +30,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 // Boards inside are not deleted — folderId is cleared (onDelete: SetNull).
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
-  await db.moodboardFolder.delete({ where: { id } });
+  const res = await db.moodboardFolder.deleteMany({ where: { id, userId: session.user.id } });
+  if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

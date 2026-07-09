@@ -22,8 +22,8 @@ export async function POST(req: NextRequest, { params }: Params) {
       title: string;
     };
 
-  const moodboard = await db.moodboard.findUnique({
-    where: { id },
+  const moodboard = await db.moodboard.findFirst({
+    where: { id, userId },
     select: { canvasData: true },
   });
   if (!moodboard) return NextResponse.json({ error: "Planche introuvable" }, { status: 404 });

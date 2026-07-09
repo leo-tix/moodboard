@@ -76,22 +76,30 @@ export interface FullQuotaStatus {
   ops: OpsQuota;
 }
 
-// ── Calcule le stockage utilisé ────────────────────────────
-// Chaque image écrit 2 objets R2 (original + vignette) — les deux doivent
-// être comptés, sinon le quota affiché sous-estime l'usage réel du bucket.
-// Les avatars (avatars/<userId>-<uuid>.webp) sont un 3e type d'objet R2,
-// hors table Image — additionnés séparément via User.imageSize.
-export async function getStorageQuota(): Promise<StorageQuota> {
-  const [images, avatars] = await Promise.all([
-    db.image.aggregate({ _sum: { size: true, thumbnailSize: true } }),
-    db.user.aggregate({ _sum: { imageSize: true } }),
+// ── Calcule le stockage utilisé par UN profil ──────────────
+// Multi-profils : chaque profil a son propre plafond (User.storageQuotaBytes) et
+// ne compte que SES objets. Images filtrées via inspiration.userId ; l'avatar du
+// profil (User.imageSize) est un 3e type d'objet R2 additionné séparément.
+// Chaque image écrit 2 objets R2 (original + vignette) — les deux sont comptés.
+export async function getStorageQuota(userId: string): Promise<StorageQuota> {
+  const [images, user] = await Promise.all([
+    db.image.aggregate({
+      where: { inspiration: { userId } },
+      _sum: { size: true, thumbnailSize: true },
+    }),
+    db.user.findUnique({
+      where: { id: userId },
+      select: { imageSize: true, storageQuotaBytes: true },
+    }),
   ]);
   const usedBytes =
     (images._sum.size ?? 0) +
     (images._sum.thumbnailSize ?? 0) +
-    (avatars._sum.imageSize ?? 0);
-  const maxBytes = QUOTA.MAX_STORAGE_BYTES;
-  const usedPercent = usedBytes / maxBytes;
+    (user?.imageSize ?? 0);
+  // storageQuotaBytes est un BigInt en base ; toutes les valeurs de quota
+  // (< 2^53) tiennent dans un number JS.
+  const maxBytes = Number(user?.storageQuotaBytes ?? BigInt(QUOTA.MAX_STORAGE_BYTES));
+  const usedPercent = maxBytes > 0 ? usedBytes / maxBytes : 1;
 
   return {
     usedBytes,
@@ -106,6 +114,41 @@ export async function getStorageQuota(): Promise<StorageQuota> {
       remaining: formatBytes(Math.max(0, maxBytes - usedBytes)),
     },
   };
+}
+
+// ── Vue admin : usage réel de TOUT le bucket (tous profils confondus) ──
+export async function getGlobalStorageUsed(): Promise<number> {
+  const [images, users] = await Promise.all([
+    db.image.aggregate({ _sum: { size: true, thumbnailSize: true } }),
+    db.user.aggregate({ _sum: { imageSize: true } }),
+  ]);
+  return (
+    (images._sum.size ?? 0) +
+    (images._sum.thumbnailSize ?? 0) +
+    (users._sum.imageSize ?? 0)
+  );
+}
+
+// ── Somme des quotas attribués à tous les profils ──────────
+export async function getAllocatedQuota(): Promise<number> {
+  const users = await db.user.findMany({ select: { storageQuotaBytes: true } });
+  return users.reduce((sum, u) => sum + Number(u.storageQuotaBytes), 0);
+}
+
+// ── Garde-fou : peut-on attribuer `newQuotaBytes` sans dépasser le global ? ──
+// excludeUserId : profil dont on remplace le quota (ré-attribution). Absent =
+// nouveau profil. availableBytes = ce qu'il reste à distribuer.
+export async function canAllocateQuota(
+  newQuotaBytes: number,
+  excludeUserId?: string
+): Promise<{ ok: boolean; availableBytes: number }> {
+  const users = await db.user.findMany({
+    where: excludeUserId ? { id: { not: excludeUserId } } : undefined,
+    select: { storageQuotaBytes: true },
+  });
+  const otherAllocated = users.reduce((sum, u) => sum + Number(u.storageQuotaBytes), 0);
+  const availableBytes = Math.max(0, QUOTA.MAX_STORAGE_BYTES - otherAllocated);
+  return { ok: newQuotaBytes <= availableBytes, availableBytes };
 }
 
 // ── Calcule les ops Class A du mois courant ────────────────
@@ -140,13 +183,17 @@ export async function getOpsQuota(): Promise<OpsQuota> {
 }
 
 // ── Statut complet (pour le dashboard settings) ────────────
-export async function getFullQuotaStatus(): Promise<FullQuotaStatus> {
-  const [storage, ops] = await Promise.all([getStorageQuota(), getOpsQuota()]);
+// storage = profil courant ; ops = global (limite compte R2, non répartie).
+export async function getFullQuotaStatus(userId: string): Promise<FullQuotaStatus> {
+  const [storage, ops] = await Promise.all([getStorageQuota(userId), getOpsQuota()]);
   return { storage, ops };
 }
 
-// ── Vérifie si un upload est autorisé ─────────────────────
-export async function checkUploadAllowed(fileSizeBytes: number): Promise<{
+// ── Vérifie si un upload est autorisé pour un profil ───────
+export async function checkUploadAllowed(
+  userId: string,
+  fileSizeBytes: number
+): Promise<{
   allowed: boolean;
   reason?: string;
 }> {
@@ -158,18 +205,18 @@ export async function checkUploadAllowed(fileSizeBytes: number): Promise<{
     };
   }
 
-  // 2. Storage disponible
-  const storage = await getStorageQuota();
+  // 2. Storage disponible (plafond du profil)
+  const storage = await getStorageQuota(userId);
   if (storage.isOverLimit) {
     return {
       allowed: false,
       reason: `Quota de stockage atteint (${storage.formatted.max}). Supprime des fichiers.`,
     };
   }
-  if (storage.usedBytes + fileSizeBytes > QUOTA.MAX_STORAGE_BYTES) {
+  if (storage.usedBytes + fileSizeBytes > storage.maxBytes) {
     return {
       allowed: false,
-      reason: `Ce fichier dépasserait le quota. Espace restant : ${storage.formatted.remaining}`,
+      reason: `Ce fichier dépasserait ton quota. Espace restant : ${storage.formatted.remaining}`,
     };
   }
 

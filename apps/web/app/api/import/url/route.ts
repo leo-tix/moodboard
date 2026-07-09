@@ -84,7 +84,8 @@ const BROWSER_UA =
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const { url } = (await req.json()) as { url: string };
   if (!url || typeof url !== "string") {
@@ -220,7 +221,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Quota check ───────────────────────────────────────────────────────────
-  const quotaCheck = await checkUploadAllowed(imageBuffer.byteLength);
+  const quotaCheck = await checkUploadAllowed(userId, imageBuffer.byteLength);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }
@@ -237,6 +238,7 @@ export async function POST(req: NextRequest) {
     const [inspiration] = await Promise.all([
       db.inspiration.create({
         data: {
+          userId,
           title:       defaultTitle,
           author:      author || undefined,
           source:      source || undefined,

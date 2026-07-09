@@ -14,22 +14,41 @@ datasource db {
 }
 
 // ============================================================
-// UTILISATEUR (un seul pour le MVP)
+// UTILISATEUR (multi-profils)
 // ============================================================
 model User {
   id            String     @id @default(cuid())
   email         String     @unique
   passwordHash  String
   name          String?
+  // ADMIN = propriétaire de l'instance : crée/supprime les profils, règle les quotas.
+  // USER = profil standard, ne voit que ses propres données.
+  role          UserRole   @default(USER)
+  // Quota de stockage R2 alloué à ce profil (octets). La somme des quotas de tous
+  // les profils est plafonnée à QUOTA.MAX_STORAGE_BYTES (garde-fou à l'attribution,
+  // voir lib/storage/quota.ts). BigInt car un quota > ~2,1 Go dépasse Int32.
+  storageQuotaBytes BigInt @default(1073741824) // 1 Gio par défaut
   // Avatar : storageKey R2 (même bucket que les images) — null = pas de photo
   image         String?
   // Poids de l'avatar sur R2 — inclus dans getStorageQuota()
   imageSize     Int        @default(0)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
-  apiTokens     ApiToken[]
+
+  apiTokens        ApiToken[]
+  inspirations     Inspiration[]
+  collections      Collection[]
+  moodboards       Moodboard[]
+  moodboardFolders MoodboardFolder[]
+  visits           Visit[]
+  tags             Tag[]
 
   @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  USER
 }
 
 model ApiToken {
@@ -95,13 +114,19 @@ model InspirationCategory {
 // ============================================================
 model Tag {
   id           String       @id @default(cuid())
-  name         String       @unique
-  slug         String       @unique
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  slug         String
   source       TagSource    @default(MANUAL)
   createdAt    DateTime     @default(now())
 
   inspirations InspirationTag[]
 
+  // Unicité par profil : chaque utilisateur a son propre espace de tags
+  @@unique([userId, name])
+  @@unique([userId, slug])
+  @@index([userId])
   @@map("tags")
 }
 
@@ -115,6 +140,9 @@ enum TagSource {
 // ============================================================
 model Inspiration {
   id             String         @id @default(cuid())
+  // Propriétaire du profil
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   title          String
   description    String?
 
@@ -163,6 +191,7 @@ model Inspiration {
   @@index([status])
   @@index([createdAt])
   @@index([visitId])
+  @@index([userId])
   @@map("inspirations")
 }
 
@@ -171,6 +200,8 @@ model Inspiration {
 // ============================================================
 model Visit {
   id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   place        String        // Lieu : musée, galerie, ville…
   exhibition   String?       // Nom de l'exposition (optionnel)
   visitDate    DateTime      // Date de la visite
@@ -185,6 +216,7 @@ model Visit {
   noteBlocks   VisitNote[]
 
   @@index([visitDate])
+  @@index([userId])
   @@map("visits")
 }
 
@@ -265,6 +297,8 @@ model InspirationTag {
 // ============================================================
 model Collection {
   id             String          @id @default(cuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   name           String
   description    String?
   coverImageKey  String?
@@ -275,6 +309,7 @@ model Collection {
 
   items          CollectionItem[]
 
+  @@index([userId])
   @@map("collections")
 }
 
@@ -369,6 +404,8 @@ enum VideoImportStatus {
 // ============================================================
 model Moodboard {
   id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   title          String    @default("Sans titre")
   canvasData     Json      @default("[]")
   pencilStrokes  Json      @default("[]")
@@ -381,16 +418,20 @@ model Moodboard {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@index([userId])
   @@map("moodboards")
 }
 
 model MoodboardFolder {
   id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   name       String
   order      Int         @default(0)
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   moodboards Moodboard[]
 
+  @@index([userId])
   @@map("moodboard_folders")
 }

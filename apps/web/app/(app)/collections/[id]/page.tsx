@@ -1,7 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { CollectionDetailClient } from "@/components/collections/CollectionDetailClient";
 import { getSuggestedAdditions } from "@/lib/collections/suggestions";
 
@@ -11,16 +12,21 @@ export const revalidate = 0;
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const col = await db.collection.findUnique({ where: { id }, select: { name: true } });
+  const user = await getCurrentUser();
+  const col = user
+    ? await db.collection.findFirst({ where: { id, userId: user.id }, select: { name: true } })
+    : null;
   return { title: col?.name ?? "Collection" };
 }
 
 export default async function CollectionDetailPage({ params }: Props) {
   const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
   const [collection, suggestions] = await Promise.all([
-    db.collection.findUnique({
-      where: { id },
+    db.collection.findFirst({
+      where: { id, userId: user.id },
       include: {
         items: {
           include: {
@@ -41,7 +47,7 @@ export default async function CollectionDetailPage({ params }: Props) {
         _count: { select: { items: true } },
       },
     }),
-    getSuggestedAdditions(id),
+    getSuggestedAdditions(id, user.id),
   ]);
 
   if (!collection) notFound();

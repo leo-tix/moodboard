@@ -11,13 +11,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
 
   const [inspiration, allCategories] = await Promise.all([
-    db.inspiration.findUnique({
-      where: { id },
+    db.inspiration.findFirst({
+      where: { id, userId: session.user.id },
       include: {
         images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1 },
         tags: { include: { tag: true } },

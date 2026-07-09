@@ -9,10 +9,16 @@ interface Params { params: Promise<{ id: string }> }
 // body: { expiry: "7d" | "30d" | "never" | null }  — null = révoquer
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
   const { expiry } = await req.json() as { expiry: "7d" | "30d" | "never" | null };
+
+  const owned = await db.moodboard.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   let shareToken: string | null = null;
   let shareExpiry: Date | null = null;

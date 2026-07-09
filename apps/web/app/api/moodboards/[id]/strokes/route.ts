@@ -17,7 +17,7 @@ interface Params { params: Promise<{ id: string }> }
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json() as { append?: Stroke[] };
@@ -27,8 +27,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true });
   }
 
-  const existing = await db.moodboard.findUnique({
-    where: { id },
+  const existing = await db.moodboard.findFirst({
+    where: { id, userId: session.user.id },
     select: { pencilStrokes: true },
   });
 

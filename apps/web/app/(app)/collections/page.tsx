@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { CollectionsClient } from "@/components/collections/CollectionsClient";
 import { getSuggestedCollections } from "@/lib/collections/suggestions";
 
@@ -7,7 +9,11 @@ export const metadata: Metadata = { title: "Collections" };
 export const revalidate = 0;
 
 export default async function CollectionsPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
   const collections = await db.collection.findMany({
+    where: { userId: user.id },
     include: {
       items: {
         include: {
@@ -29,7 +35,7 @@ export default async function CollectionsPage() {
     orderBy: { order: "asc" },
   });
 
-  const suggestions = await getSuggestedCollections(collections.map((c) => c.name));
+  const suggestions = await getSuggestedCollections(collections.map((c) => c.name), user.id);
 
   return (
     <div className="p-4 md:p-6">

@@ -25,12 +25,24 @@ export const authConfig: NextAuthConfig = {
       if (!isLoggedIn) return false;
       return true;
     },
-    jwt({ token, user }) {
-      if (user) token.id = user.id;
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        token.role = user.role;
+      } else if (token.id && !token.role) {
+        // Jeton émis avant l'ajout du rôle (multi-profils) → hydrate depuis la DB
+        // une seule fois, puis le rôle reste dans le token.
+        const dbUser = await db.user.findUnique({
+          where: { id: token.id as string },
+          select: { role: true },
+        });
+        if (dbUser) token.role = dbUser.role;
+      }
       return token;
     },
     session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
+      if (token.role) session.user.role = token.role as "ADMIN" | "USER";
       return session;
     },
   },
@@ -53,7 +65,7 @@ export const authConfig: NextAuthConfig = {
 
         if (!passwordMatch) return null;
 
-        return { id: user.id, email: user.email, name: user.name };
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
     }),
   ],

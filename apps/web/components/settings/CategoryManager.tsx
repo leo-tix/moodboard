@@ -28,7 +28,7 @@ interface CatEditFields {
   description: string;
 }
 
-export function CategoryManager() {
+export function CategoryManager({ isAdmin }: { isAdmin: boolean }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -193,16 +193,19 @@ export function CategoryManager() {
           <h1 className="text-lg font-medium text-[var(--text-primary)]">Catégories</h1>
           <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
             {categories.length} catégorie{categories.length !== 1 ? "s" : ""}
+            {!isAdmin && " · partagées, gérées par l'administrateur"}
           </p>
         </div>
-        <Button size="sm" onClick={() => setShowNewCatForm((v) => !v)}>
-          + Nouvelle catégorie
-        </Button>
+        {isAdmin && (
+          <Button size="sm" onClick={() => setShowNewCatForm((v) => !v)}>
+            + Nouvelle catégorie
+          </Button>
+        )}
       </div>
 
       {/* ── Formulaire nouvelle catégorie ── */}
       <AnimatePresence>
-        {showNewCatForm && (
+        {isAdmin && showNewCatForm && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -264,32 +267,45 @@ export function CategoryManager() {
               key={cat.id}
               className="border border-[var(--border-subtle)] rounded-lg overflow-hidden bg-[var(--bg-surface)]"
             >
-              {/* Header — icon + name always editable */}
+              {/* Header — icon + name : éditables (admin) ou statiques (lecture seule) */}
               <div className="flex items-center gap-2 px-3 py-2.5">
-                {/* Icon */}
-                <input
-                  className={`${fieldClass} w-10 text-center flex-shrink-0`}
-                  maxLength={2}
-                  value={fields.icon}
-                  onChange={(e) => handleCatFieldChange(cat.id, "icon", e.target.value)}
-                  placeholder="○"
-                  title="Icône"
-                />
+                {isAdmin ? (
+                  <>
+                    {/* Icon */}
+                    <input
+                      className={`${fieldClass} w-10 text-center flex-shrink-0`}
+                      maxLength={2}
+                      value={fields.icon}
+                      onChange={(e) => handleCatFieldChange(cat.id, "icon", e.target.value)}
+                      placeholder="○"
+                      title="Icône"
+                    />
 
-                {/* Name */}
-                <input
-                  className={`${fieldClass} flex-1 min-w-0`}
-                  value={fields.name}
-                  onChange={(e) => handleCatFieldChange(cat.id, "name", e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                  placeholder="Nom…"
-                />
+                    {/* Name */}
+                    <input
+                      className={`${fieldClass} flex-1 min-w-0`}
+                      value={fields.name}
+                      onChange={(e) => handleCatFieldChange(cat.id, "name", e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                      placeholder="Nom…"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <span className="w-10 text-center flex-shrink-0 text-sm text-[var(--text-secondary)]">
+                      {fields.icon || "○"}
+                    </span>
+                    <span className="flex-1 min-w-0 truncate text-xs text-[var(--text-primary)]">
+                      {fields.name}
+                    </span>
+                  </>
+                )}
 
                 {/* Meta + status */}
                 <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0">
                   {cat._count.inspirationCategories} réf.
                 </span>
-                {savingCat === cat.id && (
+                {isAdmin && savingCat === cat.id && (
                   <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0 animate-pulse">
                     ●
                   </span>
@@ -304,7 +320,7 @@ export function CategoryManager() {
                   {cat.subcategories.length} ▾
                 </button>
 
-                {confirmDelete === cat.id ? (
+                {isAdmin && (confirmDelete === cat.id ? (
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <span className="text-[10px] text-red-400">Supprimer ?</span>
                     <button
@@ -329,18 +345,26 @@ export function CategoryManager() {
                   >
                     ✕
                   </button>
-                )}
+                ))}
               </div>
 
-              {/* Description — always visible, compact */}
-              <div className="px-3 pb-2.5">
-                <input
-                  className={`${fieldClass} w-full`}
-                  placeholder="Description (optionnel)"
-                  value={fields.description}
-                  onChange={(e) => handleCatFieldChange(cat.id, "description", e.target.value)}
-                />
-              </div>
+              {/* Description — éditable (admin) ou texte statique (lecture seule) */}
+              {isAdmin ? (
+                <div className="px-3 pb-2.5">
+                  <input
+                    className={`${fieldClass} w-full`}
+                    placeholder="Description (optionnel)"
+                    value={fields.description}
+                    onChange={(e) => handleCatFieldChange(cat.id, "description", e.target.value)}
+                  />
+                </div>
+              ) : (
+                fields.description && (
+                  <div className="px-3 pb-2.5">
+                    <p className="text-xs text-[var(--text-tertiary)]">{fields.description}</p>
+                  </div>
+                )
+              )}
 
               {/* ── Sous-catégories ── */}
               <AnimatePresence>
@@ -368,26 +392,28 @@ export function CategoryManager() {
                         </div>
                       ))}
 
-                      {/* Ajouter sous-catégorie */}
-                      <div className="flex gap-2 pt-1">
-                        <input
-                          className={`${fieldClass} flex-1`}
-                          placeholder="Nouvelle sous-catégorie…"
-                          value={newSubName[cat.id] ?? ""}
-                          onChange={(e) =>
-                            setNewSubName((p) => ({ ...p, [cat.id]: e.target.value }))
-                          }
-                          onKeyDown={(e) => e.key === "Enter" && createSubcategory(cat.id)}
-                        />
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => createSubcategory(cat.id)}
-                          loading={addingSub === cat.id}
-                        >
-                          Ajouter
-                        </Button>
-                      </div>
+                      {/* Ajouter sous-catégorie — admin seulement */}
+                      {isAdmin && (
+                        <div className="flex gap-2 pt-1">
+                          <input
+                            className={`${fieldClass} flex-1`}
+                            placeholder="Nouvelle sous-catégorie…"
+                            value={newSubName[cat.id] ?? ""}
+                            onChange={(e) =>
+                              setNewSubName((p) => ({ ...p, [cat.id]: e.target.value }))
+                            }
+                            onKeyDown={(e) => e.key === "Enter" && createSubcategory(cat.id)}
+                          />
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => createSubcategory(cat.id)}
+                            loading={addingSub === cat.id}
+                          >
+                            Ajouter
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 )}

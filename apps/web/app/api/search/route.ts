@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
 
   // Construction des filtres Prisma
   const where: Prisma.InspirationWhereInput = {
+    userId:     session.user.id,
     status:     "READY",
     isArchived: false,
     isAccepted: true,

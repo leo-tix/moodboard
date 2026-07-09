@@ -14,7 +14,7 @@ const createSchema = z.object({
 // POST /api/visits/[id]/notes — crée un bloc de note dans le carnet
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -23,7 +23,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const visit = await db.visit.findUnique({ where: { id }, select: { id: true } });
+  const visit = await db.visit.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
   if (!visit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   let order = parsed.data.order;

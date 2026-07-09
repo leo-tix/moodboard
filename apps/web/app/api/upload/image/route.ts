@@ -10,7 +10,8 @@ import path from "path";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const quotaCheck = await checkUploadAllowed(file.size);
+  const quotaCheck = await checkUploadAllowed(userId, file.size);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
     const processed = await processImage(buffer);
 
     // Re-vérifie avec la taille réelle après compression
-    const finalCheck = await checkUploadAllowed(processed.size);
+    const finalCheck = await checkUploadAllowed(userId, processed.size);
     if (!finalCheck.allowed) {
       return NextResponse.json({ error: finalCheck.reason }, { status: 413 });
     }
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
     const [inspiration] = await Promise.all([
       db.inspiration.create({
         data: {
+          userId,
           title: defaultTitle,
           status: "PROCESSING",
           mediaType: "IMAGE",

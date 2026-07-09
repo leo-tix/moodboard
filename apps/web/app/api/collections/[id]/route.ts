@@ -7,12 +7,12 @@ type Params = { params: Promise<{ id: string }> };
 // GET /api/collections/[id] — détail avec toutes les images
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
 
-  const collection = await db.collection.findUnique({
-    where: { id },
+  const collection = await db.collection.findFirst({
+    where: { id, userId: session.user.id },
     include: {
       items: {
         include: {
@@ -41,10 +41,16 @@ export async function GET(_req: NextRequest, { params }: Params) {
 // PATCH /api/collections/[id] — renommer / modifier description
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
   const { name, description } = await req.json();
+
+  const owned = await db.collection.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const collection = await db.collection.update({
     where: { id },
@@ -60,9 +66,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 // DELETE /api/collections/[id]
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
-  await db.collection.delete({ where: { id } });
+  const res = await db.collection.deleteMany({ where: { id, userId: session.user.id } });
+  if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   return NextResponse.json({ success: true });
 }

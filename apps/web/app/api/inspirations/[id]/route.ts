@@ -10,12 +10,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
 
-  const inspiration = await db.inspiration.findUnique({
-    where: { id },
+  const inspiration = await db.inspiration.findFirst({
+    where: { id, userId: session.user.id },
     include: {
       images: { orderBy: [{ isMain: "desc" }, { order: "asc" }] },
       categories: {
@@ -41,7 +41,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const { id } = await params;
   const body = await req.json();
@@ -50,6 +51,13 @@ export async function PATCH(
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+
+  // Vérifie l'appartenance avant toute écriture
+  const owned = await db.inspiration.findFirst({
+    where: { id, userId },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const { tags, categories, ...data } = parsed.data;
 
@@ -63,8 +71,8 @@ export async function PATCH(
           create: tags.map((name: string) => ({
             tag: {
               connectOrCreate: {
-                where: { slug: name.toLowerCase().replace(/\s+/g, "-") },
-                create: { name, slug: name.toLowerCase().replace(/\s+/g, "-") },
+                where: { userId_slug: { userId, slug: name.toLowerCase().replace(/\s+/g, "-") } },
+                create: { userId, name, slug: name.toLowerCase().replace(/\s+/g, "-") },
               },
             },
           })),
@@ -95,13 +103,13 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
 
-  // Fetch image keys before deletion (cascade will wipe them)
-  const inspiration = await db.inspiration.findUnique({
-    where: { id },
+  // Fetch image keys before deletion (cascade will wipe them) — scoped au propriétaire
+  const inspiration = await db.inspiration.findFirst({
+    where: { id, userId: session.user.id },
     include: { images: { select: { storageKey: true, thumbnailKey: true } } },
   });
 

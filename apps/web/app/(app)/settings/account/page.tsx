@@ -13,7 +13,7 @@ export default async function AccountSettingsPage() {
       where: { id: session.user.id },
       select: { name: true, email: true, image: true, createdAt: true },
     }),
-    getStorageQuota(),
+    getStorageQuota(session.user.id),
   ]);
 
   if (!user) redirect("/login");

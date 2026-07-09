@@ -30,18 +30,19 @@ export interface SuggestedAddition {
  * Exclut les collections déjà existantes (par nom).
  */
 export async function getSuggestedCollections(
-  existingCollectionNames: string[]
+  existingCollectionNames: string[],
+  userId: string
 ): Promise<CollectionSuggestion[]> {
   const excluded = new Set(existingCollectionNames.map((n) => n.toLowerCase().trim()));
   const suggestions: CollectionSuggestion[] = [];
 
   // ── 1. Par catégorie ──────────────────────────────────────────────────────
 
-  // Compte les inspirations par catégorie
+  // Compte les inspirations par catégorie (du profil uniquement)
   const catCounts = await db.inspirationCategory.groupBy({
     by: ["categoryId"],
     _count: { inspirationId: true },
-    where: { inspiration: { status: "READY" } },
+    where: { inspiration: { userId, status: "READY" } },
     orderBy: { _count: { inspirationId: "desc" } },
     take: 10,
   });
@@ -63,7 +64,7 @@ export async function getSuggestedCollections(
 
       // Récupère les IDs et les vignettes
       const items = await db.inspirationCategory.findMany({
-        where: { categoryId: cat.id, inspiration: { status: "READY" } },
+        where: { categoryId: cat.id, inspiration: { userId, status: "READY" } },
         include: {
           inspiration: {
             include: {
@@ -94,7 +95,7 @@ export async function getSuggestedCollections(
   const tagCounts = await db.inspirationTag.groupBy({
     by: ["tagId"],
     _count: { inspirationId: true },
-    where: { inspiration: { status: "READY" } },
+    where: { inspiration: { userId, status: "READY" } },
     orderBy: { _count: { inspirationId: "desc" } },
     take: 20,
   });
@@ -118,7 +119,7 @@ export async function getSuggestedCollections(
       const count = tagCounts.find((t) => t.tagId === tag.id)?._count.inspirationId ?? 0;
 
       const items = await db.inspirationTag.findMany({
-        where: { tagId: tag.id, inspiration: { status: "READY" } },
+        where: { tagId: tag.id, inspiration: { userId, status: "READY" } },
         include: {
           inspiration: {
             include: {
@@ -149,7 +150,7 @@ export async function getSuggestedCollections(
   const yearCounts = await db.inspiration.groupBy({
     by: ["year"],
     _count: { id: true },
-    where: { status: "READY", year: { not: null } },
+    where: { userId, status: "READY", year: { not: null } },
     orderBy: { _count: { id: "desc" } },
     take: 5,
   });
@@ -159,7 +160,7 @@ export async function getSuggestedCollections(
     if (excluded.has(label)) continue;
 
     const items = await db.inspiration.findMany({
-      where: { status: "READY", year: yg.year! },
+      where: { userId, status: "READY", year: yg.year! },
       include: {
         images: { where: { isMain: true }, take: 1, select: { thumbnailKey: true } },
       },
@@ -185,7 +186,7 @@ export async function getSuggestedCollections(
   const authorCounts = await db.inspiration.groupBy({
     by: ["author"],
     _count: { id: true },
-    where: { status: "READY", author: { not: null } },
+    where: { userId, status: "READY", author: { not: null } },
     orderBy: { _count: { id: "desc" } },
     take: 5,
   });
@@ -195,7 +196,7 @@ export async function getSuggestedCollections(
     if (excluded.has(label.toLowerCase())) continue;
 
     const items = await db.inspiration.findMany({
-      where: { status: "READY", author: label },
+      where: { userId, status: "READY", author: label },
       include: {
         images: { where: { isMain: true }, take: 1, select: { thumbnailKey: true } },
       },
@@ -227,11 +228,12 @@ export async function getSuggestedCollections(
  * une collection existante, basé sur les tags et catégories partagés.
  */
 export async function getSuggestedAdditions(
-  collectionId: string
+  collectionId: string,
+  userId: string
 ): Promise<SuggestedAddition[]> {
-  // Récupère les items actuels avec leurs métadonnées
-  const collection = await db.collection.findUnique({
-    where: { id: collectionId },
+  // Récupère les items actuels avec leurs métadonnées (collection du profil)
+  const collection = await db.collection.findFirst({
+    where: { id: collectionId, userId },
     include: {
       items: {
         include: {
@@ -276,6 +278,7 @@ export async function getSuggestedAdditions(
 
   const candidates = await db.inspiration.findMany({
     where: {
+      userId,
       status: "READY",
       id: { notIn: Array.from(existingIds) },
       OR: orClauses,

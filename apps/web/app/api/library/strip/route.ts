@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sp = req.nextUrl.searchParams;
   const limitParam = sp.get("limit");
@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   const tags = tagsParam ? tagsParam.split(",").filter(Boolean) : [];
 
   const where: Prisma.InspirationWhereInput = {
+    userId:     session.user.id,
     status:     "READY",
     isArchived: false,
     isAccepted: true,

@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { VisitsClient } from "@/components/visits/VisitsClient";
 
 export const metadata: Metadata = { title: "Carnet de visite" };
 export const revalidate = 0;
 
 export default async function VisitesPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
   const visits = await db.visit.findMany({
+    where: { userId: user.id },
     orderBy: { visitDate: "desc" },
     include: {
       _count: { select: { inspirations: true } },

@@ -8,7 +8,7 @@ interface Params { params: Promise<{ id: string; noteId: string }> }
 // PATCH /api/visits/[id]/notes/[noteId]
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id, noteId } = await params;
   const body = await req.json().catch(() => ({}));
@@ -16,6 +16,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+
+  const owned = await db.visit.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const note = await db.visitNote.findUnique({ where: { id: noteId } });
   if (!note || note.visitId !== id) {
@@ -32,9 +38,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 // DELETE /api/visits/[id]/notes/[noteId]
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id, noteId } = await params;
+  const owned = await db.visit.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
   const note = await db.visitNote.findUnique({ where: { id: noteId } });
   if (!note || note.visitId !== id) {
     return NextResponse.json({ error: "Introuvable" }, { status: 404 });

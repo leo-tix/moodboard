@@ -5,9 +5,10 @@ import { db } from "@/lib/db";
 // GET /api/collections — liste toutes les collections avec couverture + compte
 export async function GET(_req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const collections = await db.collection.findMany({
+    where: { userId: session.user.id },
     include: {
       items: {
         include: {
@@ -35,13 +36,13 @@ export async function GET(_req: NextRequest) {
 // POST /api/collections — créer une collection
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { name, description } = await req.json();
   if (!name?.trim()) return NextResponse.json({ error: "Nom requis" }, { status: 400 });
 
   const collection = await db.collection.create({
-    data: { name: name.trim(), description: description?.trim() || null },
+    data: { userId: session.user.id, name: name.trim(), description: description?.trim() || null },
     include: { _count: { select: { items: true } } },
   });
 

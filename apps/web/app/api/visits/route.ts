@@ -6,9 +6,10 @@ import { z } from "zod";
 // GET /api/visits — liste chronologique avec compte + 4 premières vignettes
 export async function GET() {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const visits = await db.visit.findMany({
+    where: { userId: session.user.id },
     orderBy: { visitDate: "desc" },
     include: {
       _count: { select: { inspirations: true } },
@@ -46,7 +47,8 @@ const createSchema = z.object({
 // POST /api/visits — crée une visite, rattache éventuellement des images
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -67,6 +69,7 @@ export async function POST(req: NextRequest) {
 
   let visit = await db.visit.findFirst({
     where: {
+      userId,
       place: { equals: place.trim(), mode: "insensitive" },
       exhibition: exhibition?.trim()
         ? { equals: exhibition.trim(), mode: "insensitive" }
@@ -78,6 +81,7 @@ export async function POST(req: NextRequest) {
   if (!visit) {
     visit = await db.visit.create({
       data: {
+        userId,
         place: place.trim(),
         exhibition: exhibition?.trim() || null,
         visitDate: date,
@@ -104,7 +108,7 @@ export async function POST(req: NextRequest) {
     ]);
     const nextOrder = Math.max(maxImg._max.visitOrder ?? -1, maxNote._max.order ?? -1) + 1;
     await db.inspiration.updateMany({
-      where: { id: { in: inspirationIds } },
+      where: { id: { in: inspirationIds }, userId },
       data: { visitId: visit.id, visitOrder: nextOrder },
     });
   }

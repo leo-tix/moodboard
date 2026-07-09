@@ -1,5 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { MoodboardEditor } from "@/components/moodboard/MoodboardEditor";
 import type { CanvasElement, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import { strokeToElement } from "@/lib/moodboard/pencil";
@@ -8,8 +9,10 @@ interface Props { params: Promise<{ id: string }> }
 
 export default async function MoodboardEditPage({ params }: Props) {
   const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
-  const moodboard = await db.moodboard.findUnique({ where: { id } });
+  const moodboard = await db.moodboard.findFirst({ where: { id, userId: user.id } });
   if (!moodboard) notFound();
 
   // ── Legacy migration: pencilStrokes → StrokeElement[] ─────────────────────

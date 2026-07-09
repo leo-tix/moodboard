@@ -16,9 +16,10 @@ const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "i
 // 4.5MB serverless payload limit even for multi-photo shares.
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) {
+  if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const userId = session.user.id;
 
   const formData = await req.formData();
   const file = formData.get("image") as File | null;
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "type" }, { status: 400 });
   }
 
-  const quotaCheck = await checkUploadAllowed(file.size);
+  const quotaCheck = await checkUploadAllowed(userId, file.size);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: "quota" }, { status: 400 });
   }
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const processed = await processImage(buffer);
 
-    const finalCheck = await checkUploadAllowed(processed.size);
+    const finalCheck = await checkUploadAllowed(userId, processed.size);
     if (!finalCheck.allowed) {
       return NextResponse.json({ error: "quota" }, { status: 400 });
     }
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     const [inspiration] = await Promise.all([
       db.inspiration.create({
-        data: { title: defaultTitle, status: "PROCESSING", mediaType: "IMAGE" },
+        data: { userId, title: defaultTitle, status: "PROCESSING", mediaType: "IMAGE" },
       }),
       uploadToR2(storageKey, processed.original, "image/webp"),
       uploadToR2(thumbnailKey, processed.thumbnail, "image/webp"),

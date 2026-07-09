@@ -15,7 +15,7 @@ function colorDistance(hex1: string, hex2: string): number {
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
   const hex = (searchParams.get("hex") ?? "").replace("#", "").toUpperCase();
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const target = `#${hex}`;
 
   const inspirations = await db.inspiration.findMany({
-    where: { status: "READY", isArchived: false, isAccepted: true, colorPalette: { some: {} } },
+    where: { userId: session.user.id, status: "READY", isArchived: false, isAccepted: true, colorPalette: { some: {} } },
     include: {
       colorPalette: { orderBy: { order: "asc" } },
       images: {

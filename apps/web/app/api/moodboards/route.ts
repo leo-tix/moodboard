@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const moodboards = await db.moodboard.findMany({
+    where: { userId },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const moodboard = await db.moodboard.create({
-    data: { title: "Sans titre", canvasData: [], background: "#0a0a0a" },
+    data: { userId, title: "Sans titre", canvasData: [], background: "#0a0a0a" },
   });
 
   return NextResponse.json(moodboard, { status: 201 });

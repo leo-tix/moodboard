@@ -1,14 +1,20 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { LibraryClient } from "@/components/inspiration/LibraryClient";
 import { PwaInstallButton } from "@/components/pwa/PwaInstallButton";
 
 export const metadata: Metadata = { title: "Bibliothèque" };
-export const revalidate = 60;
+// Données par profil → rendu dynamique (pas de cache partagé entre profils)
+export const dynamic = "force-dynamic";
 
 export default async function LibraryPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
   const inspirations = await db.inspiration.findMany({
-    where: { status: "READY", isAccepted: true, isArchived: false },
+    where: { userId: user.id, status: "READY", isAccepted: true, isArchived: false },
     include: {
       images: {
         select: { storageKey: true, thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true, isAnimated: true },

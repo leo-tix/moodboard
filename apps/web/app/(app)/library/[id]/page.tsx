@@ -1,6 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { DetailPageClient, type DetailPageData } from "@/components/library/DetailPageClient";
 
 export const revalidate = 0;
@@ -9,15 +10,20 @@ interface Props { params: Promise<{ id: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const inspiration = await db.inspiration.findUnique({ where: { id }, select: { title: true } });
+  const user = await getCurrentUser();
+  const inspiration = user
+    ? await db.inspiration.findFirst({ where: { id, userId: user.id }, select: { title: true } })
+    : null;
   return { title: inspiration?.title ?? "Inspiration" };
 }
 
 export default async function InspirationDetailPage({ params }: Props) {
   const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
-  const inspiration = await db.inspiration.findUnique({
-    where: { id },
+  const inspiration = await db.inspiration.findFirst({
+    where: { id, userId: user.id },
     select: {
       id: true,
       title: true,

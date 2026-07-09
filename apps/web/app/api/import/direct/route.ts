@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const quotaCheck = await checkUploadAllowed(imageBuffer.byteLength);
+  const quotaCheck = await checkUploadAllowed(userId, imageBuffer.byteLength);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }
@@ -97,6 +97,7 @@ export async function POST(req: NextRequest) {
     const [inspiration] = await Promise.all([
       db.inspiration.create({
         data: {
+          userId,
           title: defaultTitle,
           author: author?.trim() || undefined,
           description: description?.trim() || undefined,
@@ -144,9 +145,9 @@ export async function POST(req: NextRequest) {
     if (tags && tags.length > 0) {
       for (const name of tags) {
         const tag = await db.tag.upsert({
-          where: { name },
+          where: { userId_name: { userId, name } },
           update: {},
-          create: { name, slug: name.toLowerCase().replace(/\s+/g, "-") },
+          create: { userId, name, slug: name.toLowerCase().replace(/\s+/g, "-") },
         });
         await db.inspirationTag.create({
           data: { inspirationId: inspiration.id, tagId: tag.id },

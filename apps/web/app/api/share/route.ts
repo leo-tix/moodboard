@@ -12,17 +12,17 @@ const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "i
 async function processOneFile(
   file: File,
   title: string,
-  req: NextRequest,
+  userId: string,
 ): Promise<string | null> {
   if (!checkMimeType(file.type) && !ACCEPTED_TYPES.includes(file.type)) return null;
 
-  const quotaCheck = await checkUploadAllowed(file.size);
+  const quotaCheck = await checkUploadAllowed(userId, file.size);
   if (!quotaCheck.allowed) return null;
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const processed = await processImage(buffer);
 
-  const finalCheck = await checkUploadAllowed(processed.size);
+  const finalCheck = await checkUploadAllowed(userId, processed.size);
   if (!finalCheck.allowed) return null;
 
   const uuid = randomUUID();
@@ -32,7 +32,7 @@ async function processOneFile(
 
   const [inspiration] = await Promise.all([
     db.inspiration.create({
-      data: { title: defaultTitle, status: "PROCESSING", mediaType: "IMAGE" },
+      data: { userId, title: defaultTitle, status: "PROCESSING", mediaType: "IMAGE" },
     }),
     uploadToR2(storageKey, processed.original, "image/webp"),
     uploadToR2(thumbnailKey, processed.thumbnail, "image/webp"),
@@ -80,9 +80,10 @@ async function processOneFile(
 // Manifest declares: POST /api/share with multipart/form-data
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session) {
+  if (!session?.user?.id) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
+  const userId = session.user.id;
 
   const formData = await req.formData();
   const sharedTitle = (formData.get("title") as string | null)?.trim() || "";
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
   if (files.length > 0) {
     try {
       const results = await Promise.all(
-        files.map((f) => processOneFile(f, sharedTitle, req).catch(() => null)),
+        files.map((f) => processOneFile(f, sharedTitle, userId).catch(() => null)),
       );
       const saved = results.filter(Boolean).length;
       if (saved > 0) {

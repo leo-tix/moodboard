@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireAdmin } from "@/lib/auth/current";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { slugify } from "@/lib/utils";
@@ -14,8 +14,8 @@ const updateSchema = z.object({
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Réservé à l'administrateur" }, { status: 403 });
 
   const { id } = await params;
   const body = await req.json();
@@ -38,8 +38,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Réservé à l'administrateur" }, { status: 403 });
 
   const { id } = await params;
   // InspirationCategory entries cascade-delete with the category (onDelete: Cascade)

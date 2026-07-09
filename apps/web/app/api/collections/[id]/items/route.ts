@@ -7,13 +7,26 @@ type Params = { params: Promise<{ id: string }> };
 // POST /api/collections/[id]/items — ajouter des images
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const { id } = await params;
   const { inspirationIds } = (await req.json()) as { inspirationIds: string[] };
 
   if (!inspirationIds?.length)
     return NextResponse.json({ error: "inspirationIds requis" }, { status: 400 });
+
+  // La collection doit appartenir au profil
+  const owned = await db.collection.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  // Ne rattache que des inspirations possédées par le même profil (anti-IDOR)
+  const ownedInsp = await db.inspiration.findMany({
+    where: { id: { in: inspirationIds }, userId },
+    select: { id: true },
+  });
+  const validIds = ownedInsp.map((i) => i.id);
+  if (validIds.length === 0) return NextResponse.json({ success: true, added: 0 });
 
   // Déterminer l'ordre de départ
   const agg = await db.collectionItem.aggregate({
@@ -23,7 +36,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const baseOrder = (agg._max.order ?? -1) + 1;
 
   await db.collectionItem.createMany({
-    data: inspirationIds.map((inspirationId, i) => ({
+    data: validIds.map((inspirationId, i) => ({
       collectionId: id,
       inspirationId,
       order: baseOrder + i,
@@ -37,10 +50,17 @@ export async function POST(req: NextRequest, { params }: Params) {
 // DELETE /api/collections/[id]/items — retirer des images
 export async function DELETE(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
   const { inspirationIds } = (await req.json()) as { inspirationIds: string[] };
+
+  // La collection doit appartenir au profil
+  const owned = await db.collection.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   await db.collectionItem.deleteMany({
     where: { collectionId: id, inspirationId: { in: inspirationIds } },

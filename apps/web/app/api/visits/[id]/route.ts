@@ -21,7 +21,8 @@ const patchSchema = z.object({
 // PATCH /api/visits/[id]
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  const userId = session.user.id;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -29,6 +30,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+
+  // La visite doit appartenir au profil
+  const ownedVisit = await db.visit.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!ownedVisit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const { place, exhibition, visitDate, notes, latitude, longitude, address, addInspirationIds, removeInspirationIds } = parsed.data;
 
@@ -61,13 +66,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     ]);
     const nextOrder = Math.max(maxImg._max.visitOrder ?? -1, maxNote._max.order ?? -1) + 1;
     await db.inspiration.updateMany({
-      where: { id: { in: addInspirationIds } },
+      where: { id: { in: addInspirationIds }, userId },
       data: { visitId: id, visitOrder: nextOrder },
     });
   }
   if (removeInspirationIds && removeInspirationIds.length > 0) {
     await db.inspiration.updateMany({
-      where: { id: { in: removeInspirationIds }, visitId: id },
+      where: { id: { in: removeInspirationIds }, visitId: id, userId },
       data: { visitId: null },
     });
   }
@@ -79,9 +84,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 // Les inspirations rattachées ne sont pas supprimées (visitId → null via SetNull).
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
-  await db.visit.delete({ where: { id } });
+  const res = await db.visit.deleteMany({ where: { id, userId: session.user.id } });
+  if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

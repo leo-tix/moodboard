@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { InspirationGrid, type InspirationGridItem } from "@/components/inspiration/InspirationGrid";
 import { LibraryClient } from "@/components/inspiration/LibraryClient";
 import { SearchBar } from "@/components/search/SearchBar";
@@ -34,6 +36,10 @@ interface SearchPageProps {
 }
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  const userId = user.id;
+
   const params = await searchParams;
   const q = params.q?.trim() ?? "";
   const categoryId = params.categoryId ?? "";
@@ -47,6 +53,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const hasFilters = q || categoryId || tags.length > 0 || yearFrom || yearTo || isColorSearch;
 
   const textWhere: Prisma.InspirationWhereInput = {
+    userId,
     status:     "READY",
     isAccepted: isArchivedMode ? undefined : true,
     isArchived: isArchivedMode ? true : false,
@@ -74,7 +81,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const [inspirationsRaw, categories, popularTags] = await Promise.all([
     db.inspiration.findMany({
       where: isColorSearch
-        ? { status: "READY", isAccepted: isArchivedMode ? undefined : true, isArchived: isArchivedMode ? true : false, colorPalette: { some: {} } }
+        ? { userId, status: "READY", isAccepted: isArchivedMode ? undefined : true, isArchived: isArchivedMode ? true : false, colorPalette: { some: {} } }
         : textWhere,
       include: {
         colorPalette: isColorSearch ? { orderBy: { order: "asc" } } : false,
@@ -91,6 +98,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     }),
     db.category.findMany({ orderBy: { order: "asc" } }),
     db.tag.findMany({
+      where: { userId },
       include: { _count: { select: { inspirations: true } } },
       orderBy: { inspirations: { _count: "desc" } },
       take: 20,
@@ -132,6 +140,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           FROM moodboards,
             jsonb_array_elements("canvasData") AS elem
           WHERE elem->>'type' = 'image'
+            AND "userId" = ${userId}
             AND elem->>'inspirationId' = ANY(${ids})
           GROUP BY elem->>'inspirationId'
         `

@@ -24,7 +24,14 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await db.user.create({
-    data: { email, passwordHash, name: "Admin" },
+    // ADMIN + quota généreux (le multi-profils répartit le bucket via /settings/profiles)
+    data: {
+      email,
+      passwordHash,
+      name: "Admin",
+      role: "ADMIN",
+      storageQuotaBytes: BigInt(4 * 1024 * 1024 * 1024),
+    },
   });
 
   console.log("✅ Compte admin créé :", user.email);

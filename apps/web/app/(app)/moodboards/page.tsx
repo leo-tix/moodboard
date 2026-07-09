@@ -1,11 +1,17 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { MoodboardGrid } from "@/components/moodboard/MoodboardGrid";
 import { capCanvasForPreview } from "@/lib/moodboard/preview";
 import type { CanvasElement } from "@/lib/moodboard/types";
 
 export default async function MoodboardsPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
   const [moodboards, folders] = await Promise.all([
     db.moodboard.findMany({
+      where: { userId: user.id },
       orderBy: [{ order: "asc" }, { updatedAt: "desc" }],
       select: {
         id: true,
@@ -20,7 +26,7 @@ export default async function MoodboardsPage() {
         updatedAt: true,
       },
     }),
-    db.moodboardFolder.findMany({ orderBy: { order: "asc" } }),
+    db.moodboardFolder.findMany({ where: { userId: user.id }, orderBy: { order: "asc" } }),
   ]);
 
   const serialized = moodboards.map((m) => {

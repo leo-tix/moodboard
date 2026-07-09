@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/current";
 import { VisitJournal, type JournalItem } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
 
@@ -11,15 +12,20 @@ interface Props { params: Promise<{ id: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-  const visit = await db.visit.findUnique({ where: { id }, select: { place: true } });
+  const user = await getCurrentUser();
+  const visit = user
+    ? await db.visit.findFirst({ where: { id, userId: user.id }, select: { place: true } })
+    : null;
   return { title: visit ? `Visite — ${visit.place}` : "Visite" };
 }
 
 export default async function VisiteDetailPage({ params }: Props) {
   const { id } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
-  const visit = await db.visit.findUnique({
-    where: { id },
+  const visit = await db.visit.findFirst({
+    where: { id, userId: user.id },
     include: {
       inspirations: {
         where: { status: "READY", isArchived: false },
