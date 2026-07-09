@@ -6,37 +6,38 @@ mettre à jour au fil de l'eau (statut, décisions qui changent).
 
 ## Ordre de priorité décidé
 
-1. **✅ En cours** — Drag & drop bibliothèque (collection/visite/corbeille) +
-   uniformisation de la redirection post-upload vers `/triage`
-2. Collections & visites collaboratives (fondation pour le reste)
-3. Feed social
-4. Messagerie
-5. Refonte du module visites (carnet premium)
+1. **✅ Fait, poussé en prod** (commit `5f455ea`, 2026-07-09) — Drag & drop
+   bibliothèque (collection/visite/corbeille) + uniformisation de la
+   redirection post-upload vers `/triage`
+2. Collections & visites collaboratives (fondation pour le reste) — pas commencé
+3. Feed social — pas commencé
+4. Messagerie — pas commencé
+5. Refonte du module visites (carnet premium) — pas commencé
 
 ---
 
-## 1. Drag & drop bibliothèque
+## 1. Drag & drop bibliothèque (✅ fait)
 
 Depuis la grille `/library`, glisser une ou plusieurs images (sélection
 multiple existante respectée) vers :
-- une collection existante → ajout
-- une visite existante → rattachement
+- une collection existante → ajout, avec flash de succès sur le chip
+- une visite existante → rattachement, avec flash de succès
 - "+ Nouvelle collection" / "+ Nouvelle visite" → création à la volée
-- une corbeille flottante dans un coin → suppression (avec confirmation)
+- une corbeille flottante → suppression avec confirmation
 
-Approche : drag HTML5 natif (cohérent avec le pattern déjà utilisé pour les
-dossiers de planches dans `MoodboardGrid`). Limite connue : ne fonctionne pas
-au toucher — prévoir un fallback mobile (menu "⋯" ou action sheet), comme déjà
-fait ailleurs sur le site (`MoodboardCard`).
+**Réalisé avec un vrai geste tactile** (pas un fallback desktop-only comme
+envisagé initialement) : Framer Motion piloté à la main (`useDragControls`),
+appui long pour armer le drag au tactile, hit-testing par coordonnées
+(`elementFromPoint`) plutôt que l'API HTML5 Drag&Drop qui ne fonctionne pas au
+toucher. Détails techniques complets et bugs rencontrés → mémoire agent
+(section "Drag & drop bibliothèque + redirection triage" dans
+`project_moodboard.md`), pas dupliqués ici.
 
-## 2. Redirection post-upload → triage
+## 2. Redirection post-upload → triage (✅ fait)
 
-Toute image uploadée doit rediriger vers `/triage` plutôt que `/library`
-(cohérent avec le workflow triage déjà en place : `isAccepted=false` par
-défaut). Points touchés : `DropZone.tsx`, `GlobalUploadProvider.tsx`,
-`YouTubeImportClient.tsx`, flux PWA share (`/share/upload` → `/share/done`),
-bookmarklet (`import/bookmarklet/page.tsx`, redirige actuellement vers la
-fiche détail — à harmoniser aussi).
+Toute image uploadée redirige vers `/triage` plutôt que `/library` sur les 5
+points d'entrée (`DropZone`, `GlobalUploadProvider`, `YouTubeImportClient`,
+bookmarklet, flux PWA share).
 
 ## 3. Collections & visites collaboratives
 
