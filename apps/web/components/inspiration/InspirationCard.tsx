@@ -247,6 +247,12 @@ export function InspirationCard({
       // "favicon + URL") qui prend le pas sur le drag Framer Motion piloté à
       // la main ci-dessus — même piège que <img draggable={false}> plus haut.
       draggable={dragEnabled ? false : undefined}
+      // Idem au tactile : sans ça, l'appui long ouvre le menu contextuel natif
+      // du navigateur (Copier le lien / Partager / Ouvrir dans Chrome…) au lieu
+      // d'armer notre drag. -webkit-touch-callout couvre le callout iOS Safari,
+      // qui ne passe pas par contextmenu.
+      onContextMenu={dragEnabled ? (e) => e.preventDefault() : undefined}
+      style={dragEnabled ? { WebkitTouchCallout: "none" } : undefined}
       onClick={(e) => {
         if (justDraggedRef.current) { e.preventDefault(); return; }
         onBeforeNavigate?.();
