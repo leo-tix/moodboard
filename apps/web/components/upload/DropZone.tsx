@@ -18,16 +18,6 @@ interface UploadFile {
   status: "pending" | "uploading" | "done" | "error";
   inspirationId?: string;
   error?: string;
-  /** "quota" = rate-limit hit (distinct from generic "error") */
-  aiStatus?: "analyzing" | "done" | "error" | "quota";
-  retryAfter?: number;
-  aiData?: {
-    title?: string;
-    description?: string;
-    notes?: string;
-    tags?: string[];
-    categories?: { categoryId: string; subcategoryId: null }[];
-  };
 }
 
 interface Category {
@@ -75,9 +65,6 @@ export function DropZone() {
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [visitGeo, setVisitGeo] = useState<PlaceGeo | null>(null);
 
-  // Analyse IA — désactivée par défaut (données transmises à Google)
-  const [aiEnabled, setAiEnabled] = useState(false);
-
   const doneFiles = files.filter((f) => f.status === "done");
   const doneIds = doneFiles.map((f) => f.inspirationId).filter(Boolean) as string[];
 
@@ -124,92 +111,12 @@ export function DropZone() {
     });
   };
 
-  /** Analyse une image et applique tous les résultats directement en DB */
-  const analyzeAndApply = async (inspirationId: string, fileId: string) => {
-    setFiles((prev) =>
-      prev.map((f) => (f.id === fileId ? { ...f, aiStatus: "analyzing" } : f))
-    );
-    try {
-      const res = await fetch(`/api/inspirations/${inspirationId}/analyze`, { method: "POST" });
-
-      // Rate-limit: distinct visual state, not a generic error
-      if (res.status === 429) {
-        const data = await res.json().catch(() => ({}));
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === fileId
-              ? { ...f, aiStatus: "quota", retryAfter: data.retryAfter ?? 60 }
-              : f
-          )
-        );
-        return;
-      }
-
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json();
-
-      // Construire le patch à appliquer
-      const patch: Record<string, unknown> = {};
-      if (data.analysis?.suggestedTitle) patch.title = data.analysis.suggestedTitle;
-      if (data.analysis?.moodDescriptor) patch.description = data.analysis.moodDescriptor;
-      if (data.analysis?.technicalNotes) patch.notes = data.analysis.technicalNotes;
-      if (data.suggestedTags?.length) patch.tags = data.suggestedTags;
-      if (data.suggestedCategories?.length) {
-        patch.categories = data.suggestedCategories.map((c: { id: string }) => ({
-          categoryId: c.id,
-          subcategoryId: null,
-        }));
-      }
-
-      if (Object.keys(patch).length > 0) {
-        const patchRes = await fetch(`/api/inspirations/${inspirationId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        if (!patchRes.ok) {
-          const errBody = await patchRes.json().catch(() => ({}));
-          console.error("[DropZone] PATCH inspiration échoué :", patchRes.status, errBody);
-        }
-      }
-
-      // Stocker les données appliquées pour pré-remplir le slide-over si ouvert
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileId
-            ? {
-                ...f,
-                aiStatus: "done",
-                aiData: {
-                  title: data.analysis?.suggestedTitle,
-                  description: data.analysis?.moodDescriptor,
-                  notes: data.analysis?.technicalNotes,
-                  tags: data.suggestedTags ?? [],
-                  categories: (data.suggestedCategories ?? []).map((c: { id: string }) => ({
-                    categoryId: c.id,
-                    subcategoryId: null as null,
-                  })),
-                },
-              }
-            : f
-        )
-      );
-    } catch {
-      setFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, aiStatus: "error" } : f))
-      );
-    }
-  };
-
   const uploadAll = async () => {
     const pending = files.filter((f) => f.status === "pending");
     if (!pending.length) return;
     setUploading(true);
 
-    const shouldAnalyze = aiEnabled;
-
-    // ── Phase 1 : uploads en parallèle ───────────────────────────────────
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       pending.map(async (item) => {
         setFiles((prev) =>
           prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
@@ -233,40 +140,17 @@ export function DropZone() {
           setFiles((prev) =>
             prev.map((f) => (f.id === item.id ? { ...f, status: "done", inspirationId } : f))
           );
-          return { fileId: item.id, inspirationId };
         } catch {
           setFiles((prev) =>
             prev.map((f) =>
               f.id === item.id ? { ...f, status: "error", error: "Erreur réseau" } : f
             )
           );
-          return null;
         }
       })
     );
 
     setUploading(false);
-
-    // ── Phase 2 : analyses séquentielles en tâche de fond ────────────────
-    if (shouldAnalyze) {
-      const uploaded = results
-        .filter(
-          (r): r is PromiseFulfilledResult<{ fileId: string; inspirationId: string } | null> =>
-            r.status === "fulfilled"
-        )
-        .map((r) => r.value)
-        .filter((v): v is { fileId: string; inspirationId: string } => v !== null);
-
-      void (async () => {
-        for (const item of uploaded) {
-          try {
-            await analyzeAndApply(item.inspirationId, item.fileId);
-          } catch (err) {
-            console.error("[DropZone] analyzeAndApply inattendu :", err);
-          }
-        }
-      })();
-    }
   };
 
   const hasVisitContext = visitEnabled && visitPlace.trim().length > 0;
@@ -330,17 +214,7 @@ export function DropZone() {
 
   const pendingCount = files.filter((f) => f.status === "pending").length;
   const errorCount = files.filter((f) => f.status === "error").length;
-  const analyzingCount = files.filter((f) => f.aiStatus === "analyzing").length;
-  const aiDoneCount = files.filter((f) => f.aiStatus === "done").length;
-  const quotaCount = files.filter((f) => f.aiStatus === "quota").length;
   const editingFile = editingId ? files.find((f) => f.inspirationId === editingId) : null;
-
-  const retryQuotaFiles = async () => {
-    const quotaFiles = files.filter((f) => f.aiStatus === "quota" && f.inspirationId);
-    for (const f of quotaFiles) {
-      await analyzeAndApply(f.inspirationId!, f.id);
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -403,82 +277,6 @@ export function DropZone() {
         </AnimatePresence>
       </motion.div>
 
-      {/* ── Toggle analyse IA — toujours visible ── */}
-      <div
-        className={cn(
-          "flex items-start gap-3 px-4 py-3 rounded-xl border transition-colors",
-          aiEnabled
-            ? "border-[var(--accent,#a78bfa)]/30 bg-[var(--accent,#a78bfa)]/5"
-            : "border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-        )}
-      >
-        {/* Toggle */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={aiEnabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            setAiEnabled((v) => !v);
-          }}
-          className={cn(
-            "relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-            aiEnabled ? "bg-[var(--accent,#a78bfa)]" : "bg-[var(--bg-overlay)]"
-          )}
-        >
-          <span
-            className={cn(
-              "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200",
-              aiEnabled ? "translate-x-4" : "translate-x-0"
-            )}
-          />
-        </button>
-
-        {/* Label + texte */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span
-              className={cn(
-                "text-[11px] font-medium",
-                aiEnabled ? "text-[var(--accent,#a78bfa)]" : "text-[var(--text-secondary)]"
-              )}
-            >
-              ✦ Analyse IA automatique
-            </span>
-            <span
-              className={cn(
-                "text-[9px] px-1.5 py-0.5 rounded-full",
-                aiEnabled
-                  ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
-                  : "bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
-              )}
-            >
-              {aiEnabled ? "Activée" : "Désactivée"}
-            </span>
-          </div>
-          <p className="text-[9px] text-[var(--text-tertiary)] leading-relaxed">
-            {aiEnabled ? (
-              <>
-                <span className="text-[var(--accent,#a78bfa)]/80">
-                  Titre, description, tags et catégories seront appliqués automatiquement après l&apos;import.{" "}
-                </span>
-                Une vignette 256 px de chaque image est transmise à l&apos;API Google Gemini (hors UE).
-                Google peut utiliser ces données pour améliorer ses modèles.
-              </>
-            ) : (
-              <>
-                Quand activée, Gemini analyse chaque image et applique automatiquement titre,
-                description, tags et catégories — sans rien avoir à faire.{" "}
-                <span className="text-[var(--text-tertiary)]/70">
-                  Une vignette 256 px est transmise à l&apos;API Google (hors UE, données pouvant
-                  servir à l&apos;entraînement).
-                </span>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-
       {/* File grid */}
       {files.length > 0 && (
         <div>
@@ -509,49 +307,13 @@ export function DropZone() {
                   </div>
                 )}
 
-                {/* Analyse IA en cours */}
-                {item.aiStatus === "analyzing" && (
-                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
-                      <span className="text-[8px] text-[var(--accent,#a78bfa)]">✦</span>
-                    </div>
-                  </div>
-                )}
-
                 {/* Done — indicateurs */}
                 {item.status === "done" && item.inspirationId && (
                   <>
                     {/* Pastille statut */}
-                    {item.aiStatus !== "analyzing" && (
-                      <div
-                        className={cn(
-                          "absolute top-1 left-1 w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0",
-                          item.aiStatus === "done"
-                            ? "bg-[var(--accent,#a78bfa)]/80"
-                            : item.aiStatus === "error"
-                            ? "bg-orange-500/80"
-                            : item.aiStatus === "quota"
-                            ? "bg-yellow-500/80"
-                            : "bg-green-500/80"
-                        )}
-                        title={
-                          item.aiStatus === "quota"
-                            ? "Quota Gemini dépassé — utiliser Réanalyser ci-dessous"
-                            : undefined
-                        }
-                      >
-                        <span className="text-white text-[8px]">
-                          {item.aiStatus === "done"
-                            ? "✦"
-                            : item.aiStatus === "error"
-                            ? "!"
-                            : item.aiStatus === "quota"
-                            ? "⏳"
-                            : "✓"}
-                        </span>
-                      </div>
-                    )}
+                    <div className="absolute top-1 left-1 w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 bg-green-500/80">
+                      <span className="text-white text-[8px]">✓</span>
+                    </div>
 
                     {/* Bouton éditer — toujours visible sur touch, au survol sinon */}
                     <button
@@ -588,29 +350,10 @@ export function DropZone() {
           <div className="flex items-center justify-between">
             <div className="flex gap-3 text-xs text-[var(--text-tertiary)] flex-wrap">
               {pendingCount > 0 && <span>{pendingCount} en attente</span>}
-              {doneFiles.length > 0 && !analyzingCount && !aiDoneCount && !quotaCount && (
+              {doneFiles.length > 0 && (
                 <span className="text-green-400">
                   {doneFiles.length} importée{doneFiles.length > 1 ? "s" : ""}
                 </span>
-              )}
-              {analyzingCount > 0 && (
-                <span className="text-[var(--accent,#a78bfa)]">
-                  ✦ Analyse {aiDoneCount + quotaCount}/{doneFiles.length}…
-                </span>
-              )}
-              {analyzingCount === 0 && aiDoneCount > 0 && (
-                <span className="text-[var(--accent,#a78bfa)]">
-                  ✦ {aiDoneCount} analysée{aiDoneCount > 1 ? "s" : ""}
-                </span>
-              )}
-              {quotaCount > 0 && analyzingCount === 0 && (
-                <button
-                  onClick={retryQuotaFiles}
-                  className="text-yellow-400 hover:text-yellow-300 transition-colors underline underline-offset-2"
-                  title="Quota Gemini dépassé. Cliquer pour réessayer."
-                >
-                  ⏳ {quotaCount} quota — Réanalyser
-                </button>
               )}
               {errorCount > 0 && (
                 <span className="text-red-400">{errorCount} erreur(s)</span>
@@ -633,10 +376,8 @@ export function DropZone() {
                 >
                   {uploading && <Spinner size="sm" />}
                   {uploading
-                    ? aiEnabled
-                      ? "Import + analyse…"
-                      : "Import en cours…"
-                    : `Importer ${pendingCount} image${pendingCount > 1 ? "s" : ""}${aiEnabled ? " + analyser" : ""}`}
+                    ? "Import en cours…"
+                    : `Importer ${pendingCount} image${pendingCount > 1 ? "s" : ""}`}
                 </button>
               )}
             </div>
@@ -815,16 +556,6 @@ export function DropZone() {
                   <p className="text-xs text-[var(--text-secondary)] truncate max-w-[280px]">
                     {editingFile.file.name}
                   </p>
-                  {editingFile.aiStatus === "done" && (
-                    <span className="text-[9px] text-[var(--accent,#a78bfa)] flex-shrink-0">
-                      ✦ Analysée
-                    </span>
-                  )}
-                  {editingFile.aiStatus === "error" && (
-                    <span className="text-[9px] text-orange-400 flex-shrink-0">
-                      ⚠ Analyse échouée
-                    </span>
-                  )}
                 </div>
                 <button
                   onClick={() => setEditingId(null)}
@@ -845,17 +576,14 @@ export function DropZone() {
                 <MetadataPanel
                   id={editingId}
                   initialData={{
-                    title:
-                      editingFile.aiData?.title ??
-                      editingFile.file.name.replace(/\.[^/.]+$/, ""),
-                    description: editingFile.aiData?.description ?? "",
+                    title: editingFile.file.name.replace(/\.[^/.]+$/, ""),
+                    description: "",
                     author: "",
                     country: "",
                     sourceUrl: "",
-                    tags: editingFile.aiData?.tags ?? [],
-                    categories: editingFile.aiData?.categories ?? [],
+                    tags: [],
+                    categories: [],
                   }}
-                  aiFirst={editingFile.aiStatus === "done" || editingFile.aiStatus === "error"}
                 />
               </div>
             </motion.div>

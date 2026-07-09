@@ -26,7 +26,6 @@ export async function GET(
       },
       tags: { include: { tag: true } },
       colorPalette: { orderBy: { order: "asc" } },
-      aiAnalysis: true,
       collections: { include: { collection: true } },
     },
   });

@@ -26,7 +26,6 @@ import { SharePanel } from "@/components/moodboard/SharePanel";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
 import { PencilLayer, type Stroke, type PencilTool, type StrokeElement, type PencilLayerHandle } from "@/components/moodboard/PencilLayer";
 import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
-import { AI_IMPORT_KEY } from "@/components/settings/GeneralSettings";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
 import { strokeToElement, eraseStroke } from "@/lib/moodboard/pencil";
 
@@ -213,7 +212,6 @@ export function MoodboardEditor({ initialData }: Props) {
   const rubberBandStart = useRef({ sx: 0, sy: 0 });
   const multiDragStartPositions = useRef<Map<string, { x: number; y: number }>>(new Map());
   const draggedElementStartPos = useRef({ x: 0, y: 0 });
-  const aiOnImport = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ── Feature refs ──
   const altHeldRef = useRef(false);       // Alt key tracking
@@ -291,10 +289,6 @@ export function MoodboardEditor({ initialData }: Props) {
   // Sync refs
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { elementsRef.current = elements; }, [elements]);
-
-  useEffect(() => {
-    aiOnImport.current = localStorage.getItem(AI_IMPORT_KEY) === "true";
-  }, []);
 
   // Detect touch device after mount (no SSR mismatch)
   useEffect(() => {
@@ -2314,11 +2308,6 @@ export function MoodboardEditor({ initialData }: Props) {
         aspectRatio: naturalRatio,
       };
       updateElements((prev) => [...prev, el]);
-      if (aiOnImport.current) {
-        fetch(`/api/inspirations/${data.inspirationId}/analyze`, {
-          method: "POST",
-        }).catch(() => {});
-      }
     },
     [updateElements, snap]
   );

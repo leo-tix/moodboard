@@ -53,9 +53,8 @@ export default function PrivacyPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900 mb-2">4. Data Sharing</h2>
             <p>
-              No data is sold, rented, or shared with any third party. Image processing uses
-              Google Gemini AI (optional, opt-in only) and Cloudflare R2 for storage — both
-              governed by their respective privacy policies.
+              No data is sold, rented, or shared with any third party. Image storage uses
+              Cloudflare R2, governed by its privacy policy.
             </p>
           </div>
 

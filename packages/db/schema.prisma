@@ -183,7 +183,6 @@ model Inspiration {
   images         Image[]
   tags           InspirationTag[]
   collections    CollectionItem[]
-  aiAnalysis     AIAnalysis?
   colorPalette   InspirationColor[]
   videoImport    VideoImport?
 
@@ -324,23 +323,6 @@ model CollectionItem {
 
   @@id([collectionId, inspirationId])
   @@map("collection_items")
-}
-
-// ============================================================
-// ANALYSE IA
-// ============================================================
-model AIAnalysis {
-  id              String      @id @default(cuid())
-  inspirationId   String      @unique
-  rawResponse     Json
-  styleKeywords   String[]
-  moodDescriptor  String?
-  technicalNotes  String?
-  processedAt     DateTime    @default(now())
-
-  inspiration     Inspiration @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
-
-  @@map("ai_analyses")
 }
 
 // ============================================================

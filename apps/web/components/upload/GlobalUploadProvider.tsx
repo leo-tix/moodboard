@@ -24,16 +24,6 @@ interface QueuedFile {
   status: "pending" | "uploading" | "done" | "error";
   inspirationId?: string;
   error?: string;
-  /** "quota" = rate-limit hit (distinct from generic "error") */
-  aiStatus?: "analyzing" | "done" | "error" | "quota";
-  retryAfter?: number;
-  aiData?: {
-    title?: string;
-    description?: string;
-    notes?: string;
-    tags?: string[];
-    categories?: { categoryId: string; subcategoryId: null }[];
-  };
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -62,9 +52,6 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
   // ── Drag detection ──
   const [isDragActive, setIsDragActive] = useState(false);
   const dragCounter = useRef(0);
-
-  // ── AI toggle ──
-  const [aiEnabled, setAiEnabled] = useState(false);
 
   // ── Per-file slide-over ──
   const [editingInspirationId, setEditingInspirationId] = useState<string | null>(null);
@@ -158,82 +145,6 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
     };
   }, [isUploadPage, isMoodboardEditor, enqueue]);
 
-  // ── AI: analyze + auto-apply ──────────────────────────────────────────────
-
-  const analyzeAndApply = useCallback(async (inspirationId: string, fileId: string) => {
-    setFiles((prev) =>
-      prev.map((f) => (f.id === fileId ? { ...f, aiStatus: "analyzing" } : f))
-    );
-    try {
-      const res = await fetch(`/api/inspirations/${inspirationId}/analyze`, { method: "POST" });
-
-      // Rate-limit: distinct visual state, not a generic error
-      if (res.status === 429) {
-        const data = await res.json().catch(() => ({}));
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === fileId
-              ? { ...f, aiStatus: "quota", retryAfter: data.retryAfter ?? 60 }
-              : f
-          )
-        );
-        return;
-      }
-
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json();
-
-      const patch: Record<string, unknown> = {};
-      if (data.analysis?.suggestedTitle) patch.title = data.analysis.suggestedTitle;
-      if (data.analysis?.moodDescriptor) patch.description = data.analysis.moodDescriptor;
-      if (data.analysis?.technicalNotes) patch.notes = data.analysis.technicalNotes;
-      if (data.suggestedTags?.length) patch.tags = data.suggestedTags;
-      if (data.suggestedCategories?.length) {
-        patch.categories = data.suggestedCategories.map((c: { id: string }) => ({
-          categoryId: c.id,
-          subcategoryId: null,
-        }));
-      }
-
-      if (Object.keys(patch).length > 0) {
-        const patchRes = await fetch(`/api/inspirations/${inspirationId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        if (!patchRes.ok) {
-          const errBody = await patchRes.json().catch(() => ({}));
-          console.error("[GlobalUpload] PATCH inspiration échoué :", patchRes.status, errBody);
-        }
-      }
-
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileId
-            ? {
-                ...f,
-                aiStatus: "done",
-                aiData: {
-                  title: data.analysis?.suggestedTitle,
-                  description: data.analysis?.moodDescriptor,
-                  notes: data.analysis?.technicalNotes,
-                  tags: data.suggestedTags ?? [],
-                  categories: (data.suggestedCategories ?? []).map((c: { id: string }) => ({
-                    categoryId: c.id,
-                    subcategoryId: null as null,
-                  })),
-                },
-              }
-            : f
-        )
-      );
-    } catch {
-      setFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, aiStatus: "error" } : f))
-      );
-    }
-  }, []);
-
   // ── Upload ────────────────────────────────────────────────────────────────
 
   const uploadAll = useCallback(async () => {
@@ -241,10 +152,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
     if (!pending.length || uploading) return;
     setUploading(true);
 
-    const shouldAnalyze = aiEnabled;
-
-    // ── Phase 1 : uploads en parallèle ───────────────────────────────────
-    const results = await Promise.allSettled(
+    await Promise.allSettled(
       pending.map(async (item) => {
         setFiles((prev) =>
           prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
@@ -272,55 +180,18 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
               f.id === item.id ? { ...f, status: "done", inspirationId } : f
             )
           );
-          return { fileId: item.id, inspirationId };
         } catch {
           setFiles((prev) =>
             prev.map((f) =>
               f.id === item.id ? { ...f, status: "error", error: "Erreur réseau" } : f
             )
           );
-          return null;
         }
       })
     );
 
-    // Les uploads sont terminés — l'UI peut afficher "Bibliothèque →" dès maintenant
     setUploading(false);
-
-    // ── Phase 2 : analyses séquentielles en tâche de fond ────────────────
-    if (shouldAnalyze) {
-      const uploaded = results
-        .filter(
-          (r): r is PromiseFulfilledResult<{ fileId: string; inspirationId: string } | null> =>
-            r.status === "fulfilled"
-        )
-        .map((r) => r.value)
-        .filter((v): v is { fileId: string; inspirationId: string } => v !== null);
-
-      // void : on ne bloque pas — les mises à jour d'état arrivent au fil de l'eau
-      // Try/catch individuel : une erreur sur un fichier ne bloque pas les suivants
-      void (async () => {
-        for (const item of uploaded) {
-          try {
-            await analyzeAndApply(item.inspirationId, item.fileId);
-          } catch (err) {
-            console.error("[GlobalUpload] analyzeAndApply inattendu :", err);
-          }
-        }
-      })();
-    }
-  }, [files, uploading, aiEnabled, analyzeAndApply]);
-
-  // ── Retry quota-failed analyses ───────────────────────────────────────────
-
-  const retryQuotaFiles = useCallback(async () => {
-    const quotaFiles = files.filter(
-      (f) => f.aiStatus === "quota" && f.inspirationId
-    );
-    for (const f of quotaFiles) {
-      await analyzeAndApply(f.inspirationId!, f.id);
-    }
-  }, [files, analyzeAndApply]);
+  }, [files, uploading]);
 
   // ── Dismiss ───────────────────────────────────────────────────────────────
 
@@ -337,14 +208,10 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
   const pendingCount   = files.filter((f) => f.status === "pending").length;
   const doneCount      = files.filter((f) => f.status === "done").length;
   const errorCount     = files.filter((f) => f.status === "error").length;
-  const analyzingCount = files.filter((f) => f.aiStatus === "analyzing").length;
-  const aiDoneCount    = files.filter((f) => f.aiStatus === "done").length;
-  const quotaCount     = files.filter((f) => f.aiStatus === "quota").length;
 
-  /** Tous les uploads sont terminés (analyses éventuellement encore en cours) */
+  /** Tous les uploads sont terminés */
   const uploadsComplete = files.length > 0 && pendingCount === 0 && !uploading;
-  /** Tout est terminé, y compris les analyses */
-  const allSettled = uploadsComplete && analyzingCount === 0;
+  const allSettled = uploadsComplete;
 
   const editingFile = editingInspirationId
     ? files.find((f) => f.inspirationId === editingInspirationId)
@@ -413,13 +280,9 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       <p className="text-xs font-medium text-[var(--text-primary)]">
                         {uploading
                           ? `Import en cours… (${doneCount + errorCount}/${files.length})`
-                          : uploadsComplete && analyzingCount > 0
-                          ? `✦ Analyse ${aiDoneCount + quotaCount + files.filter(f => f.aiStatus === "error").length}/${doneCount}…`
                           : allSettled
                           ? [
                               doneCount > 0 && `${doneCount} importée${doneCount > 1 ? "s" : ""}`,
-                              aiDoneCount > 0 && `${aiDoneCount} analysée${aiDoneCount > 1 ? "s" : ""}`,
-                              quotaCount > 0 && `${quotaCount} quota`,
                               errorCount > 0 && `${errorCount} erreur${errorCount > 1 ? "s" : ""}`,
                             ]
                               .filter(Boolean)
@@ -461,44 +324,12 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                               </div>
                             )}
 
-                            {/* AI analyzing */}
-                            {f.aiStatus === "analyzing" && (
-                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  <div className="w-3 h-3 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
-                                  <span className="text-[7px] text-[var(--accent,#a78bfa)]">✦</span>
-                                </div>
-                              </div>
-                            )}
-
                             {/* Done */}
-                            {f.status === "done" && f.aiStatus !== "analyzing" && (
+                            {f.status === "done" && (
                               <>
                                 {/* Status badge */}
-                                <div
-                                  className={cn(
-                                    "absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px]",
-                                    f.aiStatus === "done"
-                                      ? "bg-[var(--accent,#a78bfa)]/80 text-white"
-                                      : f.aiStatus === "error"
-                                      ? "bg-orange-500/80 text-white"
-                                      : f.aiStatus === "quota"
-                                      ? "bg-yellow-500/80 text-white"
-                                      : "bg-green-500/80 text-white"
-                                  )}
-                                  title={
-                                    f.aiStatus === "quota"
-                                      ? "Quota Gemini dépassé — cliquer pour réessayer"
-                                      : undefined
-                                  }
-                                >
-                                  {f.aiStatus === "done"
-                                    ? "✦"
-                                    : f.aiStatus === "error"
-                                    ? "!"
-                                    : f.aiStatus === "quota"
-                                    ? "⏳"
-                                    : "✓"}
+                                <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] bg-green-500/80 text-white">
+                                  ✓
                                 </div>
                                 {/* Edit hover */}
                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
@@ -527,99 +358,15 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       )}
                     </div>
 
-                    {/* ── AI toggle (only shown when files are pending) ── */}
-                    {!uploading && !allSettled && (
-                      <div className="px-4 pt-3">
-                        <div
-                          className={cn(
-                            "flex items-start gap-2.5 px-3 py-2.5 rounded-xl border transition-colors",
-                            aiEnabled
-                              ? "border-[var(--accent,#a78bfa)]/30 bg-[var(--accent,#a78bfa)]/5"
-                              : "border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-                          )}
-                        >
-                          {/* Toggle */}
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={aiEnabled}
-                            onClick={() => setAiEnabled((v) => !v)}
-                            className={cn(
-                              "relative mt-0.5 inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                              aiEnabled ? "bg-[var(--accent,#a78bfa)]" : "bg-[var(--bg-overlay)]"
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
-                                aiEnabled ? "translate-x-3" : "translate-x-0"
-                              )}
-                            />
-                          </button>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={cn(
-                                  "text-[10px] font-medium",
-                                  aiEnabled
-                                    ? "text-[var(--accent,#a78bfa)]"
-                                    : "text-[var(--text-secondary)]"
-                                )}
-                              >
-                                ✦ Analyse IA automatique
-                              </span>
-                              <span
-                                className={cn(
-                                  "text-[8px] px-1 py-0.5 rounded-full",
-                                  aiEnabled
-                                    ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
-                                    : "bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
-                                )}
-                              >
-                                {aiEnabled ? "ON" : "OFF"}
-                              </span>
-                            </div>
-                            <p className="text-[9px] text-[var(--text-tertiary)] leading-relaxed mt-0.5">
-                              {aiEnabled ? (
-                                <>
-                                  <span className="text-[var(--accent,#a78bfa)]/80">
-                                    Titre, description, tags et catégories appliqués automatiquement.{" "}
-                                  </span>
-                                  Vignette 256 px envoyée à Google Gemini (hors UE).
-                                </>
-                              ) : (
-                                <>
-                                  Activer pour que Gemini remplisse titre, tags et catégories
-                                  automatiquement. Données transmises à Google (hors UE).
-                                </>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Footer */}
                     <div className="flex items-center justify-end gap-3 px-4 py-3 mt-1">
-                      {/* Bouton Réanalyser — visible seulement quand tout est terminé */}
-                      {allSettled && quotaCount > 0 && (
-                        <button
-                          onClick={retryQuotaFiles}
-                          className="text-xs px-3 py-1.5 border border-yellow-500/40 text-yellow-400 rounded-lg hover:bg-yellow-500/10 transition-colors"
-                          title="Quota Gemini dépassé. Cliquer pour réessayer."
-                        >
-                          ⏳ Réanalyser {quotaCount > 1 ? `${quotaCount} images` : "1 image"}
-                        </button>
-                      )}
-
                       {/* Bibliothèque → dès que les uploads sont finis */}
                       {uploadsComplete && (
                         <Link
                           href="/library"
                           className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
                         >
-                          {analyzingCount > 0 ? "Bibliothèque (analyse en cours…)" : "Voir la bibliothèque →"}
+                          Voir la bibliothèque →
                         </Link>
                       )}
 
@@ -629,9 +376,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                           onClick={uploadAll}
                           className="text-xs px-4 py-1.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-lg hover:opacity-90 transition-opacity"
                         >
-                          {aiEnabled
-                            ? `Importer + analyser ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`
-                            : `Importer ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`}
+                          {`Importer ${pendingCount > 1 ? `${pendingCount} images` : "1 image"}`}
                         </button>
                       )}
 
@@ -678,16 +423,6 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                         <p className="text-xs text-[var(--text-secondary)] truncate max-w-[280px]">
                           {editingFile.file.name}
                         </p>
-                        {editingFile.aiStatus === "done" && (
-                          <span className="text-[9px] text-[var(--accent,#a78bfa)] flex-shrink-0">
-                            ✦ Analysée
-                          </span>
-                        )}
-                        {editingFile.aiStatus === "error" && (
-                          <span className="text-[9px] text-orange-400 flex-shrink-0">
-                            ⚠ Analyse échouée
-                          </span>
-                        )}
                       </div>
                       <button
                         onClick={() => setEditingInspirationId(null)}
@@ -712,20 +447,14 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       <MetadataPanel
                         id={editingInspirationId}
                         initialData={{
-                          title:
-                            editingFile.aiData?.title ??
-                            editingFile.file.name.replace(/\.[^/.]+$/, ""),
-                          description: editingFile.aiData?.description ?? "",
+                          title: editingFile.file.name.replace(/\.[^/.]+$/, ""),
+                          description: "",
                           author: "",
                           country: "",
                           sourceUrl: "",
-                          tags: editingFile.aiData?.tags ?? [],
-                          categories: editingFile.aiData?.categories ?? [],
+                          tags: [],
+                          categories: [],
                         }}
-                        aiFirst={
-                          editingFile.aiStatus === "done" ||
-                          editingFile.aiStatus === "error"
-                        }
                       />
                     </div>
                   </motion.div>

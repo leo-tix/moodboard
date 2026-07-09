@@ -28,7 +28,6 @@ export interface DetailPageData {
     tags: string[];
   };
   colorPalette: { id: string; hex: string; percentage: number; order: number }[];
-  aiAnalysis: { moodDescriptor: string | null; styleKeywords: string[] } | null;
   initialCollections: { id: string; name: string }[];
   initialVisit?: { id: string; place: string; exhibition: string | null; visitDate: string } | null;
 }
@@ -488,7 +487,6 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             id={data.id}
             initialData={panelData}
             colorPalette={data.colorPalette}
-            aiAnalysis={data.aiAnalysis}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
             scrollable={false}
@@ -522,7 +520,6 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             id={data.id}
             initialData={panelData}
             colorPalette={data.colorPalette}
-            aiAnalysis={data.aiAnalysis}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
           />

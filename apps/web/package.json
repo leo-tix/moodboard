@@ -12,7 +12,6 @@
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@distube/ytdl-core": "^4.16.12",
-    "@google/genai": "^2.5.0",
     "@prisma/client": "^6.0.0",
     "bcryptjs": "^2.4.3",
     "blurhash": "^2.0.5",

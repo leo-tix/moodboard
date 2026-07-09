@@ -35,7 +35,6 @@ export default async function InterceptedLibraryDetail({ params }: Props) {
         orderBy: { order: "asc" },
         select: { id: true, hex: true, percentage: true, order: true },
       },
-      aiAnalysis: { select: { moodDescriptor: true, styleKeywords: true } },
       collections: { select: { collection: { select: { id: true, name: true } } } },
       visit: { select: { id: true, place: true, exhibition: true, visitDate: true } },
     },
@@ -64,9 +63,6 @@ export default async function InterceptedLibraryDetail({ params }: Props) {
       tags: inspiration.tags.map((t) => t.tag.name),
     },
     colorPalette: inspiration.colorPalette,
-    aiAnalysis: inspiration.aiAnalysis
-      ? { moodDescriptor: inspiration.aiAnalysis.moodDescriptor, styleKeywords: inspiration.aiAnalysis.styleKeywords }
-      : null,
     initialCollections: inspiration.collections.map((c) => ({
       id: c.collection.id,
       name: c.collection.name,

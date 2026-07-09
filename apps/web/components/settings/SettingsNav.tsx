@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 
 const BASE_NAV = [
   { href: "/settings/account", label: "Compte" },
-  { href: "/settings/general", label: "Général" },
   { href: "/settings/categories", label: "Catégories" },
   { href: "/settings/extensions", label: "Extensions" },
 ];

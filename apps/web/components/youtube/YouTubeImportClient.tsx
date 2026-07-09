@@ -51,9 +51,6 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
 
   const [mode, setMode] = useState<Mode>("stills");
 
-  // AI analysis toggle — OFF by default, same as the rest of the platform
-  const [aiEnabled, setAiEnabled] = useState(false);
-
   // Collection
   const [createCollection, setCreateCollection] = useState(true);
   const [collectionName, setCollectionName] = useState("");
@@ -184,58 +181,28 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
         });
       };
 
-      // Helper: analyze an inspiration and return suggested tags + categories
-      const analyzeInspiration = async (
-        id: string
-      ): Promise<{ tags: string[]; categories: { categoryId: string }[] }> => {
-        try {
-          const res = await fetch(`/api/inspirations/${id}/analyze`, { method: "POST" });
-          if (!res.ok) return { tags: [], categories: [] };
-          const data = await res.json();
-          return {
-            tags: (data.suggestedTags as string[]) ?? [],
-            categories:
-              (data.suggestedCategories as { id: string }[])?.map((c) => ({
-                categoryId: c.id,
-              })) ?? [],
-          };
-        } catch {
-          return { tags: [], categories: [] };
-        }
-      };
-
       const inspirationIds: string[] = [];
 
       if (mode === "mosaic") {
-        setImportTotal(2); // upload + analyze
+        setImportTotal(1);
 
         setImportStatus("Composition de la mosaïque…");
         const file = dataUrlToFile(framesData.dataUrl, "mosaic.jpg");
         const id = await uploadFile(file);
         if (id) {
-          setImportProgress(1);
-          let aiTags: string[] = [];
-          let aiCategories: { categoryId: string }[] = [];
-          if (aiEnabled) {
-            setImportStatus("Analyse IA…");
-            const result = await analyzeInspiration(id);
-            aiTags = result.tags;
-            aiCategories = result.categories;
-          }
-          const allTags = [...(metadata?.tags ?? []), ...aiTags];
           await patchInspiration(
             id,
             info.title,
             `https://youtube.com/watch?v=${info.videoId}`,
-            allTags,
-            aiCategories
+            metadata?.tags ?? [],
+            []
           );
           inspirationIds.push(id);
         }
-        setImportProgress(2);
+        setImportProgress(1);
       } else {
         const frames = framesData.frames as { dataUrl: string; label: string }[];
-        setImportTotal(frames.length * 2); // upload + analyze per frame
+        setImportTotal(frames.length);
 
         for (let i = 0; i < frames.length; i++) {
           const frame = frames[i];
@@ -246,26 +213,16 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
           );
           const id = await uploadFile(file);
           if (id) {
-            setImportProgress(i * 2 + 1);
-            let aiTags: string[] = [];
-            let aiCategories: { categoryId: string }[] = [];
-            if (aiEnabled) {
-              setImportStatus(`Analyse IA ${i + 1} / ${frames.length}…`);
-              const result = await analyzeInspiration(id);
-              aiTags = result.tags;
-              aiCategories = result.categories;
-            }
-            const allTags = [...(metadata?.tags ?? []), ...aiTags];
             await patchInspiration(
               id,
               `${info.title} — ${frame.label}`,
               `https://youtube.com/watch?v=${info.videoId}`,
-              allTags,
-              aiCategories
+              metadata?.tags ?? [],
+              []
             );
             inspirationIds.push(id);
           }
-          setImportProgress(i * 2 + 2);
+          setImportProgress(i + 1);
         }
       }
 
@@ -562,74 +519,13 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
               </AnimatePresence>
             </div>
 
-            {/* AI toggle — OFF by default, same as rest of platform */}
-            <div
-              className={cn(
-                "flex items-start gap-2.5 px-3 py-2.5 rounded-xl border transition-colors",
-                aiEnabled
-                  ? "border-[var(--accent,#a78bfa)]/30 bg-[var(--accent,#a78bfa)]/5"
-                  : "border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-              )}
-            >
-              <button
-                type="button"
-                role="switch"
-                aria-checked={aiEnabled}
-                onClick={() => setAiEnabled((v) => !v)}
-                className={cn(
-                  "relative mt-0.5 inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                  aiEnabled ? "bg-[var(--accent,#a78bfa)]" : "bg-[var(--bg-overlay)]"
-                )}
-              >
-                <span
-                  className={cn(
-                    "inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
-                    aiEnabled ? "translate-x-3" : "translate-x-0"
-                  )}
-                />
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "text-[10px] font-medium",
-                      aiEnabled ? "text-[var(--accent,#a78bfa)]" : "text-[var(--text-secondary)]"
-                    )}
-                  >
-                    ✦ Analyse IA automatique
-                  </span>
-                  <span
-                    className={cn(
-                      "text-[8px] px-1 py-0.5 rounded-full",
-                      aiEnabled
-                        ? "bg-[var(--accent,#a78bfa)]/20 text-[var(--accent,#a78bfa)]"
-                        : "bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
-                    )}
-                  >
-                    {aiEnabled ? "ON" : "OFF"}
-                  </span>
-                </div>
-                <p className="text-[9px] text-[var(--text-tertiary)] leading-relaxed mt-0.5">
-                  {aiEnabled ? (
-                    <span className="text-[var(--accent,#a78bfa)]/80">
-                      Titre, tags et catégories appliqués automatiquement via Gemini.
-                    </span>
-                  ) : (
-                    "Activer pour que Gemini analyse chaque image (tags, catégories). Données transmises à Google (hors UE)."
-                  )}
-                </p>
-              </div>
-            </div>
-
             {error && <p className="text-xs text-red-400">{error}</p>}
 
             <button
               onClick={importFrames}
               className="w-full py-2.5 bg-[var(--text-primary)] text-[var(--bg-base)] rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
             >
-              {aiEnabled
-                ? `Importer + analyser ${mode === "mosaic" ? "la mosaïque" : "les 4 images"} →`
-                : `Importer ${mode === "mosaic" ? "la mosaïque" : "les 4 images"} →`}
+              {`Importer ${mode === "mosaic" ? "la mosaïque" : "les 4 images"} →`}
             </button>
           </motion.div>
         )}
@@ -671,7 +567,6 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
               <p className="text-lg font-light text-[var(--text-primary)]">Import terminé</p>
               <p className="text-sm text-[var(--text-tertiary)] mt-1">
                 {mode === "mosaic" ? "Mosaïque créée" : "4 images importées"}
-                {aiEnabled ? " · Analysées par IA" : ""}
                 {createCollection && collectionId ? " · Collection créée" : ""}
               </p>
             </div>

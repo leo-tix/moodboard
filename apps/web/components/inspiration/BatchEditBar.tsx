@@ -35,8 +35,6 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
   const [restoring, setRestoring] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeProgress, setAnalyzeProgress] = useState(0);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
 
   useEffect(() => {
@@ -60,17 +58,6 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
     } finally {
       setRestoring(false);
     }
-  };
-
-  const analyzeAll = async () => {
-    setAnalyzing(true);
-    setAnalyzeProgress(0);
-    for (let i = 0; i < selectedIds.length; i++) {
-      await fetch(`/api/inspirations/${selectedIds[i]}/analyze`, { method: "POST" });
-      setAnalyzeProgress(i + 1);
-    }
-    setAnalyzing(false);
-    onSaved();
   };
 
   const save = async () => {
@@ -205,18 +192,6 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
                 className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-right"
               >
                 ▣ Collections
-              </button>
-            )}
-            {!isArchivedMode && (
-              <button
-                type="button"
-                onClick={analyzeAll}
-                disabled={analyzing}
-                className="text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 transition-opacity disabled:opacity-40 flex items-center gap-1 justify-end font-medium"
-              >
-                {analyzing
-                  ? `✦ ${analyzeProgress}/${selectedIds.length}…`
-                  : "✦ Analyser avec l'IA"}
               </button>
             )}
             {confirmDelete ? (
