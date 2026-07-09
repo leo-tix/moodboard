@@ -60,9 +60,9 @@ export function InspirationCard({
   onCardDragEnd,
 }: InspirationCardProps) {
   const [hovered, setHovered] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const dragControls = useDragControls();
   const dragEnabled = !!onCardDragStart;
+  const nodeRef = useRef<HTMLDivElement>(null);
 
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
@@ -87,6 +87,11 @@ export function InspirationCard({
     pressStart.current = { x: e.clientX, y: e.clientY };
     longPressTimer.current = setTimeout(() => {
       navigator.vibrate?.(15);
+      // Mutation DOM directe et SYNCHRONE — passer par un `useState` React
+      // (comme avant) applique le style un cycle de rendu trop tard : le
+      // navigateur a déjà eu le temps de réclamer le geste comme un scroll
+      // dès le premier pixel de déplacement du doigt après le long-press.
+      if (nodeRef.current) nodeRef.current.style.touchAction = "none";
       dragControls.start(e);
     }, LONG_PRESS_MS);
   };
@@ -98,7 +103,14 @@ export function InspirationCard({
     if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) clearLongPress();
   };
 
-  const handlePointerUp = () => clearLongPress();
+  const handlePointerUp = () => {
+    clearLongPress();
+    // Filet de sécurité : si le drag a été armé (touch-action verrouillé)
+    // mais que Framer n'a jamais détecté de mouvement suffisant pour lancer
+    // un vrai onDragStart (tap-and-hold sans déplacement), onDragEnd ne se
+    // déclenche pas — sans ce reset, le scroll resterait bloqué sur la carte.
+    if (nodeRef.current) nodeRef.current.style.touchAction = "";
+  };
 
   const guardClick = (fn: () => void) => {
     if (justDraggedRef.current) return;
@@ -110,13 +122,17 @@ export function InspirationCard({
 
   const cardContent = (
     <motion.div
+      ref={nodeRef}
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       className={cn(
         "relative overflow-hidden rounded-md bg-[var(--bg-surface)] cursor-pointer",
         selected && "ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-[var(--bg-base)]"
       )}
-      style={{ aspectRatio, touchAction: dragging ? "none" : undefined }}
+      // touchAction n'est PAS géré ici (déclaratif) mais impérativement via
+      // nodeRef.current.style — sinon un re-render pendant l'attente du
+      // long-press écraserait le verrouillage synchrone posé au bon moment.
+      style={{ aspectRatio }}
       whileHover={{ scale: selectable ? 1 : 1.005 }}
       whileDrag={{ scale: 1.06, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" }}
       transition={{ duration: 0.2 }}
@@ -132,7 +148,6 @@ export function InspirationCard({
       onPointerCancel={handlePointerUp}
       onDragStart={() => {
         clearLongPress();
-        setDragging(true);
         // Armé dès le DÉBUT du drag, pas à la fin : le "click" natif du
         // navigateur peut se déclencher avant que onDragEnd n'ait fini de
         // s'exécuter (pas d'ordre garanti entre les deux), donc poser le flag
@@ -142,7 +157,7 @@ export function InspirationCard({
       }}
       onDrag={(_e, info: PanInfo) => onCardDrag?.(info.point.x, info.point.y)}
       onDragEnd={(_e, info: PanInfo) => {
-        setDragging(false);
+        if (nodeRef.current) nodeRef.current.style.touchAction = "";
         onCardDragEnd?.(info.point.x, info.point.y);
         setTimeout(() => { justDraggedRef.current = false; }, 150);
       }}
