@@ -366,7 +366,12 @@ function JournalItemBlock({
       layout
       {...sortable.getContainerProps(sortableKey)}
       className={cn(
-        "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all",
+        // Surtout PAS `transition-all` : Framer pilote `transform` à la main
+        // pendant l'animation `layout`, et un `transition: all` CSS ré-anime ce
+        // même transform en parallèle → conflit, saccades ("bazar"). Les cartes
+        // de planches sont fluides justement parce qu'elles n'animent que la
+        // couleur. On se limite donc à la couleur ici aussi.
+        "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-colors",
         isDragging && "opacity-40"
       )}
       style={{ aspectRatio: ar }}
