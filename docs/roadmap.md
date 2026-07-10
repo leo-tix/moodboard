@@ -100,14 +100,17 @@ page `/social` qui interroge les inspirations des profils suivis.
 
 ## 6. Refonte du module visites — "carnet premium"
 
-Améliorations demandées, par ordre d'intérêt exprimé :
+Trois sources d'inspiration citées par l'utilisateur pour cette refonte :
+**iPhone Journal** (couverture, ajout en live, stats/carte), **Google Photos
+albums partagés** (collaboratif, export/partage public), **Notion**
+(éditeur de blocs). Améliorations, par ordre d'intérêt exprimé :
 
-- **Éditeur de carnet façon Notion** : réorganisation des blocs (images +
-  notes) plus fluide qu'aujourd'hui, titres, texte stylisé (gras/italique/
-  listes...), blocs audio insérables. Refonte significative de
-  `VisitJournal.tsx` — actuellement de simples blocs texte/image en séquence
-  triée par `order`. À évaluer : éditeur rich-text (Tiptap/ProseMirror) vs
-  blocs typés custom (plus proche du système CanvasElement du moodboard).
+- **✅ Éditeur de carnet façon Notion (2026-07-10)** : réorganisation des
+  blocs déjà refaite (overlay+fantôme, voir section 1 ci-dessus). Texte
+  stylisé ajouté via Tiptap/ProseMirror (choix tranché par l'utilisateur
+  face à l'alternative "blocs custom") — titres H2/H3, gras, italique,
+  listes à puces/numérotées. Détails → mémoire agent. Blocs audio non
+  couverts par cette itération (reporté).
 - **Couverture de visite personnalisable** : les images ajoutées défilent en
   couverture (carrousel), aspect "vrai carnet premium".
 - **Ajout d'image en temps réel depuis le carnet** : bouton "+ Photo" dans

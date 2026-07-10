@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const { id, noteId } = await params;
   const body = await req.json().catch(() => ({}));
-  const parsed = z.object({ content: z.string().max(5000) }).safeParse(body);
+  const parsed = z.object({ content: z.string().max(20000) }).safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }

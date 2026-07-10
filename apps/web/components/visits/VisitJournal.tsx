@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
 import { DragHandle } from "@/components/ui/DragHandle";
+import { NoteEditor } from "@/components/visits/NoteEditor";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -128,21 +129,24 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     setEditingNoteId(note.id);
   };
 
-  const saveNote = async (noteId: string, content: string) => {
+  // `content` est du HTML (Tiptap) — on ne peut pas juger de la vacuité avec
+  // un simple `.trim()` (un doc vide sérialise en "<p></p>", jamais "").
+  const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
+
+  const saveNote = async (noteId: string, html: string) => {
     setEditingNoteId(null);
-    const trimmed = content.trim();
-    if (!trimmed) {
+    if (isEmptyHtml(html)) {
       // Note vide au blur → suppression (évite les blocs fantômes)
       deleteNote(noteId);
       return;
     }
     setItems((prev) =>
-      prev.map((it) => (it.type === "note" && it.id === noteId ? { ...it, content: trimmed } : it)),
+      prev.map((it) => (it.type === "note" && it.id === noteId ? { ...it, content: html } : it)),
     );
     await fetch(`/api/visits/${visitId}/notes/${noteId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: trimmed }),
+      body: JSON.stringify({ content: html }),
     }).catch(() => {});
   };
 
@@ -336,28 +340,17 @@ function JournalItemBlock({
         {...dragBindings}
         className="col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative"
       >
-        <div className="flex items-start gap-2">
+        <div
+          className="flex items-start gap-2"
+          onClick={() => { if (!isEditing && !sortable.wasDragging()) setEditingNoteId(item.id); }}
+        >
           <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
-          {isEditing ? (
-            <textarea
-              autoFocus
-              defaultValue={item.content}
-              rows={Math.max(2, item.content.split("\n").length)}
-              onBlur={(e) => onSaveNote(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") (e.target as HTMLTextAreaElement).blur();
-              }}
-              className="flex-1 bg-transparent text-sm text-[var(--text-primary)] leading-relaxed focus:outline-none resize-y placeholder:text-[var(--text-tertiary)]"
-              placeholder="Écris ta note…"
-            />
-          ) : (
-            <p
-              onClick={() => { if (!sortable.wasDragging()) setEditingNoteId(item.id); }}
-              className="flex-1 text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap cursor-text min-h-[1.5rem]"
-            >
-              {item.content || <span className="text-[var(--text-tertiary)] italic">Note vide — cliquer pour éditer</span>}
-            </p>
-          )}
+          <NoteEditor
+            content={item.content}
+            editable={isEditing}
+            onBlurSave={(html) => onSaveNote(html)}
+            placeholder="Note vide — cliquer pour éditer"
+          />
           {itemMenu}
           {!isEditing && (
             <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5" title="Glisser pour réordonner" />

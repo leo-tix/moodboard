@@ -6,7 +6,12 @@ import { z } from "zod";
 interface Params { params: Promise<{ id: string }> }
 
 const createSchema = z.object({
-  content: z.string().max(5000).default(""),
+  // HTML (sortie de l'éditeur Tiptap) — plafond relevé pour absorber la
+  // verbosité des balises par rapport au texte brut d'origine. Pas de risque
+  // XSS supplémentaire : le rendu passe par le schéma ProseMirror (parser
+  // qui ne reconnaît que les nœuds de StarterKit), jamais par un
+  // dangerouslySetInnerHTML brut.
+  content: z.string().max(20000).default(""),
   // Position dans le carnet ; si absent → fin de séquence
   order: z.number().int().optional(),
 });

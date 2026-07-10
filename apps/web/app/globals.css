@@ -120,3 +120,54 @@ body {
     font-size: 16px;
   }
 }
+
+/* ============================================================
+   NOTE PROSE — rendu du contenu riche (Tiptap) dans le carnet de visite
+   ============================================================ */
+.note-prose p {
+  margin: 0 0 0.4em;
+}
+.note-prose p:last-child {
+  margin-bottom: 0;
+}
+.note-prose h2,
+.note-prose h3 {
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.6em 0 0.3em;
+}
+.note-prose h2:first-child,
+.note-prose h3:first-child {
+  margin-top: 0;
+}
+.note-prose h2 {
+  font-size: 1.05em;
+}
+.note-prose h3 {
+  font-size: 0.98em;
+}
+.note-prose strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.note-prose em {
+  font-style: italic;
+}
+.note-prose ul,
+.note-prose ol {
+  margin: 0.3em 0;
+  padding-left: 1.25em;
+}
+.note-prose ul {
+  list-style: disc;
+}
+.note-prose ol {
+  list-style: decimal;
+}
+.note-prose li {
+  margin: 0.15em 0;
+}
+.note-prose li p {
+  margin: 0;
+}
