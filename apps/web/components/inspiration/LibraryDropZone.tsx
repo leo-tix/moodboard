@@ -65,6 +65,7 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
     const [overKey, setOverKey] = useState<string | null>(null);
     const [successKey, setSuccessKey] = useState<string | null>(null);
     const celebrateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
 
     useImperativeHandle(ref, () => ({
       armTrash: (ids: string[]) => {
@@ -84,6 +85,22 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
           if (key !== prev && key) navigator.vibrate?.(8); // petit tick à l'entrée d'une nouvelle zone
           return key;
         });
+
+        // Auto-scroll aux bords : pendant un drag, le pointeur/doigt est déjà
+        // occupé à déplacer la carte — impossible de scroller la barre "à la
+        // main" en même temps pour atteindre les chips hors écran. On le fait
+        // pour l'utilisateur dès qu'il approche d'un bord.
+        const container = scrollRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const EDGE = 56;
+          const MAX_SPEED = 16;
+          if (x < rect.left + EDGE) {
+            container.scrollLeft -= MAX_SPEED * Math.min(1, (rect.left + EDGE - x) / EDGE);
+          } else if (x > rect.right - EDGE) {
+            container.scrollLeft += MAX_SPEED * Math.min(1, (x - (rect.right - EDGE)) / EDGE);
+          }
+        }
       },
     }));
 
@@ -135,16 +152,23 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
       <AnimatePresence>
         {active && (
           <motion.div
-            initial={{ y: -16, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -16, opacity: 0 }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
             transition={{ type: "spring", bounce: 0.15, duration: 0.3 }}
-            className="fixed top-4 inset-x-0 z-[9999] flex justify-center px-4 pointer-events-none"
+            // Bas sur mobile (au-dessus de BottomNav/BatchEditBar, pouce
+            // atteint facilement), haut sur desktop (loin de BatchEditBar
+            // qui reste en bas là-bas — voir commentaire plus haut).
+            className="fixed inset-x-0 z-[9999] flex justify-center px-4 pointer-events-none bottom-24 md:bottom-auto md:top-4"
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
           >
             {/* pointer-events-auto : nécessaire pour que elementFromPoint() détecte les
                 chips pendant le drag — les éléments pointer-events:none sont exclus du
                 hit-testing, y compris de elementFromPoint. */}
-            <div className="pointer-events-auto flex items-center gap-1.5 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/50 px-2 py-1.5 max-w-[calc(100vw-2rem)] overflow-x-auto scrollbar-none">
+            <div
+              ref={scrollRef}
+              className="pointer-events-auto flex items-center gap-1.5 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/50 px-2 py-1.5 max-w-[calc(100vw-2rem)] overflow-x-auto scrollbar-none"
+            >
               {dragActive && (
                 <span className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] px-2">
                   {draggingIds!.length > 1 ? `${draggingIds!.length} images ·` : ""} Déposer sur…
