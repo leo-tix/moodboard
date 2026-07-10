@@ -169,9 +169,6 @@ export function InspirationCard({
         </div>
       )}
 
-      {/* Poignée de drag — touch-action:none permanent, jamais togglé (voir
-          commentaire sur handleGrabStart). Toujours visible au tactile,
-          révélée au survol sur desktop. */}
       {/* Poignée réservée au tactile (voir handleGrabStart) — sur souris on
           saisit n'importe où sur la carte, `hidden pointer-coarse:flex` la
           retire donc entièrement du DOM visuel/interactif sur desktop. */}
@@ -247,6 +244,14 @@ export function InspirationCard({
     <Link
       href={`/library/${id}`}
       className={cn("block group", className)}
+      // Sans ça, le navigateur déclenche son propre drag natif du lien (ghost
+      // "titre + URL") qui prend le pas sur le drag Framer Motion piloté à la
+      // main ci-dessus — même piège que <img draggable={false}> plus haut.
+      draggable={dragEnabled ? false : undefined}
+      // Idem au tactile : sans ça, l'appui long ouvre le menu contextuel natif
+      // du navigateur. -webkit-touch-callout couvre le callout iOS Safari.
+      onContextMenu={dragEnabled ? (e) => e.preventDefault() : undefined}
+      style={dragEnabled ? { WebkitTouchCallout: "none" } : undefined}
       onClick={(e) => {
         if (justDraggedRef.current) { e.preventDefault(); return; }
         onBeforeNavigate?.();
