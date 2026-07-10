@@ -319,14 +319,22 @@ function JournalItemBlock({
     const dragBindings = isEditing
       ? {}
       : { ...sortable.getContainerProps(sortableKey) };
+    // Pendant le drag, le fantôme d'une note se réduit à une fine barre
+    // d'insertion : sinon un gros bloc pleine largeur pousse toutes les
+    // images à chaque micro-déplacement et il devient impossible de viser.
+    // Le clone flottant (rendu par le parent) reste la note complète.
+    if (isDragging) {
+      return (
+        <motion.div layout className="col-span-full py-1">
+          <div className="h-1.5 rounded-full bg-[var(--text-primary)]/40" />
+        </motion.div>
+      );
+    }
     return (
       <motion.div
         layout
         {...dragBindings}
-        className={cn(
-          "col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative",
-          isDragging && "opacity-40"
-        )}
+        className="col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative"
       >
         <div className="flex items-start gap-2">
           <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
