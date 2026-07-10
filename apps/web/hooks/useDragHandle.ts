@@ -8,8 +8,29 @@ export interface DragHandleProps {
   style: { touchAction: "none"; WebkitTouchCallout: "none" };
 }
 
+/**
+ * Props obligatoires du `motion.div` draggable, à spreader telles quelles
+ * (`<motion.div {...dragProps} ...>`). Regroupées ici pour éviter un bug
+ * silencieux : `dragControls` doit être passé au MÊME élément que celui sur
+ * lequel `dragControls.start()` est appelé, sinon le drag ne s'enclenche
+ * jamais — sans erreur, sans warning, juste "rien ne se passe" au drag.
+ * (Bug réel rencontré : oublié sur MoodboardCard/VisitJournal lors de la
+ * première migration, resté indétecté par tsc/build.)
+ */
+export interface DragMotionProps {
+  drag: boolean;
+  dragListener: false;
+  dragControls: DragControls;
+  dragElastic: number;
+  dragMomentum: false;
+  dragSnapToOrigin: true;
+  whileDrag: { scale: number; zIndex: number; boxShadow: string };
+}
+
 export interface UseDragHandleResult {
   dragControls: DragControls;
+  /** À spreader sur le motion.div draggable — voir DragMotionProps. */
+  dragProps: DragMotionProps;
   /** À passer sur le pointerdown de l'élément entier (carte, bloc…) */
   onCardPointerDown: (e: React.PointerEvent) => void;
   /** Props à spreader sur la poignée dédiée (tactile uniquement) */
@@ -38,6 +59,9 @@ export interface UseDragHandleResult {
  *
  * Utilisé par InspirationCard (bibliothèque), MoodboardCard (planches) et
  * VisitJournal (carnet de visite) — même mécanique partout sur le site.
+ * Toujours spreader `dragProps` en entier sur le `motion.div` draggable —
+ * ne jamais recopier ses champs un par un (c'est exactement ce qui a cassé
+ * silencieusement le drag sur deux composants la première fois).
  */
 export function useDragHandle(enabled: boolean): UseDragHandleResult {
   const dragControls = useDragControls();
@@ -60,5 +84,15 @@ export function useDragHandle(enabled: boolean): UseDragHandleResult {
     style: { touchAction: "none", WebkitTouchCallout: "none" },
   };
 
-  return { dragControls, onCardPointerDown, handleProps };
+  const dragProps: DragMotionProps = {
+    drag: enabled,
+    dragListener: false,
+    dragControls,
+    dragElastic: 0.12,
+    dragMomentum: false,
+    dragSnapToOrigin: true,
+    whileDrag: { scale: 1.05, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" },
+  };
+
+  return { dragControls, dragProps, onCardPointerDown, handleProps };
 }

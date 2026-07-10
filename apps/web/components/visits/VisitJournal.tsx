@@ -249,17 +249,12 @@ function JournalItemBlock({
   onCardDrag: (x: number, y: number) => void;
   onCardDragEnd: (x: number, y: number) => void;
 }) {
-  const { onCardPointerDown, handleProps } = useDragHandle(true);
+  const { dragProps, onCardPointerDown, handleProps } = useDragHandle(true);
   const justDraggedRef = useRef(false);
 
-  const dragProps = {
+  const itemDragProps = {
     "data-drop-key": `item-${idx}`,
-    drag: true as const,
-    dragListener: false as const,
-    dragElastic: 0.12,
-    dragMomentum: false as const,
-    dragSnapToOrigin: true as const,
-    whileDrag: { scale: 1.04, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" },
+    ...dragProps,
     onPointerDown: onCardPointerDown,
     onDragStart: () => { justDraggedRef.current = true; onCardDragStart(); },
     onDrag: (_e: unknown, info: PanInfo) => onCardDrag(info.point.x, info.point.y),
@@ -325,7 +320,7 @@ function JournalItemBlock({
     const isEditing = editingNoteId === item.id;
     return (
       <motion.div
-        {...(!isEditing ? dragProps : {})}
+        {...(!isEditing ? itemDragProps : {})}
         className={cn(
           "col-span-full rounded-lg border bg-[var(--bg-surface)] px-4 py-3 transition-colors relative",
           isDragOver ? "border-[var(--text-primary)]" : "border-[var(--border-subtle)]"
@@ -366,7 +361,7 @@ function JournalItemBlock({
   const ar = item.width && item.height ? item.width / item.height : 1;
   return (
     <motion.div
-      {...dragProps}
+      {...itemDragProps}
       className={cn(
         "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all",
         isDragOver && "ring-1 ring-[var(--text-primary)]"

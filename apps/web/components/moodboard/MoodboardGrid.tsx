@@ -501,7 +501,7 @@ function MoodboardCard({
     day: "numeric", month: "short", year: "numeric",
   });
 
-  const { onCardPointerDown, handleProps } = useDragHandle(true);
+  const { dragProps, onCardPointerDown, handleProps } = useDragHandle(true);
   // Évite qu'un clic déclenché juste après un vrai drag ne navigue par accident.
   const justDraggedRef = useRef(false);
 
@@ -521,12 +521,7 @@ function MoodboardCard({
   return (
     <motion.div
       data-drop-key={`card-${moodboard.id}`}
-      drag
-      dragListener={false}
-      dragElastic={0.12}
-      dragMomentum={false}
-      dragSnapToOrigin
-      whileDrag={{ scale: 1.03, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" }}
+      {...dragProps}
       onPointerDown={onCardPointerDown}
       onDragStart={() => { justDraggedRef.current = true; onCardDragStart(); }}
       onDrag={(_e, info: PanInfo) => onCardDrag(info.point.x, info.point.y)}

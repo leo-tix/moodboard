@@ -56,7 +56,7 @@ export function InspirationCard({
 }: InspirationCardProps) {
   const [hovered, setHovered] = useState(false);
   const dragEnabled = !!onCardDragStart;
-  const { dragControls, onCardPointerDown, handleProps } = useDragHandle(dragEnabled);
+  const { dragProps, onCardPointerDown, handleProps } = useDragHandle(dragEnabled);
   // Évite qu'un clic/tap déclenché juste après un vrai drag ne navigue ou
   // ne (dé)sélectionne la carte par accident.
   const justDraggedRef = useRef(false);
@@ -79,14 +79,8 @@ export function InspirationCard({
       )}
       style={{ aspectRatio }}
       whileHover={{ scale: selectable ? 1 : 1.005 }}
-      whileDrag={{ scale: 1.06, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" }}
       transition={{ duration: 0.2 }}
-      drag={dragEnabled}
-      dragListener={false}
-      dragControls={dragControls}
-      dragElastic={0.12}
-      dragMomentum={false}
-      dragSnapToOrigin
+      {...dragProps}
       onPointerDown={onCardPointerDown}
       onDragStart={() => {
         // Armé dès le DÉBUT du drag, pas à la fin : le "click" natif du
