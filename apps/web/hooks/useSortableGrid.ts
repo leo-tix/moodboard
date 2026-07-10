@@ -196,8 +196,11 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
     "data-sortable-key": key,
     onPointerDown: (e: React.PointerEvent) => {
       if (e.pointerType !== "mouse" || e.button !== 0) return; // tactile => poignée
-      // Ne pas démarrer sur les contrôles internes (menu, suppression, liens…).
-      if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+      // Ne pas démarrer sur les vrais contrôles (menu, suppression, champs).
+      // On N'EXCLUT PAS <a> : dans le carnet de visite, toute la vignette est
+      // un <Link> — il faut pouvoir la saisir. Le seuil de 6px + wasDragging()
+      // distinguent le clic (navigation) du drag.
+      if ((e.target as HTMLElement).closest("button, input, textarea, select")) return;
       startArming(key, e.currentTarget as HTMLElement, e);
     },
   });
