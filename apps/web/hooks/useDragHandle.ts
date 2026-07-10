@@ -24,7 +24,6 @@ export interface DragMotionProps {
   dragElastic: number;
   dragMomentum: false;
   dragSnapToOrigin: true;
-  layout: boolean;
   whileDrag: { scale: number; zIndex: number; boxShadow: string; pointerEvents: "none" };
 }
 
@@ -92,11 +91,6 @@ export function useDragHandle(enabled: boolean): UseDragHandleResult {
     dragElastic: 0.12,
     dragMomentum: false,
     dragSnapToOrigin: true,
-    // Permet à Framer d'animer (FLIP) la position d'une carte quand ses
-    // voisines sont réordonnées en direct pendant un drag — voir
-    // MoodboardGrid/VisitJournal, qui poussent le nouvel ordre dans le state
-    // dès le survol d'une autre carte plutôt qu'au drop uniquement.
-    layout: true,
     whileDrag: {
       scale: 1.05,
       zIndex: 50,
@@ -105,7 +99,7 @@ export function useDragHandle(enabled: boolean): UseDragHandleResult {
       // éléments avec pointer-events:none — sans ça, la carte draguée, dont
       // le z-index élevé la place visuellement sous le curseur, se
       // retrouvait parfois détectée comme SA PROPRE cible au lieu de la
-      // carte en dessous, rendant le drop aléatoire.
+      // cible en dessous, rendant le drop aléatoire.
       pointerEvents: "none",
     },
   };

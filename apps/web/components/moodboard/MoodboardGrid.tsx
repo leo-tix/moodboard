@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, type PanInfo } from "framer-motion";
+import { motion } from "framer-motion";
 import type { MoodboardData, MoodboardFolderData, CanvasElement } from "@/lib/moodboard/types";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import { cn } from "@/lib/utils";
-import { useDragHandle } from "@/hooks/useDragHandle";
+import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
 import { DragHandle } from "@/components/ui/DragHandle";
 
 interface Props {
@@ -28,15 +28,11 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
 
-  const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<FolderFilter | null>(null);
-  const draggedIdRef = useRef<string | null>(null);
-  draggedIdRef.current = draggedId;
   const moodboardsRef = useRef(moodboards);
   moodboardsRef.current = moodboards;
-  // Déduplique les réordonnancements en direct : ne resplice que quand la
-  // carte survolée change réellement, pas à chaque frame de pointermove.
-  const lastReorderTargetRef = useRef<string | null>(null);
+  const activeFolderRef = useRef(activeFolder);
+  activeFolderRef.current = activeFolder;
 
   const filterSort = (list: MoodboardData[], folder: FolderFilter) =>
     list
@@ -115,81 +111,55 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
     }).catch(() => {});
   };
 
-  // Resplice immédiatement le state local (pas d'appel réseau) dès qu'on
-  // survole une autre carte, pour que le grid se réordonne visuellement en
-  // temps réel pendant le drag (animation FLIP via le prop `layout`,
-  // voir useDragHandle). L'ordre final n'est persisté qu'au drop.
-  const applyLiveReorder = (targetId: string) => {
-    const draggedNow = draggedIdRef.current;
-    if (!draggedNow || draggedNow === targetId) return;
-    const filteredNow = filterSort(moodboardsRef.current, activeFolder);
-    const fromIndex = filteredNow.findIndex((m) => m.id === draggedNow);
-    const toIndex = filteredNow.findIndex((m) => m.id === targetId);
-    if (fromIndex === -1 || toIndex === -1) return;
-
-    const reordered = [...filteredNow];
-    const [moved] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, moved);
-    const orderMap = new Map(reordered.map((m, i) => [m.id, i]));
-    setMoodboards((prev) => prev.map((m) => (orderMap.has(m.id) ? { ...m, order: orderMap.get(m.id)! } : m)));
-  };
-
   const moveToFolder = (boardId: string, folderId: string | null) => {
-    const board = moodboards.find((m) => m.id === boardId);
+    const board = moodboardsRef.current.find((m) => m.id === boardId);
     if (!board || board.folderId === folderId) return;
     setMoodboards((prev) => prev.map((m) => (m.id === boardId ? { ...m, folderId } : m)));
     persistReorder([{ id: boardId, order: board.order, folderId }]);
   };
 
-  // ── Drag Framer Motion (souris n'importe où, tactile via poignée — voir
-  // useDragHandle) — hit-testing par coordonnées (elementFromPoint), pas par
-  // les événements HTML5 dragover/drop natifs qui ne fonctionnent pas au
-  // tactile. Même pattern que la bibliothèque (InspirationCard/LibraryDropZone).
-  const resolveDropTarget = (x: number, y: number): { kind: "card" | "folder"; key: string } | null => {
-    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-key]");
-    const key = el?.getAttribute("data-drop-key");
-    if (!key) return null;
-    if (key.startsWith("card-")) return { kind: "card", key: key.slice(5) };
-    if (key.startsWith("folder-")) return { kind: "folder", key: key.slice(7) };
-    return null;
+  // ── Réordonnancement (overlay + fantôme, voir useSortableGrid) ──
+  // La carte draguée est clonée dans un overlay flottant ; le fantôme et ses
+  // voisins se réorganisent proprement via `layout` de Framer, sans conflit
+  // avec le geste. `data-sortable-key` = id de carte ; `data-drop-key` reste
+  // sur les pastilles de dossier pour la cible externe "déplacer dans dossier".
+  const folderFromEl = (el: Element | null): FolderFilter | null => {
+    const key = el?.closest<HTMLElement>("[data-drop-key]")?.getAttribute("data-drop-key");
+    if (!key?.startsWith("folder-")) return null;
+    return key === "folder-none" ? "none" : key.slice(7);
   };
 
-  const handleCardDragStart = (id: string) => {
-    lastReorderTargetRef.current = null;
-    setDraggedId(id);
-  };
-
-  const handleCardDrag = (x: number, y: number) => {
-    const target = resolveDropTarget(x, y);
-    if (target?.kind === "card" && target.key !== draggedIdRef.current) {
-      if (lastReorderTargetRef.current !== target.key) {
-        lastReorderTargetRef.current = target.key;
-        applyLiveReorder(target.key);
+  const sortable = useSortableGrid({
+    onReorder: (draggedId, targetId) => {
+      setMoodboards((prev) => {
+        const f = filterSort(prev, activeFolderRef.current);
+        const from = f.findIndex((m) => m.id === draggedId);
+        const to = f.findIndex((m) => m.id === targetId);
+        if (from === -1 || to === -1 || from === to) return prev;
+        const arr = [...f];
+        const [moved] = arr.splice(from, 1);
+        arr.splice(to, 0, moved);
+        const orderMap = new Map(arr.map((m, i) => [m.id, i]));
+        return prev.map((m) => (orderMap.has(m.id) ? { ...m, order: orderMap.get(m.id)! } : m));
+      });
+    },
+    onHover: (el) => setDragOverFolder(folderFromEl(el)),
+    onDrop: (el, _x, _y, id) => {
+      setDragOverFolder(null);
+      const folder = folderFromEl(el);
+      if (folder !== null) {
+        moveToFolder(id, folder === "none" ? null : folder);
+        return;
       }
-      setDragOverFolder(null);
-    } else if (target?.kind === "folder") {
-      setDragOverFolder(target.key === "none" ? "none" : target.key);
-    } else {
-      setDragOverFolder(null);
-    }
-  };
+      // Le réordonnancement a déjà été appliqué en direct — persister l'ordre final.
+      const finalOrder = filterSort(moodboardsRef.current, activeFolderRef.current);
+      persistReorder(finalOrder.map((m, i) => ({ id: m.id, order: i })));
+    },
+  });
 
-  const handleCardDragEnd = (x: number, y: number) => {
-    const target = resolveDropTarget(x, y);
-    const id = draggedIdRef.current;
-    setDraggedId(null);
-    setDragOverFolder(null);
-    lastReorderTargetRef.current = null;
-    if (!id) return;
-    if (target?.kind === "folder") {
-      moveToFolder(id, target.key === "none" ? null : target.key);
-      return;
-    }
-    // Le réordonnancement a déjà été appliqué en direct pendant le drag —
-    // il ne reste qu'à persister l'ordre final côté serveur.
-    const finalOrder = filterSort(moodboardsRef.current, activeFolder);
-    persistReorder(finalOrder.map((m, i) => ({ id: m.id, order: i })));
-  };
+  const draggedMoodboard = sortable.draggingKey
+    ? moodboards.find((m) => m.id === sortable.draggingKey) ?? null
+    : null;
 
   return (
     <div>
@@ -295,11 +265,22 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
               folders={folders}
               onDelete={handleDelete}
               onMoveToFolder={moveToFolder}
-              onCardDragStart={() => handleCardDragStart(m.id)}
-              onCardDrag={handleCardDrag}
-              onCardDragEnd={handleCardDragEnd}
+              sortable={sortable}
+              isDragging={sortable.draggingKey === m.id}
             />
           ))}
+        </div>
+      )}
+
+      {/* Clone flottant suivant le pointeur pendant le drag (voir useSortableGrid) */}
+      {draggedMoodboard && (
+        <div ref={sortable.overlayRef} style={sortable.overlayStyle}>
+          <div className="rounded-lg border border-[var(--border-default)] overflow-hidden bg-[var(--bg-elevated)] shadow-2xl shadow-black/50 rotate-[1.5deg]">
+            <MoodboardPreview canvasData={draggedMoodboard.canvasData} background={draggedMoodboard.background} />
+            <div className="px-3 py-2.5">
+              <p className="text-sm text-[var(--text-primary)] truncate">{draggedMoodboard.title}</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -492,17 +473,15 @@ function MoodboardCard({
   folders,
   onDelete,
   onMoveToFolder,
-  onCardDragStart,
-  onCardDrag,
-  onCardDragEnd,
+  sortable,
+  isDragging,
 }: {
   moodboard: MoodboardData;
   folders: MoodboardFolderData[];
   onDelete: (id: string) => void;
   onMoveToFolder: (id: string, folderId: string | null) => void;
-  onCardDragStart: () => void;
-  onCardDrag: (x: number, y: number) => void;
-  onCardDragEnd: (x: number, y: number) => void;
+  sortable: SortableGrid;
+  isDragging: boolean;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -511,10 +490,6 @@ function MoodboardCard({
   const updatedAt = new Date(moodboard.updatedAt).toLocaleDateString("fr-FR", {
     day: "numeric", month: "short", year: "numeric",
   });
-
-  const { dragProps, onCardPointerDown, handleProps } = useDragHandle(true);
-  // Évite qu'un clic déclenché juste après un vrai drag ne navigue par accident.
-  const justDraggedRef = useRef(false);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -531,23 +506,21 @@ function MoodboardCard({
 
   return (
     <motion.div
-      data-drop-key={`card-${moodboard.id}`}
-      {...dragProps}
-      onPointerDown={onCardPointerDown}
-      onDragStart={() => { justDraggedRef.current = true; onCardDragStart(); }}
-      onDrag={(_e, info: PanInfo) => onCardDrag(info.point.x, info.point.y)}
-      onDragEnd={(_e, info: PanInfo) => {
-        onCardDragEnd(info.point.x, info.point.y);
-        setTimeout(() => { justDraggedRef.current = false; }, 150);
-      }}
-      className="group relative rounded-lg border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-elevated)] cursor-grab active:cursor-grabbing hover:border-[var(--border-default)] transition-colors"
-      onClick={() => { if (!justDraggedRef.current) router.push(`/moodboards/${moodboard.id}/edit`); }}
+      layout
+      {...sortable.getContainerProps(moodboard.id)}
+      className={cn(
+        "group relative rounded-lg border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-elevated)] cursor-grab active:cursor-grabbing hover:border-[var(--border-default)] transition-colors",
+        // Fantôme pendant le drag : la carte reste dans la grille (réserve la
+        // place et s'anime via `layout`), le clone flottant suit le pointeur.
+        isDragging && "opacity-40"
+      )}
+      onClick={() => { if (!sortable.wasDragging()) router.push(`/moodboards/${moodboard.id}/edit`); }}
     >
       {/* Live canvas preview */}
       <MoodboardPreview canvasData={moodboard.canvasData} background={moodboard.background} />
 
       {/* Poignée de drag — tactile uniquement (souris : saisir n'importe où) */}
-      <DragHandle {...handleProps} className="absolute bottom-2 right-2 z-20" title="Glisser vers un dossier ou pour réordonner" />
+      <DragHandle {...sortable.getHandleProps(moodboard.id)} className="absolute bottom-2 right-2 z-20" title="Glisser vers un dossier ou pour réordonner" />
 
       {/* Info */}
       <div className="px-3 py-2.5 flex items-center justify-between gap-2">

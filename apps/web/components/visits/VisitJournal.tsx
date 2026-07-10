@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { motion, type PanInfo } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
-import { useDragHandle } from "@/hooks/useDragHandle";
+import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
 import { DragHandle } from "@/components/ui/DragHandle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -35,9 +35,9 @@ interface VisitJournalProps {
 // ── Composant ─────────────────────────────────────────────────────────────────
 // Carnet de visite : séquence ordonnée d'images et de blocs de notes.
 // - Grille responsive ; les notes occupent toute la largeur (col-span-full)
-// - Réordonnancement : drag Framer Motion (souris n'importe où sur le bloc,
-//   tactile via poignée dédiée — voir useDragHandle) + ↑/↓ dans le menu ⋯
-//   de chaque bloc en alternative
+// - Réordonnancement : overlay flottant + fantôme (souris n'importe où sur le
+//   bloc, tactile via poignée dédiée — voir useSortableGrid) + ↑/↓ dans le
+//   menu ⋯ de chaque bloc en alternative
 // - Notes : édition inline (sauvegarde au blur), insertion après n'importe
 //   quel bloc via son menu ⋯, ou en fin via le bouton "+ Note"
 
@@ -46,14 +46,10 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  // Clé (type+id) du bloc en cours de drag — pas un index, qui change à
-  // chaque resplice en direct.
-  const draggedIdxRef = useRef<string | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
-  // Déduplique les réordonnancements en direct : ne resplice que quand le
-  // bloc survolé change réellement, pas à chaque frame de pointermove.
-  const lastReorderIdxRef = useRef<number | null>(null);
+
+  const keyOf = (item: JournalItem) => `${item.type}-${item.id}`;
 
   useEffect(() => {
     if (menuIdx === null) return;
@@ -88,57 +84,31 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     persistOrder(next);
   };
 
-  // ── Drag Framer Motion — hit-testing par coordonnées (elementFromPoint),
-  // pas par les événements HTML5 dragover/drop natifs (ne fonctionnent pas au
-  // tactile). Même pattern que la bibliothèque et les planches.
-  const resolveDropIndex = (x: number, y: number): number | null => {
-    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-key]");
-    const raw = el?.getAttribute("data-drop-key");
-    if (!raw?.startsWith("item-")) return null;
-    const idx = parseInt(raw.slice(5), 10);
-    return Number.isNaN(idx) ? null : idx;
-  };
+  // ── Réordonnancement (overlay + fantôme, voir useSortableGrid) ──
+  // Le bloc draguée est cloné dans un overlay flottant qui suit le pointeur ;
+  // le fantôme et ses voisins se réorganisent proprement via `layout` de
+  // Framer. `data-sortable-key` = clé (type+id) du bloc.
+  const sortable = useSortableGrid({
+    onReorder: (draggedKey, targetKey) => {
+      setItems((prev) => {
+        const from = prev.findIndex((it) => keyOf(it) === draggedKey);
+        const to = prev.findIndex((it) => keyOf(it) === targetKey);
+        if (from === -1 || to === -1 || from === to) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        return next;
+      });
+    },
+    onDrop: () => {
+      // Le réordonnancement a déjà été appliqué en direct — persister l'ordre final.
+      persistOrder(itemsRef.current);
+    },
+  });
 
-  // Resplice immédiatement le state local dès qu'on survole un autre bloc,
-  // pour que le carnet se réordonne visuellement en temps réel pendant le
-  // drag (animation FLIP via le prop `layout`, voir useDragHandle). L'ordre
-  // final n'est persisté qu'au drop. Identifié par clé (type+id) plutôt que
-  // par index : l'index du bloc draguée change à chaque resplice.
-  const applyLiveReorder = (targetIdx: number) => {
-    const draggedKey = draggedIdxRef.current;
-    if (draggedKey === null) return;
-    setItems((prev) => {
-      const fromIndex = prev.findIndex((it) => `${it.type}-${it.id}` === draggedKey);
-      if (fromIndex === -1 || targetIdx < 0 || targetIdx >= prev.length || fromIndex === targetIdx) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(targetIdx, 0, moved);
-      return next;
-    });
-  };
-
-  const handleItemDragStart = (idx: number) => {
-    const it = itemsRef.current[idx];
-    draggedIdxRef.current = it ? `${it.type}-${it.id}` : null;
-    lastReorderIdxRef.current = null;
-  };
-
-  const handleItemDrag = (x: number, y: number) => {
-    const idx = resolveDropIndex(x, y);
-    if (idx === null) return;
-    const draggedNow = itemsRef.current.findIndex((it) => `${it.type}-${it.id}` === draggedIdxRef.current);
-    if (idx === draggedNow || lastReorderIdxRef.current === idx) return;
-    lastReorderIdxRef.current = idx;
-    applyLiveReorder(idx);
-  };
-
-  const handleItemDragEnd = () => {
-    const draggedKey = draggedIdxRef.current;
-    draggedIdxRef.current = null;
-    lastReorderIdxRef.current = null;
-    if (!draggedKey) return;
-    persistOrder(itemsRef.current);
-  };
+  const draggedItem = sortable.draggingKey
+    ? items.find((it) => keyOf(it) === sortable.draggingKey) ?? null
+    : null;
 
   // ── Notes CRUD ──
   const insertNoteAfter = async (idx: number | null) => {
@@ -202,7 +172,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {items.map((item, idx) => (
           <JournalItemBlock
-            key={`${item.type}-${item.id}`}
+            key={keyOf(item)}
             item={item}
             idx={idx}
             total={items.length}
@@ -216,12 +186,29 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onInsertNoteAfter={() => insertNoteAfter(idx)}
             onDeleteNote={() => deleteNote(item.id)}
             onSaveNote={(content) => saveNote(item.id, content)}
-            onCardDragStart={() => handleItemDragStart(idx)}
-            onCardDrag={handleItemDrag}
-            onCardDragEnd={handleItemDragEnd}
+            sortable={sortable}
+            isDragging={sortable.draggingKey === keyOf(item)}
           />
         ))}
       </div>
+
+      {/* Clone flottant suivant le pointeur pendant le drag (voir useSortableGrid) */}
+      {draggedItem && (
+        <div ref={sortable.overlayRef} style={sortable.overlayStyle}>
+          {draggedItem.type === "image" ? (
+            <div className="w-full h-full rounded-md overflow-hidden bg-[var(--bg-surface)] shadow-2xl shadow-black/50 rotate-[1.5deg]">
+              {draggedItem.thumbnailKey && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={getThumbnailUrl(draggedItem.thumbnailKey)} alt={draggedItem.title} className="w-full h-full object-cover" draggable={false} />
+              )}
+            </div>
+          ) : (
+            <div className="w-full h-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3 shadow-2xl shadow-black/50 rotate-[1deg] overflow-hidden">
+              <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap line-clamp-4">{draggedItem.content}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Ajouter une note en fin de carnet */}
       <div className="mt-4 flex justify-center">
@@ -237,8 +224,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
 }
 
 // ── Bloc individuel (image ou note) ─────────────────────────────────────────────
-// Composant séparé du parent : useDragHandle doit être appelé une fois par
-// bloc, ce qui exige son propre scope de composant (règle des hooks React).
+// Composant séparé du parent pour garder la logique de chaque bloc isolée.
 
 function JournalItemBlock({
   item,
@@ -254,9 +240,8 @@ function JournalItemBlock({
   onInsertNoteAfter,
   onDeleteNote,
   onSaveNote,
-  onCardDragStart,
-  onCardDrag,
-  onCardDragEnd,
+  sortable,
+  isDragging,
 }: {
   item: JournalItem;
   idx: number;
@@ -271,24 +256,10 @@ function JournalItemBlock({
   onInsertNoteAfter: () => void;
   onDeleteNote: () => void;
   onSaveNote: (content: string) => void;
-  onCardDragStart: () => void;
-  onCardDrag: (x: number, y: number) => void;
-  onCardDragEnd: (x: number, y: number) => void;
+  sortable: SortableGrid;
+  isDragging: boolean;
 }) {
-  const { dragProps, onCardPointerDown, handleProps } = useDragHandle(true);
-  const justDraggedRef = useRef(false);
-
-  const itemDragProps = {
-    "data-drop-key": `item-${idx}`,
-    ...dragProps,
-    onPointerDown: onCardPointerDown,
-    onDragStart: () => { justDraggedRef.current = true; onCardDragStart(); },
-    onDrag: (_e: unknown, info: PanInfo) => onCardDrag(info.point.x, info.point.y),
-    onDragEnd: (_e: unknown, info: PanInfo) => {
-      onCardDragEnd(info.point.x, info.point.y);
-      setTimeout(() => { justDraggedRef.current = false; }, 150);
-    },
-  };
+  const sortableKey = `${item.type}-${item.id}`;
 
   const itemMenu = (
     <div className="relative" ref={menuRef}>
@@ -344,10 +315,18 @@ function JournalItemBlock({
 
   if (item.type === "note") {
     const isEditing = editingNoteId === item.id;
+    // En édition, le bloc n'est pas triable (on saisit du texte).
+    const dragBindings = isEditing
+      ? {}
+      : { ...sortable.getContainerProps(sortableKey) };
     return (
       <motion.div
-        {...(!isEditing ? itemDragProps : {})}
-        className="col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative"
+        layout
+        {...dragBindings}
+        className={cn(
+          "col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative",
+          isDragging && "opacity-40"
+        )}
       >
         <div className="flex items-start gap-2">
           <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
@@ -365,7 +344,7 @@ function JournalItemBlock({
             />
           ) : (
             <p
-              onClick={() => setEditingNoteId(item.id)}
+              onClick={() => { if (!sortable.wasDragging()) setEditingNoteId(item.id); }}
               className="flex-1 text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap cursor-text min-h-[1.5rem]"
             >
               {item.content || <span className="text-[var(--text-tertiary)] italic">Note vide — cliquer pour éditer</span>}
@@ -373,7 +352,7 @@ function JournalItemBlock({
           )}
           {itemMenu}
           {!isEditing && (
-            <DragHandle {...handleProps} className="absolute bottom-1.5 right-1.5" title="Glisser pour réordonner" />
+            <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5" title="Glisser pour réordonner" />
           )}
         </div>
       </motion.div>
@@ -384,8 +363,12 @@ function JournalItemBlock({
   const ar = item.width && item.height ? item.width / item.height : 1;
   return (
     <motion.div
-      {...itemDragProps}
-      className="group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all"
+      layout
+      {...sortable.getContainerProps(sortableKey)}
+      className={cn(
+        "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all",
+        isDragging && "opacity-40"
+      )}
       style={{ aspectRatio: ar }}
     >
       <Link
@@ -394,7 +377,7 @@ function JournalItemBlock({
         draggable={false}
         onContextMenu={(e) => e.preventDefault()}
         style={{ WebkitTouchCallout: "none" }}
-        onClick={(e) => { if (justDraggedRef.current) e.preventDefault(); }}
+        onClick={(e) => { if (sortable.wasDragging()) e.preventDefault(); }}
       >
         {item.thumbnailKey ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -412,7 +395,7 @@ function JournalItemBlock({
         )}
       </Link>
       <div className="absolute top-1.5 right-1.5 z-10">{itemMenu}</div>
-      <DragHandle {...handleProps} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
+      <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
     </motion.div>
   );
 }

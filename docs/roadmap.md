@@ -41,14 +41,16 @@ hook partagé `hooks/useDragHandle.ts` + composant `components/ui/DragHandle.tsx
 
 **Fiabilité + réordonnancement en temps réel (2026-07-10)** : après le premier
 retour utilisateur ("ça ne fonctionne pas à tous les coups, pas dynamique"),
-deux correctifs universels via `useDragHandle.ts` :
-- `pointerEvents: "none"` sur `whileDrag` — la carte draguée (z-index élevé)
-  s'auto-occluait au hit-test `elementFromPoint` au moment du drop.
-- `layout: true` + resplice en direct du state (pas seulement au drop) sur
-  `MoodboardGrid` et `VisitJournal` — les cartes/blocs se décalent
-  visuellement pendant le survol (animation FLIP de Framer Motion), au lieu
-  d'un simple surlignage statique. La persistance serveur reste unique, au
-  relâchement.
+resplice du state en direct pendant le survol. Puis 2e retour ("des sautes et
+des petits bugs") → **refonte complète du réordonnancement** sur le modèle
+éprouvé des vraies libs DnD (dnd-kit / react-beautiful-dnd / Trello) :
+**overlay flottant + item fantôme**, dans un hook dédié `hooks/useSortableGrid.ts`.
+La cause du "saute" était le conflit `drag`+`layout` de Framer sur le même
+élément (il bouge ET se réorganise) ; la solution découple les deux : un clone
+`position:fixed` suit le pointeur (piloté par ref, zéro re-render/frame) pendant
+que le fantôme et ses voisins se réorganisent proprement via `layout`.
+`MoodboardGrid` et `VisitJournal` migrés dessus (la bibliothèque garde
+`useDragHandle`, son drag n'est pas du reorder). Détails → mémoire agent.
 
 Détails techniques complets et bugs rencontrés → mémoire agent (sections
 "Drag & drop bibliothèque…" et "Unification du système de drag & drop…" dans
