@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion, type PanInfo } from "framer-motion";
 import type { MoodboardData, MoodboardFolderData, CanvasElement } from "@/lib/moodboard/types";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import { cn } from "@/lib/utils";
+import { useDragHandle } from "@/hooks/useDragHandle";
+import { DragHandle } from "@/components/ui/DragHandle";
 
 interface Props {
   initialMoodboards: MoodboardData[];
@@ -28,6 +31,8 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<FolderFilter | null>(null);
+  const draggedIdRef = useRef<string | null>(null);
+  draggedIdRef.current = draggedId;
 
   const filtered = useMemo(() => {
     return moodboards
@@ -129,10 +134,47 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
     persistReorder([{ id: boardId, order: board.order, folderId }]);
   };
 
-  const handleDropOnFolder = (folderId: string | null) => {
+  // ── Drag Framer Motion (souris n'importe où, tactile via poignée — voir
+  // useDragHandle) — hit-testing par coordonnées (elementFromPoint), pas par
+  // les événements HTML5 dragover/drop natifs qui ne fonctionnent pas au
+  // tactile. Même pattern que la bibliothèque (InspirationCard/LibraryDropZone).
+  const resolveDropTarget = (x: number, y: number): { kind: "card" | "folder"; key: string } | null => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-key]");
+    const key = el?.getAttribute("data-drop-key");
+    if (!key) return null;
+    if (key.startsWith("card-")) return { kind: "card", key: key.slice(5) };
+    if (key.startsWith("folder-")) return { kind: "folder", key: key.slice(7) };
+    return null;
+  };
+
+  const handleCardDragStart = (id: string) => setDraggedId(id);
+
+  const handleCardDrag = (x: number, y: number) => {
+    const target = resolveDropTarget(x, y);
+    if (target?.kind === "card" && target.key !== draggedIdRef.current) {
+      setDragOverId(target.key);
+      setDragOverFolder(null);
+    } else if (target?.kind === "folder") {
+      setDragOverFolder(target.key === "none" ? "none" : target.key);
+      setDragOverId(null);
+    } else {
+      setDragOverId(null);
+      setDragOverFolder(null);
+    }
+  };
+
+  const handleCardDragEnd = (x: number, y: number) => {
+    const target = resolveDropTarget(x, y);
+    const id = draggedIdRef.current;
+    setDraggedId(null);
+    setDragOverId(null);
     setDragOverFolder(null);
-    if (!draggedId) return;
-    moveToFolder(draggedId, folderId);
+    if (!id) return;
+    if (target?.kind === "folder") {
+      moveToFolder(id, target.key === "none" ? null : target.key);
+    } else if (target?.kind === "card" && target.key !== id) {
+      handleDropOnCard(target.key);
+    }
   };
 
   return (
@@ -160,9 +202,7 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
           label="Sans dossier"
           active={activeFolder === "none"}
           onClick={() => setActiveFolder("none")}
-          onDragOver={(e) => { e.preventDefault(); setDragOverFolder("none"); }}
-          onDragLeave={() => setDragOverFolder(null)}
-          onDrop={(e) => { e.preventDefault(); handleDropOnFolder(null); }}
+          dropKey="folder-none"
           dragOver={dragOverFolder === "none"}
         />
         {folders.map((f) =>
@@ -187,9 +227,7 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
               onClick={() => setActiveFolder(f.id)}
               onDoubleClick={() => { setEditingFolderId(f.id); setEditingName(f.name); }}
               onDelete={() => deleteFolder(f.id)}
-              onDragOver={(e) => { e.preventDefault(); setDragOverFolder(f.id); }}
-              onDragLeave={() => setDragOverFolder(null)}
-              onDrop={(e) => { e.preventDefault(); handleDropOnFolder(f.id); }}
+              dropKey={`folder-${f.id}`}
               dragOver={dragOverFolder === f.id}
             />
           )
@@ -243,12 +281,10 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
               folders={folders}
               onDelete={handleDelete}
               onMoveToFolder={moveToFolder}
-              dragging={draggedId === m.id}
               dragOver={dragOverId === m.id}
-              onDragStart={() => setDraggedId(m.id)}
-              onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-              onDragOver={() => setDragOverId(m.id)}
-              onDrop={() => handleDropOnCard(m.id)}
+              onCardDragStart={() => handleCardDragStart(m.id)}
+              onCardDrag={handleCardDrag}
+              onCardDragEnd={handleCardDragEnd}
             />
           ))}
         </div>
@@ -265,9 +301,7 @@ function FolderPill({
   onClick,
   onDoubleClick,
   onDelete,
-  onDragOver,
-  onDragLeave,
-  onDrop,
+  dropKey,
   dragOver,
 }: {
   label: string;
@@ -275,18 +309,15 @@ function FolderPill({
   onClick: () => void;
   onDoubleClick?: () => void;
   onDelete?: () => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDragLeave?: () => void;
-  onDrop?: (e: React.DragEvent) => void;
+  /** Identifiant de cible pour le hit-test au drag (voir MoodboardGrid.resolveDropTarget) */
+  dropKey?: string;
   dragOver?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      data-drop-key={dropKey}
       className={cn(
         "group/pill flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border transition-colors",
         active
@@ -448,23 +479,19 @@ function MoodboardCard({
   folders,
   onDelete,
   onMoveToFolder,
-  dragging,
   dragOver,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDrop,
+  onCardDragStart,
+  onCardDrag,
+  onCardDragEnd,
 }: {
   moodboard: MoodboardData;
   folders: MoodboardFolderData[];
   onDelete: (id: string) => void;
   onMoveToFolder: (id: string, folderId: string | null) => void;
-  dragging: boolean;
   dragOver: boolean;
-  onDragStart: () => void;
-  onDragEnd: () => void;
-  onDragOver: () => void;
-  onDrop: () => void;
+  onCardDragStart: () => void;
+  onCardDrag: (x: number, y: number) => void;
+  onCardDragEnd: (x: number, y: number) => void;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -473,6 +500,10 @@ function MoodboardCard({
   const updatedAt = new Date(moodboard.updatedAt).toLocaleDateString("fr-FR", {
     day: "numeric", month: "short", year: "numeric",
   });
+
+  const { onCardPointerDown, handleProps } = useDragHandle(true);
+  // Évite qu'un clic déclenché juste après un vrai drag ne navigue par accident.
+  const justDraggedRef = useRef(false);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -488,21 +519,33 @@ function MoodboardCard({
   }, [menuOpen]);
 
   return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
-      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+    <motion.div
+      data-drop-key={`card-${moodboard.id}`}
+      drag
+      dragListener={false}
+      dragElastic={0.12}
+      dragMomentum={false}
+      dragSnapToOrigin
+      whileDrag={{ scale: 1.03, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" }}
+      onPointerDown={onCardPointerDown}
+      onDragStart={() => { justDraggedRef.current = true; onCardDragStart(); }}
+      onDrag={(_e, info: PanInfo) => onCardDrag(info.point.x, info.point.y)}
+      onDragEnd={(_e, info: PanInfo) => {
+        onCardDragEnd(info.point.x, info.point.y);
+        setTimeout(() => { justDraggedRef.current = false; }, 150);
+      }}
       className={cn(
         "group relative rounded-lg border overflow-hidden bg-[var(--bg-elevated)] cursor-grab active:cursor-grabbing hover:border-[var(--border-default)] transition-colors",
-        dragging ? "opacity-40 border-[var(--border-subtle)]" : "border-[var(--border-subtle)]",
-        dragOver && !dragging && "border-[var(--text-primary)] ring-1 ring-[var(--text-primary)]"
+        "border-[var(--border-subtle)]",
+        dragOver && "border-[var(--text-primary)] ring-1 ring-[var(--text-primary)]"
       )}
-      onClick={() => router.push(`/moodboards/${moodboard.id}/edit`)}
+      onClick={() => { if (!justDraggedRef.current) router.push(`/moodboards/${moodboard.id}/edit`); }}
     >
       {/* Live canvas preview */}
       <MoodboardPreview canvasData={moodboard.canvasData} background={moodboard.background} />
+
+      {/* Poignée de drag — tactile uniquement (souris : saisir n'importe où) */}
+      <DragHandle {...handleProps} className="absolute bottom-2 right-2 z-20" title="Glisser vers un dossier ou pour réordonner" />
 
       {/* Info */}
       <div className="px-3 py-2.5 flex items-center justify-between gap-2">
@@ -513,9 +556,8 @@ function MoodboardCard({
           </p>
         </div>
         <div className="flex items-center flex-shrink-0">
-          {/* Menu ⋯ — classement dossier + suppression. Toujours visible au
-              tactile : le drag-and-drop HTML5 ne fonctionne pas sur touch,
-              c'est le seul moyen d'y classer une planche. */}
+          {/* Menu ⋯ — alternative au drag pour classer/supprimer, toujours
+              accessible même si on préfère ne pas glisser. */}
           <div className="relative" ref={menuRef}>
             <button
               onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
@@ -577,6 +619,6 @@ function MoodboardCard({
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

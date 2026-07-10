@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { motion, type PanInfo } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+import { useDragHandle } from "@/hooks/useDragHandle";
+import { DragHandle } from "@/components/ui/DragHandle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,8 +35,9 @@ interface VisitJournalProps {
 // ── Composant ─────────────────────────────────────────────────────────────────
 // Carnet de visite : séquence ordonnée d'images et de blocs de notes.
 // - Grille responsive ; les notes occupent toute la largeur (col-span-full)
-// - Réordonnancement : drag-and-drop HTML5 (desktop) + ↑/↓ dans le menu ⋯
-//   de chaque bloc (tactile — le drag HTML5 ne fire pas sur touch)
+// - Réordonnancement : drag Framer Motion (souris n'importe où sur le bloc,
+//   tactile via poignée dédiée — voir useDragHandle) + ↑/↓ dans le menu ⋯
+//   de chaque bloc en alternative
 // - Notes : édition inline (sauvegarde au blur), insertion après n'importe
 //   quel bloc via son menu ⋯, ou en fin via le bouton "+ Note"
 
@@ -43,12 +47,9 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setIsTouchDevice(navigator.maxTouchPoints > 1);
-  }, []);
+  const draggedIdxRef = useRef<number | null>(null);
+  draggedIdxRef.current = draggedIdx;
 
   useEffect(() => {
     if (menuIdx === null) return;
@@ -83,12 +84,31 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     persistOrder(next);
   };
 
-  // ── Drag and drop (desktop) ──
-  const handleDrop = (targetIdx: number) => {
-    setDragOverIdx(null);
-    if (draggedIdx === null || draggedIdx === targetIdx) return;
-    moveItem(draggedIdx, targetIdx);
+  // ── Drag Framer Motion — hit-testing par coordonnées (elementFromPoint),
+  // pas par les événements HTML5 dragover/drop natifs (ne fonctionnent pas au
+  // tactile). Même pattern que la bibliothèque et les planches.
+  const resolveDropIndex = (x: number, y: number): number | null => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-key]");
+    const raw = el?.getAttribute("data-drop-key");
+    if (!raw?.startsWith("item-")) return null;
+    const idx = parseInt(raw.slice(5), 10);
+    return Number.isNaN(idx) ? null : idx;
+  };
+
+  const handleItemDragStart = (idx: number) => setDraggedIdx(idx);
+
+  const handleItemDrag = (x: number, y: number) => {
+    const idx = resolveDropIndex(x, y);
+    setDragOverIdx(idx !== null && idx !== draggedIdxRef.current ? idx : null);
+  };
+
+  const handleItemDragEnd = (x: number, y: number) => {
+    const from = draggedIdxRef.current;
+    const to = resolveDropIndex(x, y);
     setDraggedIdx(null);
+    setDragOverIdx(null);
+    if (from === null || to === null || to === from) return;
+    moveItem(from, to);
   };
 
   // ── Notes CRUD ──
@@ -151,142 +171,28 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   return (
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {items.map((item, idx) => {
-          const isDragging = draggedIdx === idx;
-          const isDragOver = dragOverIdx === idx && draggedIdx !== idx;
-
-          const itemMenu = (
-            <div className="relative" ref={menuIdx === idx ? menuRef : undefined}>
-              <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuIdx(menuIdx === idx ? null : idx); }}
-                className={cn(
-                  "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-full text-sm md:text-xs transition-all",
-                  item.type === "image"
-                    ? "bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
-                    : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                )}
-                title="Options"
-              >
-                ⋯
-              </button>
-              {menuIdx === idx && (
-                <div
-                  className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                >
-                  <button
-                    onClick={() => { setMenuIdx(null); moveItem(idx, idx - 1); }}
-                    disabled={idx === 0}
-                    className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
-                  >
-                    ↑ Monter
-                  </button>
-                  <button
-                    onClick={() => { setMenuIdx(null); moveItem(idx, idx + 1); }}
-                    disabled={idx === items.length - 1}
-                    className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
-                  >
-                    ↓ Descendre
-                  </button>
-                  <button
-                    onClick={() => insertNoteAfter(idx)}
-                    className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-                  >
-                    ✎ Insérer une note après
-                  </button>
-                  {item.type === "note" && (
-                    <button
-                      onClick={() => deleteNote(item.id)}
-                      className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-                    >
-                      Supprimer la note
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-
-          if (item.type === "note") {
-            return (
-              <div
-                key={`note-${item.id}`}
-                draggable={!isTouchDevice && editingNoteId !== item.id}
-                onDragStart={() => setDraggedIdx(idx)}
-                onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
-                onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx); }}
-                onDrop={(e) => { e.preventDefault(); handleDrop(idx); }}
-                className={cn(
-                  "col-span-full rounded-lg border bg-[var(--bg-surface)] px-4 py-3 transition-colors",
-                  isDragging ? "opacity-40" : "",
-                  isDragOver ? "border-[var(--text-primary)]" : "border-[var(--border-subtle)]"
-                )}
-              >
-                <div className="flex items-start gap-2">
-                  <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
-                  {editingNoteId === item.id ? (
-                    <textarea
-                      autoFocus
-                      defaultValue={item.content}
-                      rows={Math.max(2, item.content.split("\n").length)}
-                      onBlur={(e) => saveNote(item.id, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") (e.target as HTMLTextAreaElement).blur();
-                      }}
-                      className="flex-1 bg-transparent text-sm text-[var(--text-primary)] leading-relaxed focus:outline-none resize-y placeholder:text-[var(--text-tertiary)]"
-                      placeholder="Écris ta note…"
-                    />
-                  ) : (
-                    <p
-                      onClick={() => setEditingNoteId(item.id)}
-                      className="flex-1 text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap cursor-text min-h-[1.5rem]"
-                    >
-                      {item.content || <span className="text-[var(--text-tertiary)] italic">Note vide — cliquer pour éditer</span>}
-                    </p>
-                  )}
-                  {itemMenu}
-                </div>
-              </div>
-            );
-          }
-
-          // Image
-          const ar = item.width && item.height ? item.width / item.height : 1;
-          return (
-            <div
-              key={`img-${item.id}`}
-              draggable={!isTouchDevice}
-              onDragStart={() => setDraggedIdx(idx)}
-              onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
-              onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx); }}
-              onDrop={(e) => { e.preventDefault(); handleDrop(idx); }}
-              className={cn(
-                "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all",
-                isDragging && "opacity-40",
-                isDragOver && "ring-1 ring-[var(--text-primary)]"
-              )}
-              style={{ aspectRatio: ar }}
-            >
-              <Link href={`/library/${item.id}`} className="absolute inset-0">
-                {item.thumbnailKey ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={getThumbnailUrl(item.thumbnailKey)}
-                    alt={item.title}
-                    loading="lazy"
-                    draggable={false}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-[var(--text-tertiary)] text-xs">—</span>
-                  </div>
-                )}
-              </Link>
-              <div className="absolute top-1.5 right-1.5 z-10">{itemMenu}</div>
-            </div>
-          );
-        })}
+        {items.map((item, idx) => (
+          <JournalItemBlock
+            key={`${item.type}-${item.id}`}
+            item={item}
+            idx={idx}
+            total={items.length}
+            isDragOver={dragOverIdx === idx}
+            editingNoteId={editingNoteId}
+            setEditingNoteId={setEditingNoteId}
+            menuOpen={menuIdx === idx}
+            menuRef={menuIdx === idx ? menuRef : undefined}
+            onToggleMenu={() => setMenuIdx(menuIdx === idx ? null : idx)}
+            onMoveUp={() => { setMenuIdx(null); moveItem(idx, idx - 1); }}
+            onMoveDown={() => { setMenuIdx(null); moveItem(idx, idx + 1); }}
+            onInsertNoteAfter={() => insertNoteAfter(idx)}
+            onDeleteNote={() => deleteNote(item.id)}
+            onSaveNote={(content) => saveNote(item.id, content)}
+            onCardDragStart={() => handleItemDragStart(idx)}
+            onCardDrag={handleItemDrag}
+            onCardDragEnd={handleItemDragEnd}
+          />
+        ))}
       </div>
 
       {/* Ajouter une note en fin de carnet */}
@@ -299,5 +205,199 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Bloc individuel (image ou note) ─────────────────────────────────────────────
+// Composant séparé du parent : useDragHandle doit être appelé une fois par
+// bloc, ce qui exige son propre scope de composant (règle des hooks React).
+
+function JournalItemBlock({
+  item,
+  idx,
+  total,
+  isDragOver,
+  editingNoteId,
+  setEditingNoteId,
+  menuOpen,
+  menuRef,
+  onToggleMenu,
+  onMoveUp,
+  onMoveDown,
+  onInsertNoteAfter,
+  onDeleteNote,
+  onSaveNote,
+  onCardDragStart,
+  onCardDrag,
+  onCardDragEnd,
+}: {
+  item: JournalItem;
+  idx: number;
+  total: number;
+  isDragOver: boolean;
+  editingNoteId: string | null;
+  setEditingNoteId: (id: string | null) => void;
+  menuOpen: boolean;
+  menuRef?: React.RefObject<HTMLDivElement | null>;
+  onToggleMenu: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onInsertNoteAfter: () => void;
+  onDeleteNote: () => void;
+  onSaveNote: (content: string) => void;
+  onCardDragStart: () => void;
+  onCardDrag: (x: number, y: number) => void;
+  onCardDragEnd: (x: number, y: number) => void;
+}) {
+  const { onCardPointerDown, handleProps } = useDragHandle(true);
+  const justDraggedRef = useRef(false);
+
+  const dragProps = {
+    "data-drop-key": `item-${idx}`,
+    drag: true as const,
+    dragListener: false as const,
+    dragElastic: 0.12,
+    dragMomentum: false as const,
+    dragSnapToOrigin: true as const,
+    whileDrag: { scale: 1.04, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" },
+    onPointerDown: onCardPointerDown,
+    onDragStart: () => { justDraggedRef.current = true; onCardDragStart(); },
+    onDrag: (_e: unknown, info: PanInfo) => onCardDrag(info.point.x, info.point.y),
+    onDragEnd: (_e: unknown, info: PanInfo) => {
+      onCardDragEnd(info.point.x, info.point.y);
+      setTimeout(() => { justDraggedRef.current = false; }, 150);
+    },
+  };
+
+  const itemMenu = (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleMenu(); }}
+        className={cn(
+          "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-full text-sm md:text-xs transition-all",
+          item.type === "image"
+            ? "bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
+            : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+        )}
+        title="Options"
+      >
+        ⋯
+      </button>
+      {menuOpen && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        >
+          <button
+            onClick={onMoveUp}
+            disabled={idx === 0}
+            className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
+          >
+            ↑ Monter
+          </button>
+          <button
+            onClick={onMoveDown}
+            disabled={idx === total - 1}
+            className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
+          >
+            ↓ Descendre
+          </button>
+          <button
+            onClick={onInsertNoteAfter}
+            className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+          >
+            ✎ Insérer une note après
+          </button>
+          {item.type === "note" && (
+            <button
+              onClick={onDeleteNote}
+              className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+            >
+              Supprimer la note
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (item.type === "note") {
+    const isEditing = editingNoteId === item.id;
+    return (
+      <motion.div
+        {...(!isEditing ? dragProps : {})}
+        className={cn(
+          "col-span-full rounded-lg border bg-[var(--bg-surface)] px-4 py-3 transition-colors relative",
+          isDragOver ? "border-[var(--text-primary)]" : "border-[var(--border-subtle)]"
+        )}
+      >
+        <div className="flex items-start gap-2">
+          <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
+          {isEditing ? (
+            <textarea
+              autoFocus
+              defaultValue={item.content}
+              rows={Math.max(2, item.content.split("\n").length)}
+              onBlur={(e) => onSaveNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") (e.target as HTMLTextAreaElement).blur();
+              }}
+              className="flex-1 bg-transparent text-sm text-[var(--text-primary)] leading-relaxed focus:outline-none resize-y placeholder:text-[var(--text-tertiary)]"
+              placeholder="Écris ta note…"
+            />
+          ) : (
+            <p
+              onClick={() => setEditingNoteId(item.id)}
+              className="flex-1 text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap cursor-text min-h-[1.5rem]"
+            >
+              {item.content || <span className="text-[var(--text-tertiary)] italic">Note vide — cliquer pour éditer</span>}
+            </p>
+          )}
+          {itemMenu}
+          {!isEditing && (
+            <DragHandle {...handleProps} className="absolute bottom-1.5 right-1.5" title="Glisser pour réordonner" />
+          )}
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Image
+  const ar = item.width && item.height ? item.width / item.height : 1;
+  return (
+    <motion.div
+      {...dragProps}
+      className={cn(
+        "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all",
+        isDragOver && "ring-1 ring-[var(--text-primary)]"
+      )}
+      style={{ aspectRatio: ar }}
+    >
+      <Link
+        href={`/library/${item.id}`}
+        className="absolute inset-0"
+        draggable={false}
+        onContextMenu={(e) => e.preventDefault()}
+        style={{ WebkitTouchCallout: "none" }}
+        onClick={(e) => { if (justDraggedRef.current) e.preventDefault(); }}
+      >
+        {item.thumbnailKey ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={getThumbnailUrl(item.thumbnailKey)}
+            alt={item.title}
+            loading="lazy"
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[var(--text-tertiary)] text-xs">—</span>
+          </div>
+        )}
+      </Link>
+      <div className="absolute top-1.5 right-1.5 z-10">{itemMenu}</div>
+      <DragHandle {...handleProps} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
+    </motion.div>
   );
 }

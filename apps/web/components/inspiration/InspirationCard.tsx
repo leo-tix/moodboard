@@ -2,9 +2,11 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { motion, useDragControls, type PanInfo } from "framer-motion";
+import { motion, type PanInfo } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+import { useDragHandle } from "@/hooks/useDragHandle";
+import { DragHandle } from "@/components/ui/DragHandle";
 
 interface InspirationCardProps {
   id: string;
@@ -53,8 +55,8 @@ export function InspirationCard({
   onCardDragEnd,
 }: InspirationCardProps) {
   const [hovered, setHovered] = useState(false);
-  const dragControls = useDragControls();
   const dragEnabled = !!onCardDragStart;
+  const { dragControls, onCardPointerDown, handleProps } = useDragHandle(dragEnabled);
   // Évite qu'un clic/tap déclenché juste après un vrai drag ne navigue ou
   // ne (dé)sélectionne la carte par accident.
   const justDraggedRef = useRef(false);
@@ -62,31 +64,6 @@ export function InspirationCard({
   const guardClick = (fn: () => void) => {
     if (justDraggedRef.current) return;
     fn();
-  };
-
-  // Souris : on peut saisir n'importe où sur la carte, comme avant — la
-  // souris n'a pas de conflit avec le scroll (pas de geste "swipe" ambigu).
-  const handleCardPointerDown = (e: React.PointerEvent) => {
-    if (!dragEnabled || e.pointerType !== "mouse") return;
-    dragControls.start(e);
-  };
-
-  // Tactile : uniquement depuis la poignée, sans délai.
-  //
-  // Pourquoi une poignée et pas "n'importe où sur la carte" au tactile : le
-  // navigateur décide UNE FOIS POUR TOUTES, dès le tout premier instant où le
-  // doigt touche l'écran, si le geste sera un scroll natif ou non — en lisant
-  // touch-action à cet instant précis. Impossible de changer cette décision
-  // après coup (même de façon synchrone) une fois le doigt posé, donc un
-  // "appui long puis drag" sur toute la carte perd systématiquement contre le
-  // scroll natif dès que le doigt bouge. La poignée est un petit élément
-  // séparé avec touch-action:none PERMANENT (posé dès le rendu, jamais changé
-  // en cours de route) — le navigateur sait dès le départ qu'un toucher ici
-  // n'est jamais un scroll, donc aucune course contre lui.
-  const handleGrabStart = (e: React.PointerEvent) => {
-    e.stopPropagation();
-    navigator.vibrate?.(10);
-    dragControls.start(e);
   };
 
   const thumbUrl = thumbnailKey ? getThumbnailUrl(thumbnailKey) : null;
@@ -110,7 +87,7 @@ export function InspirationCard({
       dragElastic={0.12}
       dragMomentum={false}
       dragSnapToOrigin
-      onPointerDown={handleCardPointerDown}
+      onPointerDown={onCardPointerDown}
       onDragStart={() => {
         // Armé dès le DÉBUT du drag, pas à la fin : le "click" natif du
         // navigateur peut se déclencher avant que onDragEnd n'ait fini de
@@ -169,27 +146,12 @@ export function InspirationCard({
         </div>
       )}
 
-      {/* Poignée réservée au tactile (voir handleGrabStart) — sur souris on
-          saisit n'importe où sur la carte, `hidden pointer-coarse:flex` la
-          retire donc entièrement du DOM visuel/interactif sur desktop. */}
       {dragEnabled && (
-        <div
-          onPointerDown={handleGrabStart}
-          onContextMenu={(e) => e.preventDefault()}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          style={{ touchAction: "none", WebkitTouchCallout: "none" }}
-          className={cn(
-            "absolute bottom-2 right-2 z-20 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm",
-            "hidden pointer-coarse:flex items-center justify-center cursor-grab active:cursor-grabbing opacity-70"
-          )}
+        <DragHandle
+          {...handleProps}
+          className="absolute bottom-2 right-2 z-20"
           title="Glisser vers une collection, une visite ou la corbeille"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-white">
-            <circle cx="3" cy="2.5" r="1.1" /><circle cx="9" cy="2.5" r="1.1" />
-            <circle cx="3" cy="6" r="1.1" /><circle cx="9" cy="6" r="1.1" />
-            <circle cx="3" cy="9.5" r="1.1" /><circle cx="9" cy="9.5" r="1.1" />
-          </svg>
-        </div>
+        />
       )}
 
       {/* Overlay hover — infos (masqué en mode sélection) */}
