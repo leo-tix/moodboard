@@ -6,13 +6,6 @@ import { motion, useDragControls, type PanInfo } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 
-// Appui long tactile avant d'armer le drag — laisse le scroll normal de la
-// grille fonctionner (sinon chaque swipe deviendrait un drag). Sur souris,
-// armement immédiat : Framer ne déclenche onDragStart qu'après un vrai
-// déplacement, donc un simple clic n'est jamais affecté.
-const LONG_PRESS_MS = 380;
-const MOVE_CANCEL_PX = 10;
-
 interface InspirationCardProps {
   id: string;
   title: string;
@@ -32,7 +25,7 @@ interface InspirationCardProps {
   selected?: boolean;
   onSelect?: (id: string) => void;
   onBeforeNavigate?: () => void;
-  // Drag vers collection/visite/corbeille — souris immédiate, tactile via appui long
+  // Drag vers collection/visite/corbeille — démarré depuis la poignée ⠿
   onCardDragStart?: (id: string) => void;
   onCardDrag?: (x: number, y: number) => void;
   onCardDragEnd?: (x: number, y: number) => void;
@@ -62,59 +55,31 @@ export function InspirationCard({
   const [hovered, setHovered] = useState(false);
   const dragControls = useDragControls();
   const dragEnabled = !!onCardDragStart;
-  const nodeRef = useRef<HTMLDivElement>(null);
-
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pressStart = useRef<{ x: number; y: number } | null>(null);
   // Évite qu'un clic/tap déclenché juste après un vrai drag ne navigue ou
   // ne (dé)sélectionne la carte par accident.
   const justDraggedRef = useRef(false);
 
-  const clearLongPress = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    pressStart.current = null;
-  };
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (!dragEnabled) return;
-    if (e.pointerType === "mouse") {
-      dragControls.start(e);
-      return;
-    }
-    pressStart.current = { x: e.clientX, y: e.clientY };
-    longPressTimer.current = setTimeout(() => {
-      navigator.vibrate?.(15);
-      // Mutation DOM directe et SYNCHRONE — passer par un `useState` React
-      // (comme avant) applique le style un cycle de rendu trop tard : le
-      // navigateur a déjà eu le temps de réclamer le geste comme un scroll
-      // dès le premier pixel de déplacement du doigt après le long-press.
-      if (nodeRef.current) nodeRef.current.style.touchAction = "none";
-      dragControls.start(e);
-    }, LONG_PRESS_MS);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!pressStart.current) return;
-    const dx = e.clientX - pressStart.current.x;
-    const dy = e.clientY - pressStart.current.y;
-    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) clearLongPress();
-  };
-
-  const handlePointerUp = () => {
-    clearLongPress();
-    // Filet de sécurité : si le drag a été armé (touch-action verrouillé)
-    // mais que Framer n'a jamais détecté de mouvement suffisant pour lancer
-    // un vrai onDragStart (tap-and-hold sans déplacement), onDragEnd ne se
-    // déclenche pas — sans ce reset, le scroll resterait bloqué sur la carte.
-    if (nodeRef.current) nodeRef.current.style.touchAction = "";
-  };
-
   const guardClick = (fn: () => void) => {
     if (justDraggedRef.current) return;
     fn();
+  };
+
+  // Démarre le drag depuis la poignée — souris ET tactile, sans délai.
+  //
+  // Pourquoi une poignée et pas "n'importe où sur la carte" : au tactile, le
+  // navigateur décide UNE FOIS POUR TOUTES, dès le tout premier instant où le
+  // doigt touche l'écran, si le geste sera un scroll natif ou non — en lisant
+  // touch-action à cet instant précis. Impossible de changer cette décision
+  // après coup (même de façon synchrone) une fois le doigt posé, donc un
+  // "appui long puis drag" sur toute la carte perd systématiquement contre le
+  // scroll natif dès que le doigt bouge. La poignée est un petit élément
+  // séparé avec touch-action:none PERMANENT (posé dès le rendu, jamais changé
+  // en cours de route) — le navigateur sait dès le départ qu'un toucher ici
+  // n'est jamais un scroll, donc aucune course contre lui.
+  const handleGrabStart = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    navigator.vibrate?.(10);
+    dragControls.start(e);
   };
 
   const thumbUrl = thumbnailKey ? getThumbnailUrl(thumbnailKey) : null;
@@ -122,16 +87,12 @@ export function InspirationCard({
 
   const cardContent = (
     <motion.div
-      ref={nodeRef}
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       className={cn(
         "relative overflow-hidden rounded-md bg-[var(--bg-surface)] cursor-pointer",
         selected && "ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-[var(--bg-base)]"
       )}
-      // touchAction n'est PAS géré ici (déclaratif) mais impérativement via
-      // nodeRef.current.style — sinon un re-render pendant l'attente du
-      // long-press écraserait le verrouillage synchrone posé au bon moment.
       style={{ aspectRatio }}
       whileHover={{ scale: selectable ? 1 : 1.005 }}
       whileDrag={{ scale: 1.06, zIndex: 50, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.55)" }}
@@ -142,12 +103,7 @@ export function InspirationCard({
       dragElastic={0.12}
       dragMomentum={false}
       dragSnapToOrigin
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
       onDragStart={() => {
-        clearLongPress();
         // Armé dès le DÉBUT du drag, pas à la fin : le "click" natif du
         // navigateur peut se déclencher avant que onDragEnd n'ait fini de
         // s'exécuter (pas d'ordre garanti entre les deux), donc poser le flag
@@ -157,7 +113,6 @@ export function InspirationCard({
       }}
       onDrag={(_e, info: PanInfo) => onCardDrag?.(info.point.x, info.point.y)}
       onDragEnd={(_e, info: PanInfo) => {
-        if (nodeRef.current) nodeRef.current.style.touchAction = "";
         onCardDragEnd?.(info.point.x, info.point.y);
         setTimeout(() => { justDraggedRef.current = false; }, 150);
       }}
@@ -203,6 +158,30 @@ export function InspirationCard({
           )}
         >
           {selected && <span className="text-[var(--bg-base)] text-[9px] font-bold">✓</span>}
+        </div>
+      )}
+
+      {/* Poignée de drag — touch-action:none permanent, jamais togglé (voir
+          commentaire sur handleGrabStart). Toujours visible au tactile,
+          révélée au survol sur desktop. */}
+      {dragEnabled && (
+        <div
+          onPointerDown={handleGrabStart}
+          onContextMenu={(e) => e.preventDefault()}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          style={{ touchAction: "none", WebkitTouchCallout: "none" }}
+          className={cn(
+            "absolute bottom-2 right-2 z-20 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm",
+            "flex items-center justify-center cursor-grab active:cursor-grabbing transition-opacity",
+            "opacity-0 pointer-coarse:opacity-70 group-hover:opacity-100"
+          )}
+          title="Glisser vers une collection, une visite ou la corbeille"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-white">
+            <circle cx="3" cy="2.5" r="1.1" /><circle cx="9" cy="2.5" r="1.1" />
+            <circle cx="3" cy="6" r="1.1" /><circle cx="9" cy="6" r="1.1" />
+            <circle cx="3" cy="9.5" r="1.1" /><circle cx="9" cy="9.5" r="1.1" />
+          </svg>
         </div>
       )}
 
@@ -258,16 +237,6 @@ export function InspirationCard({
     <Link
       href={`/library/${id}`}
       className={cn("block group", className)}
-      // Sans ça, le navigateur déclenche son propre drag natif du lien (ghost
-      // "favicon + URL") qui prend le pas sur le drag Framer Motion piloté à
-      // la main ci-dessus — même piège que <img draggable={false}> plus haut.
-      draggable={dragEnabled ? false : undefined}
-      // Idem au tactile : sans ça, l'appui long ouvre le menu contextuel natif
-      // du navigateur (Copier le lien / Partager / Ouvrir dans Chrome…) au lieu
-      // d'armer notre drag. -webkit-touch-callout couvre le callout iOS Safari,
-      // qui ne passe pas par contextmenu.
-      onContextMenu={dragEnabled ? (e) => e.preventDefault() : undefined}
-      style={dragEnabled ? { WebkitTouchCallout: "none" } : undefined}
       onClick={(e) => {
         if (justDraggedRef.current) { e.preventDefault(); return; }
         onBeforeNavigate?.();
