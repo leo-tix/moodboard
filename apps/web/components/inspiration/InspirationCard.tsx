@@ -64,9 +64,16 @@ export function InspirationCard({
     fn();
   };
 
-  // Démarre le drag depuis la poignée — souris ET tactile, sans délai.
+  // Souris : on peut saisir n'importe où sur la carte, comme avant — la
+  // souris n'a pas de conflit avec le scroll (pas de geste "swipe" ambigu).
+  const handleCardPointerDown = (e: React.PointerEvent) => {
+    if (!dragEnabled || e.pointerType !== "mouse") return;
+    dragControls.start(e);
+  };
+
+  // Tactile : uniquement depuis la poignée, sans délai.
   //
-  // Pourquoi une poignée et pas "n'importe où sur la carte" : au tactile, le
+  // Pourquoi une poignée et pas "n'importe où sur la carte" au tactile : le
   // navigateur décide UNE FOIS POUR TOUTES, dès le tout premier instant où le
   // doigt touche l'écran, si le geste sera un scroll natif ou non — en lisant
   // touch-action à cet instant précis. Impossible de changer cette décision
@@ -103,6 +110,7 @@ export function InspirationCard({
       dragElastic={0.12}
       dragMomentum={false}
       dragSnapToOrigin
+      onPointerDown={handleCardPointerDown}
       onDragStart={() => {
         // Armé dès le DÉBUT du drag, pas à la fin : le "click" natif du
         // navigateur peut se déclencher avant que onDragEnd n'ait fini de
@@ -164,6 +172,9 @@ export function InspirationCard({
       {/* Poignée de drag — touch-action:none permanent, jamais togglé (voir
           commentaire sur handleGrabStart). Toujours visible au tactile,
           révélée au survol sur desktop. */}
+      {/* Poignée réservée au tactile (voir handleGrabStart) — sur souris on
+          saisit n'importe où sur la carte, `hidden pointer-coarse:flex` la
+          retire donc entièrement du DOM visuel/interactif sur desktop. */}
       {dragEnabled && (
         <div
           onPointerDown={handleGrabStart}
@@ -172,8 +183,7 @@ export function InspirationCard({
           style={{ touchAction: "none", WebkitTouchCallout: "none" }}
           className={cn(
             "absolute bottom-2 right-2 z-20 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm",
-            "flex items-center justify-center cursor-grab active:cursor-grabbing transition-opacity",
-            "opacity-0 pointer-coarse:opacity-70 group-hover:opacity-100"
+            "hidden pointer-coarse:flex items-center justify-center cursor-grab active:cursor-grabbing opacity-70"
           )}
           title="Glisser vers une collection, une visite ou la corbeille"
         >
