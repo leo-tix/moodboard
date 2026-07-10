@@ -6,9 +6,10 @@ mettre à jour au fil de l'eau (statut, décisions qui changent).
 
 ## Ordre de priorité décidé
 
-1. **✅ Fait, poussé en prod** (commit `5f455ea`, 2026-07-09) — Drag & drop
-   bibliothèque (collection/visite/corbeille) + uniformisation de la
-   redirection post-upload vers `/triage`
+1. **✅ Fait, poussé en prod** (commits `5f455ea`…`be5cc1f`, 2026-07-09) —
+   Drag & drop bibliothèque (collection/visite/corbeille) + uniformisation de
+   la redirection post-upload vers `/triage` + **unification du système sur
+   tout le site** (planches, carnet de visite)
 2. Collections & visites collaboratives (fondation pour le reste) — pas commencé
 3. Feed social — pas commencé
 4. Messagerie — pas commencé
@@ -16,7 +17,7 @@ mettre à jour au fil de l'eau (statut, décisions qui changent).
 
 ---
 
-## 1. Drag & drop bibliothèque (✅ fait)
+## 1. Drag & drop bibliothèque + unification site-wide (✅ fait)
 
 Depuis la grille `/library`, glisser une ou plusieurs images (sélection
 multiple existante respectée) vers :
@@ -25,12 +26,21 @@ multiple existante respectée) vers :
 - "+ Nouvelle collection" / "+ Nouvelle visite" → création à la volée
 - une corbeille flottante → suppression avec confirmation
 
-**Réalisé avec un vrai geste tactile** (pas un fallback desktop-only comme
-envisagé initialement) : Framer Motion piloté à la main (`useDragControls`),
-appui long pour armer le drag au tactile, hit-testing par coordonnées
+**Réalisé avec un vrai geste tactile** : Framer Motion piloté à la main
+(`useDragControls`), **poignée dédiée au tactile / saisie libre à la souris**
+(pas un simple appui long — cette première approche a échoué pour une raison
+de plateforme fondamentale, voir mémoire agent), hit-testing par coordonnées
 (`elementFromPoint`) plutôt que l'API HTML5 Drag&Drop qui ne fonctionne pas au
-toucher. Détails techniques complets et bugs rencontrés → mémoire agent
-(section "Drag & drop bibliothèque + redirection triage" dans
+toucher.
+
+**Étendu ensuite à tout le site** (demande explicite de l'utilisateur) via un
+hook partagé `hooks/useDragHandle.ts` + composant `components/ui/DragHandle.tsx` :
+- Grille des planches (`MoodboardGrid.tsx`) — réordonnancement (n'avait
+  aucun fallback tactile avant) + dépôt sur dossier
+- Carnet de visite (`VisitJournal.tsx`) — réordonnancement des blocs image/note
+
+Détails techniques complets et bugs rencontrés → mémoire agent (sections
+"Drag & drop bibliothèque…" et "Unification du système de drag & drop…" dans
 `project_moodboard.md`), pas dupliqués ici.
 
 ## 2. Redirection post-upload → triage (✅ fait)
