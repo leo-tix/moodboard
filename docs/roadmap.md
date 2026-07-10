@@ -39,6 +39,17 @@ hook partagé `hooks/useDragHandle.ts` + composant `components/ui/DragHandle.tsx
   aucun fallback tactile avant) + dépôt sur dossier
 - Carnet de visite (`VisitJournal.tsx`) — réordonnancement des blocs image/note
 
+**Fiabilité + réordonnancement en temps réel (2026-07-10)** : après le premier
+retour utilisateur ("ça ne fonctionne pas à tous les coups, pas dynamique"),
+deux correctifs universels via `useDragHandle.ts` :
+- `pointerEvents: "none"` sur `whileDrag` — la carte draguée (z-index élevé)
+  s'auto-occluait au hit-test `elementFromPoint` au moment du drop.
+- `layout: true` + resplice en direct du state (pas seulement au drop) sur
+  `MoodboardGrid` et `VisitJournal` — les cartes/blocs se décalent
+  visuellement pendant le survol (animation FLIP de Framer Motion), au lieu
+  d'un simple surlignage statique. La persistance serveur reste unique, au
+  relâchement.
+
 Détails techniques complets et bugs rencontrés → mémoire agent (sections
 "Drag & drop bibliothèque…" et "Unification du système de drag & drop…" dans
 `project_moodboard.md`), pas dupliqués ici.

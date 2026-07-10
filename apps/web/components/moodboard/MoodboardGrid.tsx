@@ -29,20 +29,25 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
   const [editingName, setEditingName] = useState("");
 
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<FolderFilter | null>(null);
   const draggedIdRef = useRef<string | null>(null);
   draggedIdRef.current = draggedId;
+  const moodboardsRef = useRef(moodboards);
+  moodboardsRef.current = moodboards;
+  // Déduplique les réordonnancements en direct : ne resplice que quand la
+  // carte survolée change réellement, pas à chaque frame de pointermove.
+  const lastReorderTargetRef = useRef<string | null>(null);
 
-  const filtered = useMemo(() => {
-    return moodboards
+  const filterSort = (list: MoodboardData[], folder: FolderFilter) =>
+    list
       .filter((m) => {
-        if (activeFolder === "all") return true;
-        if (activeFolder === "none") return !m.folderId;
-        return m.folderId === activeFolder;
+        if (folder === "all") return true;
+        if (folder === "none") return !m.folderId;
+        return m.folderId === folder;
       })
       .sort((a, b) => a.order - b.order);
-  }, [moodboards, activeFolder]);
+
+  const filtered = useMemo(() => filterSort(moodboards, activeFolder), [moodboards, activeFolder]);
 
   // ── Board CRUD ──────────────────────────────────────────────────────────────
 
@@ -110,21 +115,23 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
     }).catch(() => {});
   };
 
-  const handleDropOnCard = (targetId: string) => {
-    setDragOverId(null);
-    if (!draggedId || draggedId === targetId) return;
-    const fromIndex = filtered.findIndex((m) => m.id === draggedId);
-    const toIndex = filtered.findIndex((m) => m.id === targetId);
+  // Resplice immédiatement le state local (pas d'appel réseau) dès qu'on
+  // survole une autre carte, pour que le grid se réordonne visuellement en
+  // temps réel pendant le drag (animation FLIP via le prop `layout`,
+  // voir useDragHandle). L'ordre final n'est persisté qu'au drop.
+  const applyLiveReorder = (targetId: string) => {
+    const draggedNow = draggedIdRef.current;
+    if (!draggedNow || draggedNow === targetId) return;
+    const filteredNow = filterSort(moodboardsRef.current, activeFolder);
+    const fromIndex = filteredNow.findIndex((m) => m.id === draggedNow);
+    const toIndex = filteredNow.findIndex((m) => m.id === targetId);
     if (fromIndex === -1 || toIndex === -1) return;
 
-    const reordered = [...filtered];
+    const reordered = [...filteredNow];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
-    const items = reordered.map((m, i) => ({ id: m.id, order: i }));
-
-    const orderMap = new Map(items.map((it) => [it.id, it.order]));
+    const orderMap = new Map(reordered.map((m, i) => [m.id, i]));
     setMoodboards((prev) => prev.map((m) => (orderMap.has(m.id) ? { ...m, order: orderMap.get(m.id)! } : m)));
-    persistReorder(items);
   };
 
   const moveToFolder = (boardId: string, folderId: string | null) => {
@@ -147,18 +154,22 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
     return null;
   };
 
-  const handleCardDragStart = (id: string) => setDraggedId(id);
+  const handleCardDragStart = (id: string) => {
+    lastReorderTargetRef.current = null;
+    setDraggedId(id);
+  };
 
   const handleCardDrag = (x: number, y: number) => {
     const target = resolveDropTarget(x, y);
     if (target?.kind === "card" && target.key !== draggedIdRef.current) {
-      setDragOverId(target.key);
+      if (lastReorderTargetRef.current !== target.key) {
+        lastReorderTargetRef.current = target.key;
+        applyLiveReorder(target.key);
+      }
       setDragOverFolder(null);
     } else if (target?.kind === "folder") {
       setDragOverFolder(target.key === "none" ? "none" : target.key);
-      setDragOverId(null);
     } else {
-      setDragOverId(null);
       setDragOverFolder(null);
     }
   };
@@ -167,14 +178,17 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
     const target = resolveDropTarget(x, y);
     const id = draggedIdRef.current;
     setDraggedId(null);
-    setDragOverId(null);
     setDragOverFolder(null);
+    lastReorderTargetRef.current = null;
     if (!id) return;
     if (target?.kind === "folder") {
       moveToFolder(id, target.key === "none" ? null : target.key);
-    } else if (target?.kind === "card" && target.key !== id) {
-      handleDropOnCard(target.key);
+      return;
     }
+    // Le réordonnancement a déjà été appliqué en direct pendant le drag —
+    // il ne reste qu'à persister l'ordre final côté serveur.
+    const finalOrder = filterSort(moodboardsRef.current, activeFolder);
+    persistReorder(finalOrder.map((m, i) => ({ id: m.id, order: i })));
   };
 
   return (
@@ -281,7 +295,6 @@ export function MoodboardGrid({ initialMoodboards, initialFolders }: Props) {
               folders={folders}
               onDelete={handleDelete}
               onMoveToFolder={moveToFolder}
-              dragOver={dragOverId === m.id}
               onCardDragStart={() => handleCardDragStart(m.id)}
               onCardDrag={handleCardDrag}
               onCardDragEnd={handleCardDragEnd}
@@ -479,7 +492,6 @@ function MoodboardCard({
   folders,
   onDelete,
   onMoveToFolder,
-  dragOver,
   onCardDragStart,
   onCardDrag,
   onCardDragEnd,
@@ -488,7 +500,6 @@ function MoodboardCard({
   folders: MoodboardFolderData[];
   onDelete: (id: string) => void;
   onMoveToFolder: (id: string, folderId: string | null) => void;
-  dragOver: boolean;
   onCardDragStart: () => void;
   onCardDrag: (x: number, y: number) => void;
   onCardDragEnd: (x: number, y: number) => void;
@@ -529,11 +540,7 @@ function MoodboardCard({
         onCardDragEnd(info.point.x, info.point.y);
         setTimeout(() => { justDraggedRef.current = false; }, 150);
       }}
-      className={cn(
-        "group relative rounded-lg border overflow-hidden bg-[var(--bg-elevated)] cursor-grab active:cursor-grabbing hover:border-[var(--border-default)] transition-colors",
-        "border-[var(--border-subtle)]",
-        dragOver && "border-[var(--text-primary)] ring-1 ring-[var(--text-primary)]"
-      )}
+      className="group relative rounded-lg border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-elevated)] cursor-grab active:cursor-grabbing hover:border-[var(--border-default)] transition-colors"
       onClick={() => { if (!justDraggedRef.current) router.push(`/moodboards/${moodboard.id}/edit`); }}
     >
       {/* Live canvas preview */}

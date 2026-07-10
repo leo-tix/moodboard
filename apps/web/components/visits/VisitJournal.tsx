@@ -43,13 +43,17 @@ interface VisitJournalProps {
 
 export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [items, setItems] = useState<JournalItem[]>(initialItems);
-  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const draggedIdxRef = useRef<number | null>(null);
-  draggedIdxRef.current = draggedIdx;
+  // Clé (type+id) du bloc en cours de drag — pas un index, qui change à
+  // chaque resplice en direct.
+  const draggedIdxRef = useRef<string | null>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // Déduplique les réordonnancements en direct : ne resplice que quand le
+  // bloc survolé change réellement, pas à chaque frame de pointermove.
+  const lastReorderIdxRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (menuIdx === null) return;
@@ -95,20 +99,45 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     return Number.isNaN(idx) ? null : idx;
   };
 
-  const handleItemDragStart = (idx: number) => setDraggedIdx(idx);
+  // Resplice immédiatement le state local dès qu'on survole un autre bloc,
+  // pour que le carnet se réordonne visuellement en temps réel pendant le
+  // drag (animation FLIP via le prop `layout`, voir useDragHandle). L'ordre
+  // final n'est persisté qu'au drop. Identifié par clé (type+id) plutôt que
+  // par index : l'index du bloc draguée change à chaque resplice.
+  const applyLiveReorder = (targetIdx: number) => {
+    const draggedKey = draggedIdxRef.current;
+    if (draggedKey === null) return;
+    setItems((prev) => {
+      const fromIndex = prev.findIndex((it) => `${it.type}-${it.id}` === draggedKey);
+      if (fromIndex === -1 || targetIdx < 0 || targetIdx >= prev.length || fromIndex === targetIdx) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+  };
+
+  const handleItemDragStart = (idx: number) => {
+    const it = itemsRef.current[idx];
+    draggedIdxRef.current = it ? `${it.type}-${it.id}` : null;
+    lastReorderIdxRef.current = null;
+  };
 
   const handleItemDrag = (x: number, y: number) => {
     const idx = resolveDropIndex(x, y);
-    setDragOverIdx(idx !== null && idx !== draggedIdxRef.current ? idx : null);
+    if (idx === null) return;
+    const draggedNow = itemsRef.current.findIndex((it) => `${it.type}-${it.id}` === draggedIdxRef.current);
+    if (idx === draggedNow || lastReorderIdxRef.current === idx) return;
+    lastReorderIdxRef.current = idx;
+    applyLiveReorder(idx);
   };
 
-  const handleItemDragEnd = (x: number, y: number) => {
-    const from = draggedIdxRef.current;
-    const to = resolveDropIndex(x, y);
-    setDraggedIdx(null);
-    setDragOverIdx(null);
-    if (from === null || to === null || to === from) return;
-    moveItem(from, to);
+  const handleItemDragEnd = () => {
+    const draggedKey = draggedIdxRef.current;
+    draggedIdxRef.current = null;
+    lastReorderIdxRef.current = null;
+    if (!draggedKey) return;
+    persistOrder(itemsRef.current);
   };
 
   // ── Notes CRUD ──
@@ -177,7 +206,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             item={item}
             idx={idx}
             total={items.length}
-            isDragOver={dragOverIdx === idx}
             editingNoteId={editingNoteId}
             setEditingNoteId={setEditingNoteId}
             menuOpen={menuIdx === idx}
@@ -216,7 +244,6 @@ function JournalItemBlock({
   item,
   idx,
   total,
-  isDragOver,
   editingNoteId,
   setEditingNoteId,
   menuOpen,
@@ -234,7 +261,6 @@ function JournalItemBlock({
   item: JournalItem;
   idx: number;
   total: number;
-  isDragOver: boolean;
   editingNoteId: string | null;
   setEditingNoteId: (id: string | null) => void;
   menuOpen: boolean;
@@ -321,10 +347,7 @@ function JournalItemBlock({
     return (
       <motion.div
         {...(!isEditing ? itemDragProps : {})}
-        className={cn(
-          "col-span-full rounded-lg border bg-[var(--bg-surface)] px-4 py-3 transition-colors relative",
-          isDragOver ? "border-[var(--text-primary)]" : "border-[var(--border-subtle)]"
-        )}
+        className="col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative"
       >
         <div className="flex items-start gap-2">
           <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
@@ -362,10 +385,7 @@ function JournalItemBlock({
   return (
     <motion.div
       {...itemDragProps}
-      className={cn(
-        "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all",
-        isDragOver && "ring-1 ring-[var(--text-primary)]"
-      )}
+      className="group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-all"
       style={{ aspectRatio: ar }}
     >
       <Link
