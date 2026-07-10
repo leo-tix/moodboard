@@ -165,51 +165,52 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
             {/* pointer-events-auto : nécessaire pour que elementFromPoint() détecte les
                 chips pendant le drag — les éléments pointer-events:none sont exclus du
                 hit-testing, y compris de elementFromPoint. */}
-            <div
-              ref={scrollRef}
-              className="pointer-events-auto flex items-center gap-1.5 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/50 px-2 py-1.5 max-w-[calc(100vw-2rem)] overflow-x-auto scrollbar-none"
-            >
-              {dragActive && (
-                <span className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] px-2">
-                  {draggingIds!.length > 1 ? `${draggingIds!.length} images ·` : ""} Déposer sur…
-                </span>
-              )}
+            <div className="pointer-events-auto flex items-stretch gap-1.5 bg-[var(--bg-elevated)]/95 backdrop-blur border border-[var(--border-default)] rounded-2xl shadow-2xl shadow-black/50 px-2 py-1.5 max-w-[calc(100vw-2rem)]">
+              {/* Zone défilable — tout sauf la corbeille, qui reste ancrée hors scroll */}
+              <div ref={scrollRef} className="flex items-center gap-1.5 min-w-0 overflow-x-auto scrollbar-none">
+                {dragActive && (
+                  <span className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] px-2">
+                    {draggingIds!.length > 1 ? `${draggingIds!.length} images ·` : ""} Déposer sur…
+                  </span>
+                )}
 
-              <div data-drop-key="new-collection" data-drop-target='{"type":"new-collection"}' className={chipClass("new-collection", true)}>
-                + Collection
-              </div>
-              <div data-drop-key="new-visit" data-drop-target='{"type":"new-visit"}' className={chipClass("new-visit", true)}>
-                + Visite
-              </div>
-
-              {collections.length > 0 && <div className="w-px h-6 bg-[var(--border-subtle)] flex-shrink-0" />}
-              {collections.map((c) => (
-                <div
-                  key={c.id}
-                  data-drop-key={`col-${c.id}`}
-                  data-drop-target={JSON.stringify({ type: "collection", id: c.id, name: c.name })}
-                  className={chipClass(`col-${c.id}`)}
-                >
-                  {successKey === `col-${c.id}` ? "✓" : "▣"} {c.name}
+                <div data-drop-key="new-collection" data-drop-target='{"type":"new-collection"}' className={chipClass("new-collection", true)}>
+                  + Collection
                 </div>
-              ))}
-
-              {visits.length > 0 && <div className="w-px h-6 bg-[var(--border-subtle)] flex-shrink-0" />}
-              {visits.map((v) => (
-                <div
-                  key={v.id}
-                  data-drop-key={`visit-${v.id}`}
-                  data-drop-target={JSON.stringify({ type: "visit", id: v.id, name: v.place })}
-                  className={chipClass(`visit-${v.id}`)}
-                  title={visitLabel(v)}
-                >
-                  {successKey === `visit-${v.id}` ? "✓" : "🏛"} {v.place}
+                <div data-drop-key="new-visit" data-drop-target='{"type":"new-visit"}' className={chipClass("new-visit", true)}>
+                  + Visite
                 </div>
-              ))}
 
-              <div className="w-px h-6 bg-[var(--border-subtle)] flex-shrink-0" />
+                {collections.length > 0 && <div className="w-px h-6 bg-[var(--border-subtle)] flex-shrink-0" />}
+                {collections.map((c) => (
+                  <div
+                    key={c.id}
+                    data-drop-key={`col-${c.id}`}
+                    data-drop-target={JSON.stringify({ type: "collection", id: c.id, name: c.name })}
+                    className={chipClass(`col-${c.id}`)}
+                  >
+                    {successKey === `col-${c.id}` ? "✓" : "▣"} {c.name}
+                  </div>
+                ))}
 
-              {/* Corbeille — nécessite confirmation (armée par LibraryClient au drop) */}
+                {visits.length > 0 && <div className="w-px h-6 bg-[var(--border-subtle)] flex-shrink-0" />}
+                {visits.map((v) => (
+                  <div
+                    key={v.id}
+                    data-drop-key={`visit-${v.id}`}
+                    data-drop-target={JSON.stringify({ type: "visit", id: v.id, name: v.place })}
+                    className={chipClass(`visit-${v.id}`)}
+                    title={visitLabel(v)}
+                  >
+                    {successKey === `visit-${v.id}` ? "✓" : "🏛"} {v.place}
+                  </div>
+                ))}
+              </div>
+
+              <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
+
+              {/* Corbeille — ancrée hors zone défilable, toujours visible sans scroller.
+                  Nécessite confirmation (armée par LibraryClient au drop). */}
               {pendingTrash ? (
                 <div className="pointer-events-auto flex-shrink-0 flex items-center gap-1.5 px-2 py-1.5">
                   <span className="text-[10px] text-red-400">Supprimer {pendingTrash.length} ?</span>
@@ -232,6 +233,7 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
                   data-drop-target='{"type":"trash"}'
                   className={cn(
                     chipBase,
+                    "flex-shrink-0",
                     overKey === "trash" && dragActive
                       ? "border-red-500 bg-red-500/20 text-red-400 scale-110"
                       : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
