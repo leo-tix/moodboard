@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { VisitsClient } from "@/components/visits/VisitsClient";
+import { VisitsHeaderActions } from "@/components/visits/VisitsHeaderActions";
 
 export const metadata: Metadata = { title: "Carnet de visite" };
 export const revalidate = 0;
@@ -60,12 +60,7 @@ export default async function VisitesPage() {
             )}
           </h1>
         </div>
-        <Link
-          href="/visites/carte"
-          className="flex-shrink-0 px-3 py-1.5 text-sm bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-md text-[var(--text-primary)] transition-colors"
-        >
-          🗺 Carte
-        </Link>
+        <VisitsHeaderActions />
       </header>
 
       <VisitsClient initialVisits={serialized} />

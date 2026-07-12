@@ -21,7 +21,10 @@ export function InlineImageView({ node, updateAttributes, deleteNode, editor }: 
         <img
           src={getThumbnailUrl(thumbnailKey)}
           alt=""
-          className="w-full rounded-md"
+          // max-h + object-cover : sans plafond de hauteur, une image portrait
+          // à 220px de large montait à ~500px et transformait une note d'une
+          // ligne en bloc géant plein de vide (relevé à l'audit UI/UX).
+          className="w-full max-h-44 object-cover rounded-md"
           draggable={false}
         />
       )}

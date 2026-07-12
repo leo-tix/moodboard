@@ -114,7 +114,7 @@ export function CreateVisitModal({ inspirationIds, onClose, onCreated }: CreateV
             disabled={creating || !place.trim()}
             className="w-full py-2 text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-base)] rounded-md disabled:opacity-40 hover:opacity-90 transition-opacity"
           >
-            {creating ? "Création…" : "Créer et rattacher"}
+            {creating ? "Création…" : inspirationIds.length > 0 ? "Créer et rattacher" : "Créer la visite"}
           </button>
         </div>
       </motion.div>

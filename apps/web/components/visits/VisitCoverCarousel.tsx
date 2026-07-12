@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/lib/storage/urls";
 
@@ -14,8 +15,9 @@ export interface CoverImage {
 // Couverture façon Apple Journal : bandeau plein-large en tête de visite,
 // les images de la visite défilent en carrousel (au lieu d'un simple titre
 // statique). Pleine résolution (getImageUrl, pas thumbnail) car c'est la
-// pièce hero de la page.
-export function VisitCoverCarousel({ images }: { images: CoverImage[] }) {
+// pièce hero de la page. `backHref` : bouton retour rond flottant sur la
+// cover (façon Journal) — remplace le lien texte sous la cover.
+export function VisitCoverCarousel({ images, backHref }: { images: CoverImage[]; backHref?: string }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -51,6 +53,19 @@ export function VisitCoverCarousel({ images }: { images: CoverImage[] }) {
           </div>
         ))}
       </div>
+
+      {/* Retour flottant façon Journal — visible sans scroller, par-dessus la photo */}
+      {backHref && (
+        <Link
+          href={backHref}
+          className="absolute top-3 left-3 md:top-4 md:left-4 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm text-white/90 hover:bg-black/70 transition-colors"
+          title="Retour au carnet de visite"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </Link>
+      )}
 
       {/* Dégradé de lisibilité + points de pagination */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/70 to-transparent" />

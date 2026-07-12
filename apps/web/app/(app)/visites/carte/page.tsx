@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { VisitsGlobalMap } from "@/components/visits/VisitsGlobalMap";
 
-export const metadata: Metadata = { title: "Carte des visites — Moodboard" };
+export const metadata: Metadata = { title: "Carte des visites" };
 export const revalidate = 0;
 
 export default async function VisitesCartePage() {
@@ -42,12 +43,17 @@ export default async function VisitesCartePage() {
   }));
 
   return (
-    <div className="p-4 md:p-6 h-[calc(100vh-2rem)] md:h-[calc(100vh-3rem)] flex flex-col">
+    // Mobile : le <main> du layout garde pb-16 pour la BottomNav — sans en
+    // tenir compte ici, le carrousel bas de la carte passait dessous.
+    <div className="p-4 md:p-6 h-[calc(100dvh-6rem)] md:h-[calc(100vh-3rem)] flex flex-col">
       <header className="mb-4 flex-shrink-0">
-        <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">
-          Archive
-        </p>
-        <h1 className="text-2xl font-light text-[var(--text-primary)]">Carte des visites</h1>
+        <Link
+          href="/visites"
+          className="inline-block text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+        >
+          ← Carnet de visite
+        </Link>
+        <h1 className="text-2xl font-light text-[var(--text-primary)] mt-1">Carte des visites</h1>
       </header>
 
       <div className="flex-1 min-h-0">

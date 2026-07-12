@@ -142,7 +142,7 @@ function NoteToolbar({
           title={b.title}
           onClick={b.onClick}
           className={cn(
-            "w-6 h-6 flex items-center justify-center rounded text-[11px] font-medium transition-colors",
+            "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
             b.active
               ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
               : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
@@ -160,7 +160,7 @@ function NoteToolbar({
             title="Insérer une image de la visite"
             onClick={() => setPickerOpen((v) => !v)}
             className={cn(
-              "w-6 h-6 flex items-center justify-center rounded text-[11px] font-medium transition-colors",
+              "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
               pickerOpen
                 ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
@@ -199,7 +199,7 @@ function NoteToolbar({
             title="Enregistrer un clip audio"
             onClick={() => setRecorderOpen((v) => !v)}
             className={cn(
-              "w-6 h-6 flex items-center justify-center rounded text-[11px] font-medium transition-colors",
+              "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
               recorderOpen
                 ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"

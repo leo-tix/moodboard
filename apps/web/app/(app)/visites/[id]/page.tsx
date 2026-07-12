@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth/current";
 import { VisitJournal, type JournalItem } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
+import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
 
 export const revalidate = 0;
 
@@ -73,12 +74,6 @@ export default async function VisiteDetailPage({ params }: Props) {
   merged.sort((a, b) => a.order - b.order || a.createdAt.getTime() - b.createdAt.getTime());
   const items = merged.map((m) => m.item);
 
-  const date = visit.visitDate.toLocaleDateString("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-
   const hasMap = visit.latitude !== null && visit.longitude !== null;
 
   const coverImages = [...visit.inspirations]
@@ -87,30 +82,33 @@ export default async function VisiteDetailPage({ params }: Props) {
     .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey, width: i.images[0]?.width ?? null, height: i.images[0]?.height ?? null }))
     .filter((i): i is { id: string; storageKey: string; width: number | null; height: number | null } => Boolean(i.storageKey));
 
+  const hasCover = coverImages.length > 0;
+
   return (
     <div className="p-4 md:p-6">
-      <VisitCoverCarousel images={coverImages} />
+      <VisitCoverCarousel images={coverImages} backHref="/visites" />
 
       <header className="mb-5">
-        <Link
-          href="/visites"
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-        >
-          ← Carnet de visite
-        </Link>
+        {/* Sans cover (visite sans image), le retour flottant n'existe pas —
+            on garde le lien texte classique. */}
+        {!hasCover && (
+          <Link
+            href="/visites"
+            className="inline-block mb-2 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+          >
+            ← Carnet de visite
+          </Link>
+        )}
 
-        <div className="mt-2 flex flex-col md:flex-row md:items-start gap-4">
+        <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl md:text-2xl font-light text-[var(--text-primary)] flex items-baseline gap-2 flex-wrap">
-              {visit.place}
-              <span className="text-sm font-normal text-[var(--text-tertiary)]">
-                {visit.inspirations.length}
-              </span>
-            </h1>
-            <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-              {visit.exhibition && <span className="italic">{visit.exhibition} · </span>}
-              {date}
-            </p>
+            <VisitHeaderEditable
+              visitId={visit.id}
+              place={visit.place}
+              exhibition={visit.exhibition}
+              visitDate={visit.visitDate.toISOString()}
+              imageCount={visit.inspirations.length}
+            />
             {visit.address && (
               <p className="text-xs text-[var(--text-tertiary)] mt-1">{visit.address}</p>
             )}
@@ -121,14 +119,15 @@ export default async function VisiteDetailPage({ params }: Props) {
             )}
           </div>
 
-          {/* Mini-carte (si le lieu a été géolocalisé via l'autocomplétion) */}
+          {/* Mini-carte compacte (hauteur alignée sur le bloc texte pour
+              éviter la zone morte relevée à l'audit) */}
           {hasMap && (
-            <div className="w-full md:w-64 lg:w-72 flex-shrink-0 rounded-lg overflow-hidden border border-[var(--border-subtle)]">
+            <div className="w-full md:w-56 lg:w-64 flex-shrink-0 rounded-lg overflow-hidden border border-[var(--border-subtle)]">
               <VisitMap
                 latitude={visit.latitude!}
                 longitude={visit.longitude!}
                 label={visit.place}
-                className="h-36 md:h-40 w-full"
+                className="h-28 w-full"
               />
             </div>
           )}
