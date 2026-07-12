@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
 import { DragHandle } from "@/components/ui/DragHandle";
-import { NoteEditor } from "@/components/visits/NoteEditor";
+import { NoteEditor, type NoteEditorImage } from "@/components/visits/NoteEditor";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,12 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     ? items.find((it) => keyOf(it) === sortable.draggingKey) ?? null
     : null;
 
+  // Proposées dans le picker "+Image" des notes — insertion inline (wrap
+  // texte), ne duplique pas le bloc image pleine largeur du carnet.
+  const visitImages = items
+    .filter((it): it is JournalImage => it.type === "image")
+    .map((it) => ({ id: it.id, thumbnailKey: it.thumbnailKey }));
+
   // ── Notes CRUD ──
   const insertNoteAfter = async (idx: number | null) => {
     setMenuIdx(null);
@@ -192,6 +198,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onSaveNote={(content) => saveNote(item.id, content)}
             sortable={sortable}
             isDragging={sortable.draggingKey === keyOf(item)}
+            visitImages={visitImages}
           />
         ))}
       </div>
@@ -246,6 +253,7 @@ function JournalItemBlock({
   onSaveNote,
   sortable,
   isDragging,
+  visitImages,
 }: {
   item: JournalItem;
   idx: number;
@@ -262,6 +270,7 @@ function JournalItemBlock({
   onSaveNote: (content: string) => void;
   sortable: SortableGrid;
   isDragging: boolean;
+  visitImages: NoteEditorImage[];
 }) {
   const sortableKey = `${item.type}-${item.id}`;
 
@@ -350,6 +359,7 @@ function JournalItemBlock({
             editable={isEditing}
             onBlurSave={(html) => onSaveNote(html)}
             placeholder="Note vide — cliquer pour éditer"
+            visitImages={visitImages}
           />
           {itemMenu}
           {!isEditing && (

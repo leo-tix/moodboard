@@ -13,6 +13,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@distube/ytdl-core": "^4.16.12",
     "@prisma/client": "^6.0.0",
+    "@tiptap/core": "^3.27.3",
     "@tiptap/pm": "^3.27.3",
     "@tiptap/react": "^3.27.3",
     "@tiptap/starter-kit": "^3.27.3",

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { cn } from "@/lib/utils";
+import { getThumbnailUrl } from "@/lib/storage/urls";
+import { InlineImage } from "./tiptap/InlineImage";
 
 // ── Bloc de note façon Notion ────────────────────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
@@ -11,6 +13,8 @@ import { cn } from "@/lib/utils";
 // de migration de schéma nécessaire (le texte brut historique reste du HTML
 // valide, juste sans balises). StarterKit couvre exactement le périmètre
 // demandé : titres (H2/H3), gras/italique, listes à puces/numérotées.
+// InlineImage (tiptap/InlineImage.ts) permet en plus au texte de contourner
+// une image de la visite (wrap façon magazine/Apple Journal).
 
 const EXTENSIONS = [
   StarterKit.configure({
@@ -21,7 +25,13 @@ const EXTENSIONS = [
     blockquote: false,
     horizontalRule: false,
   }),
+  InlineImage,
 ];
+
+export interface NoteEditorImage {
+  id: string; // inspirationId
+  thumbnailKey: string | null;
+}
 
 interface NoteEditorProps {
   content: string;
@@ -29,9 +39,11 @@ interface NoteEditorProps {
   onBlurSave: (html: string) => void;
   placeholder?: string;
   className?: string;
+  /** Images déjà attachées à la visite, proposées pour l'insertion inline. */
+  visitImages?: NoteEditorImage[];
 }
 
-export function NoteEditor({ content, editable, onBlurSave, placeholder, className }: NoteEditorProps) {
+export function NoteEditor({ content, editable, onBlurSave, placeholder, className, visitImages = [] }: NoteEditorProps) {
   const editor = useEditor({
     extensions: EXTENSIONS,
     content,
@@ -76,8 +88,12 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
 
   return (
     <div className={cn("flex-1 min-w-0", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
-      {editable && <NoteToolbar editor={editor} />}
+      {editable && <NoteToolbar editor={editor} visitImages={visitImages} />}
       <EditorContent editor={editor} />
+      {/* Après les images flottantes, le texte peut ne plus déborder assez
+          bas pour "clear" le float — sans ça la bordure/le padding du bloc
+          note se referme au-dessus d'une image encore visible. */}
+      <div className="clear-both" />
       {!editable && editor.isEmpty && placeholder && (
         <span className="text-[var(--text-tertiary)] italic text-sm">{placeholder}</span>
       )}
@@ -85,7 +101,15 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
   );
 }
 
-function NoteToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+function NoteToolbar({
+  editor,
+  visitImages,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  visitImages: NoteEditorImage[];
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   if (!editor) return null;
 
   const buttons: { label: string; title: string; active: boolean; onClick: () => void }[] = [
@@ -98,7 +122,7 @@ function NoteToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
   return (
     <div
-      className="flex items-center gap-0.5 mb-1.5 -ml-1"
+      className="relative flex items-center gap-0.5 mb-1.5 -ml-1"
       // Empêche le blur de l'éditeur (qui déclenche la sauvegarde) avant que
       // le clic sur le bouton n'ait eu le temps d'agir sur la sélection.
       onMouseDown={(e) => e.preventDefault()}
@@ -119,6 +143,45 @@ function NoteToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
           {b.label}
         </button>
       ))}
+
+      {visitImages.length > 0 && (
+        <>
+          <span className="w-px h-4 bg-[var(--border-default)] mx-1" />
+          <button
+            type="button"
+            title="Insérer une image de la visite"
+            onClick={() => setPickerOpen((v) => !v)}
+            className={cn(
+              "w-6 h-6 flex items-center justify-center rounded text-[11px] font-medium transition-colors",
+              pickerOpen
+                ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+            )}
+          >
+            🖼
+          </button>
+          {pickerOpen && (
+            <div className="absolute top-full left-0 mt-1 z-50 w-56 max-h-48 overflow-y-auto p-1.5 grid grid-cols-4 gap-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl">
+              {visitImages.map((img) => (
+                <button
+                  key={img.id}
+                  type="button"
+                  onClick={() => {
+                    editor.chain().focus().insertInlineImage({ inspirationId: img.id, thumbnailKey: img.thumbnailKey ?? "" }).run();
+                    setPickerOpen(false);
+                  }}
+                  className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
+                >
+                  {img.thumbnailKey && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={getThumbnailUrl(img.thumbnailKey)} alt="" className="w-full h-full object-cover" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
