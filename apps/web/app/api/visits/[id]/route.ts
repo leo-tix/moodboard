@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
+import { deleteAllAudioForVisit } from "@/lib/visits/audioCleanup";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -87,7 +88,12 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
-  const res = await db.visit.deleteMany({ where: { id, userId: session.user.id } });
-  if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  const owned = await db.visit.findFirst({ where: { id, userId: session.user.id }, select: { id: true } });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  // Le cascade Prisma nettoie les lignes VisitAudio, pas les objets R2 —
+  // purger AVANT le delete (après, on n'a plus les storageKey).
+  await deleteAllAudioForVisit(id).catch(() => {});
+  await db.visit.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

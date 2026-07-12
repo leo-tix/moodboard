@@ -109,20 +109,37 @@ albums partagés** (collaboratif, export/partage public), **Notion**
   blocs déjà refaite (overlay+fantôme, voir section 1 ci-dessus). Texte
   stylisé ajouté via Tiptap/ProseMirror (choix tranché par l'utilisateur
   face à l'alternative "blocs custom") — titres H2/H3, gras, italique,
-  listes à puces/numérotées. Détails → mémoire agent. Blocs audio non
-  couverts par cette itération (reporté).
-- **Couverture de visite personnalisable** : les images ajoutées défilent en
-  couverture (carrousel), aspect "vrai carnet premium".
+  listes à puces/numérotées.
+- **✅ Blocs modulaires supplémentaires dans les notes (2026-07-10)** :
+  **image inline** avec wrap texte façon magazine (node Tiptap
+  `InlineImage`, pioche parmi les images déjà attachées à la visite) et
+  **bloc audio** (enregistrement micro `MediaRecorder` → upload R2 → lecteur
+  inline, nouveau modèle `VisitAudio` compté dans le quota de stockage par
+  profil). Dessin à main levée inline toujours reporté (regroupé avec une
+  future itération). Détails → mémoire agent.
+- **✅ Couverture de visite personnalisable (2026-07-10)** : bandeau
+  carrousel plein-large en tête de `/visites/[id]` (`VisitCoverCarousel.tsx`),
+  façon Apple Journal — remplace le header statique, scroll-snap + points de
+  pagination.
+- **✅ Carte cumulée (2026-07-10)** : nouvelle page `/visites/carte` — toutes
+  les visites géolocalisées sur une carte Leaflet, pins-photo avec
+  clustering (`leaflet.markercluster`), carrousel bas synchronisé
+  (façon Google Photos / Apple Plans). Reste sur Leaflet (pas de bascule 3D,
+  décidé avec l'utilisateur).
 - **Ajout d'image en temps réel depuis le carnet** : bouton "+ Photo" dans
   `VisitJournal`, et sur mobile déclenchement direct de l'appareil photo
   (`<input type="file" capture="environment">` ou équivalent) pour
-  documenter une visite en live, pendant qu'on est encore sur place.
-- **Visites collaboratives** — voir point 3.
+  documenter une visite en live, pendant qu'on est encore sur place. Pas
+  commencé.
+- **Visites collaboratives** — voir point 3. Pas commencé.
 - **Export / partage public du carnet** — lien public à la manière du
   partage de planches existant (`shareToken`/`shareExpiry` sur Moodboard,
-  pattern réutilisable sur Visit), ou export PDF.
-- **Statistiques et carte cumulée** — musées visités par an, carte globale de
-  toutes les visites (au-delà de la mini-carte par visite actuelle).
+  pattern réutilisable sur Visit), ou export PDF. Pas commencé.
+- **Statistiques (Insights)** — streaks, mots écrits, répartition par type de
+  contenu façon Apple Journal Insights. Évoqué mais pas dans le lot du
+  2026-07-10 (scope resserré à éditeur + couverture + carte). Pas commencé.
+- **Menu "/" façon Notion** pour insérer un bloc dans une note — reporté au
+  profit de boutons dédiés (🖼/🎙) dans la toolbar, plus rapide à livrer.
 
 ---
 

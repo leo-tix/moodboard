@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { InlineImage } from "./tiptap/InlineImage";
+import { AudioBlock } from "./tiptap/AudioBlock";
 
 // ── Bloc de note façon Notion ────────────────────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
@@ -14,7 +15,8 @@ import { InlineImage } from "./tiptap/InlineImage";
 // valide, juste sans balises). StarterKit couvre exactement le périmètre
 // demandé : titres (H2/H3), gras/italique, listes à puces/numérotées.
 // InlineImage (tiptap/InlineImage.ts) permet en plus au texte de contourner
-// une image de la visite (wrap façon magazine/Apple Journal).
+// une image de la visite (wrap façon magazine/Apple Journal). AudioBlock
+// (tiptap/AudioBlock.ts) insère un lecteur pour un clip enregistré au micro.
 
 const EXTENSIONS = [
   StarterKit.configure({
@@ -26,6 +28,7 @@ const EXTENSIONS = [
     horizontalRule: false,
   }),
   InlineImage,
+  AudioBlock,
 ];
 
 export interface NoteEditorImage {
@@ -41,9 +44,11 @@ interface NoteEditorProps {
   className?: string;
   /** Images déjà attachées à la visite, proposées pour l'insertion inline. */
   visitImages?: NoteEditorImage[];
+  /** Nécessaire pour uploader un clip audio enregistré (POST /api/visits/[id]/audio). */
+  visitId?: string;
 }
 
-export function NoteEditor({ content, editable, onBlurSave, placeholder, className, visitImages = [] }: NoteEditorProps) {
+export function NoteEditor({ content, editable, onBlurSave, placeholder, className, visitImages = [], visitId }: NoteEditorProps) {
   const editor = useEditor({
     extensions: EXTENSIONS,
     content,
@@ -88,7 +93,7 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
 
   return (
     <div className={cn("flex-1 min-w-0", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
-      {editable && <NoteToolbar editor={editor} visitImages={visitImages} />}
+      {editable && <NoteToolbar editor={editor} visitImages={visitImages} visitId={visitId} />}
       <EditorContent editor={editor} />
       {/* Après les images flottantes, le texte peut ne plus déborder assez
           bas pour "clear" le float — sans ça la bordure/le padding du bloc
@@ -104,11 +109,14 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
 function NoteToolbar({
   editor,
   visitImages,
+  visitId,
 }: {
   editor: ReturnType<typeof useEditor>;
   visitImages: NoteEditorImage[];
+  visitId?: string;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [recorderOpen, setRecorderOpen] = useState(false);
 
   if (!editor) return null;
 
@@ -181,6 +189,146 @@ function NoteToolbar({
             </div>
           )}
         </>
+      )}
+
+      {visitId && (
+        <>
+          <span className="w-px h-4 bg-[var(--border-default)] mx-1" />
+          <button
+            type="button"
+            title="Enregistrer un clip audio"
+            onClick={() => setRecorderOpen((v) => !v)}
+            className={cn(
+              "w-6 h-6 flex items-center justify-center rounded text-[11px] font-medium transition-colors",
+              recorderOpen
+                ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+            )}
+          >
+            🎙
+          </button>
+          {recorderOpen && (
+            <AudioRecorderPopover visitId={visitId} editor={editor} onClose={() => setRecorderOpen(false)} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AudioRecorderPopover({
+  visitId,
+  editor,
+  onClose,
+}: {
+  visitId: string;
+  editor: NonNullable<ReturnType<typeof useEditor>>;
+  onClose: () => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const [blob, setBlob] = useState<Blob | null>(null);
+  const [durationSec, setDurationSec] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const startedAtRef = useRef(0);
+
+  const previewUrl = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
+
+  const startRecording = async () => {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        setBlob(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
+        setDurationSec(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      startedAtRef.current = Date.now();
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setError("Micro inaccessible — vérifie les permissions du navigateur.");
+    }
+  };
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const confirmUpload = async () => {
+    if (!blob) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const ext = (blob.type.split(";")[0].split("/")[1]) || "webm";
+      const fd = new FormData();
+      fd.append("file", blob, `clip.${ext}`);
+      fd.append("durationSec", String(durationSec));
+      const res = await fetch(`/api/visits/${visitId}/audio`, { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Échec de l'envoi");
+        return;
+      }
+      editor.chain().focus().insertAudioBlock({
+        audioId: data.id,
+        storageKey: data.storageKey,
+        durationSec: data.durationSec,
+      }).run();
+      onClose();
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="absolute top-full left-0 mt-1 z-50 w-56 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl">
+      {error && <p className="text-[10px] text-red-400 mb-2">{error}</p>}
+      {!blob ? (
+        <button
+          type="button"
+          onClick={recording ? stopRecording : startRecording}
+          className={cn(
+            "w-full py-2 rounded-md text-xs font-medium transition-colors",
+            recording
+              ? "bg-red-500/20 text-red-400"
+              : "bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-base)]"
+          )}
+        >
+          {recording ? "⏹ Arrêter" : "🎙 Enregistrer"}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          {previewUrl && <audio controls src={previewUrl} className="w-full h-8" />}
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setBlob(null)}
+              className="flex-1 py-1.5 rounded-md text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-default)] transition-colors"
+            >
+              Refaire
+            </button>
+            <button
+              type="button"
+              onClick={confirmUpload}
+              disabled={uploading}
+              className="flex-1 py-1.5 rounded-md text-[11px] bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
+            >
+              {uploading ? "…" : "Ajouter"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

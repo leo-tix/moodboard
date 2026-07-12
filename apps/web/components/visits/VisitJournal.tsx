@@ -199,6 +199,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             sortable={sortable}
             isDragging={sortable.draggingKey === keyOf(item)}
             visitImages={visitImages}
+            visitId={visitId}
           />
         ))}
       </div>
@@ -254,6 +255,7 @@ function JournalItemBlock({
   sortable,
   isDragging,
   visitImages,
+  visitId,
 }: {
   item: JournalItem;
   idx: number;
@@ -271,6 +273,7 @@ function JournalItemBlock({
   sortable: SortableGrid;
   isDragging: boolean;
   visitImages: NoteEditorImage[];
+  visitId: string;
 }) {
   const sortableKey = `${item.type}-${item.id}`;
 
@@ -360,6 +363,7 @@ function JournalItemBlock({
             onBlurSave={(html) => onSaveNote(html)}
             placeholder="Note vide — cliquer pour éditer"
             visitImages={visitImages}
+            visitId={visitId}
           />
           {itemMenu}
           {!isEditing && (

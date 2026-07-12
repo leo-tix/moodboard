@@ -42,6 +42,16 @@ export const QUOTA = {
   // Max images par inspiration
   MAX_IMAGES_PER_INSPIRATION: 20,
 
+  // Audio des notes de carnet — formats issus de MediaRecorder navigateur
+  ALLOWED_AUDIO_MIME_TYPES: [
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/mpeg",
+  ] as const,
+  // Taille max par clip audio : 15 MB (largement suffisant, ~15 min en webm/opus)
+  MAX_AUDIO_SIZE_BYTES: parseInt(process.env.R2_MAX_AUDIO_SIZE_BYTES ?? "15728640"),
+
   // Seuil d'alerte (warning UI)
   WARN_THRESHOLD: 0.8,
 
@@ -82,10 +92,14 @@ export interface FullQuotaStatus {
 // profil (User.imageSize) est un 3e type d'objet R2 additionné séparément.
 // Chaque image écrit 2 objets R2 (original + vignette) — les deux sont comptés.
 export async function getStorageQuota(userId: string): Promise<StorageQuota> {
-  const [images, user] = await Promise.all([
+  const [images, audio, user] = await Promise.all([
     db.image.aggregate({
       where: { inspiration: { userId } },
       _sum: { size: true, thumbnailSize: true },
+    }),
+    db.visitAudio.aggregate({
+      where: { visit: { userId } },
+      _sum: { size: true },
     }),
     db.user.findUnique({
       where: { id: userId },
@@ -95,6 +109,7 @@ export async function getStorageQuota(userId: string): Promise<StorageQuota> {
   const usedBytes =
     (images._sum.size ?? 0) +
     (images._sum.thumbnailSize ?? 0) +
+    (audio._sum.size ?? 0) +
     (user?.imageSize ?? 0);
   // storageQuotaBytes est un BigInt en base ; toutes les valeurs de quota
   // (< 2^53) tiennent dans un number JS.
@@ -118,13 +133,15 @@ export async function getStorageQuota(userId: string): Promise<StorageQuota> {
 
 // ── Vue admin : usage réel de TOUT le bucket (tous profils confondus) ──
 export async function getGlobalStorageUsed(): Promise<number> {
-  const [images, users] = await Promise.all([
+  const [images, audio, users] = await Promise.all([
     db.image.aggregate({ _sum: { size: true, thumbnailSize: true } }),
+    db.visitAudio.aggregate({ _sum: { size: true } }),
     db.user.aggregate({ _sum: { imageSize: true } }),
   ]);
   return (
     (images._sum.size ?? 0) +
     (images._sum.thumbnailSize ?? 0) +
+    (audio._sum.size ?? 0) +
     (users._sum.imageSize ?? 0)
   );
 }
@@ -235,6 +252,13 @@ export async function checkUploadAllowed(
 // ── Type MIME ──────────────────────────────────────────────
 export function checkMimeType(mimeType: string): boolean {
   return (QUOTA.ALLOWED_MIME_TYPES as readonly string[]).includes(mimeType);
+}
+
+export function checkAudioMimeType(mimeType: string): boolean {
+  // MediaRecorder ajoute souvent des codecs ("audio/webm;codecs=opus") —
+  // on ne compare que le type de base.
+  const base = mimeType.split(";")[0].trim();
+  return (QUOTA.ALLOWED_AUDIO_MIME_TYPES as readonly string[]).includes(base);
 }
 
 // ── Formatage ──────────────────────────────────────────────

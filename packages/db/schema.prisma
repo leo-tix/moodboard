@@ -213,10 +213,27 @@ model Visit {
   updatedAt    DateTime      @updatedAt
   inspirations Inspiration[]
   noteBlocks   VisitNote[]
+  audioClips   VisitAudio[]
 
   @@index([visitDate])
   @@index([userId])
   @@map("visits")
+}
+
+// Enregistrement audio inséré dans une note du carnet (bloc Tiptap `audio`).
+// Modèle dédié (plutôt qu'une clé R2 brute dans le HTML) pour pouvoir compter
+// l'audio dans le quota de stockage par profil et nettoyer R2 proprement.
+model VisitAudio {
+  id          String   @id @default(cuid())
+  visitId     String
+  visit       Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  storageKey  String
+  size        Int
+  durationSec Int?
+  createdAt   DateTime @default(now())
+
+  @@index([visitId])
+  @@map("visit_audio")
 }
 
 // Bloc de note inséré dans le flux d'images d'une visite (carnet).
