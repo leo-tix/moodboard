@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { VisitJournal, type JournalItem } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
+import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 
 export const revalidate = 0;
 
@@ -35,7 +36,7 @@ export default async function VisiteDetailPage({ params }: Props) {
           visitOrder: true,
           createdAt: true,
           images: {
-            select: { thumbnailKey: true, width: true, height: true },
+            select: { storageKey: true, thumbnailKey: true, width: true, height: true },
             orderBy: [{ isMain: "desc" }, { order: "asc" }],
             take: 1,
           },
@@ -80,8 +81,16 @@ export default async function VisiteDetailPage({ params }: Props) {
 
   const hasMap = visit.latitude !== null && visit.longitude !== null;
 
+  const coverImages = [...visit.inspirations]
+    .sort((a, b) => a.visitOrder - b.visitOrder || a.createdAt.getTime() - b.createdAt.getTime())
+    .slice(0, 12)
+    .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey, width: i.images[0]?.width ?? null, height: i.images[0]?.height ?? null }))
+    .filter((i): i is { id: string; storageKey: string; width: number | null; height: number | null } => Boolean(i.storageKey));
+
   return (
     <div className="p-4 md:p-6">
+      <VisitCoverCarousel images={coverImages} />
+
       <header className="mb-5">
         <Link
           href="/visites"
