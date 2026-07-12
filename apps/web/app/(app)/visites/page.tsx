@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
@@ -45,18 +46,26 @@ export default async function VisitesPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <header className="mb-6">
-        <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">
-          Archive
-        </p>
-        <h1 className="text-2xl font-light text-[var(--text-primary)]">
-          Carnet de visite
-          {serialized.length > 0 && (
-            <span className="ml-3 text-sm font-normal text-[var(--text-tertiary)]">
-              {serialized.length}
-            </span>
-          )}
-        </h1>
+      <header className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[var(--text-tertiary)] text-xs tracking-widest uppercase mb-1">
+            Archive
+          </p>
+          <h1 className="text-2xl font-light text-[var(--text-primary)]">
+            Carnet de visite
+            {serialized.length > 0 && (
+              <span className="ml-3 text-sm font-normal text-[var(--text-tertiary)]">
+                {serialized.length}
+              </span>
+            )}
+          </h1>
+        </div>
+        <Link
+          href="/visites/carte"
+          className="flex-shrink-0 px-3 py-1.5 text-sm bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-md text-[var(--text-primary)] transition-colors"
+        >
+          🗺 Carte
+        </Link>
       </header>
 
       <VisitsClient initialVisits={serialized} />
