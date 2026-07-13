@@ -272,9 +272,29 @@ function AudioRecorderPopover({
       chunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
+        mic.stream.getTracks().forEach((t) => t.stop());
+        if (chunksRef.current.length === 0) {
+          setRecording(false);
+          setError("Aucun son capté — réessaie l'enregistrement.");
+          return;
+        }
         setBlob(new Blob(chunksRef.current, { type: recorder.mimeType || supported || "audio/webm" }));
         setDurationSec(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)));
+      };
+      // Filet si l'OS reprend le micro en cours d'enregistrement (voir
+      // VisitCaptureFab pour le détail) — sans ça l'UI reste bloquée sur
+      // "Arrêter" sans que le clic n'ait plus d'effet.
+      mic.stream.getAudioTracks().forEach((track) => {
+        track.onended = () => {
+          if (recorderRef.current && recorderRef.current.state !== "inactive") {
+            try { recorderRef.current.stop(); } catch { /* déjà arrêté */ }
+          }
+        };
+      });
+      recorder.onerror = () => {
         mic.stream.getTracks().forEach((t) => t.stop());
+        setError("Erreur d'enregistrement — réessaie.");
+        setRecording(false);
       };
       startedAtRef.current = Date.now();
       recorder.start();
@@ -286,8 +306,14 @@ function AudioRecorderPopover({
   };
 
   const stopRecording = () => {
-    recorderRef.current?.stop();
+    const recorder = recorderRef.current;
     setRecording(false);
+    if (!recorder || recorder.state === "inactive") return;
+    try {
+      recorder.stop();
+    } catch {
+      setError("Erreur lors de l'arrêt de l'enregistrement.");
+    }
   };
 
   const confirmUpload = async () => {

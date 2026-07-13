@@ -70,6 +70,10 @@ export function CreateVisitModal({ inspirationIds, onClose, onCreated }: CreateV
 
   const create = async () => {
     if (!place.trim() || creating) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("Hors ligne — connexion requise pour créer une visite.");
+      return;
+    }
     setCreating(true);
     setError("");
     try {

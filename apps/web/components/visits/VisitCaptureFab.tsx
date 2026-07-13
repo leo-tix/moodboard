@@ -11,6 +11,7 @@ import {
   startLiveTranscription,
   type LiveTranscriber,
 } from "@/lib/audio/recorder";
+import { compressImageForUpload } from "@/lib/image/clientResize";
 
 const LONG_PRESS_MS = 450;
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
@@ -60,16 +61,36 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
   }, []);
 
+  // Si l'appli passe en arrière-plan pendant un enregistrement (verrouillage
+  // écran, changement d'appli — courant en visite), arrêter et conserver ce
+  // qui a été capté plutôt que de laisser un enregistrement fantôme que le
+  // navigateur suspend silencieusement.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden && memo.step === "recording") stopMemo();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memo.step]);
+
   // ── Photo (tap) ──
   const handlePhotoFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("Hors ligne — connexion requise pour envoyer la photo.");
+      return;
+    }
     setUploadingPhoto(true);
     setError(null);
     try {
       const ids: string[] = [];
       for (const file of Array.from(files)) {
+        // Une photo caméra brute dépasse souvent la limite serveur (10 Mo) —
+        // compression/ré-encodage local avant envoi (voir clientResize.ts).
+        const uploadFile = await compressImageForUpload(file);
         const fd = new FormData();
-        fd.append("file", file);
+        fd.append("file", uploadFile);
         const res = await fetch("/api/upload/image", { method: "POST", body: fd });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.id) ids.push(data.id);
@@ -124,25 +145,76 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     chunksRef.current = [];
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     recorder.onstop = () => {
+      mic.stream.getTracks().forEach((t) => t.stop());
+      // Rien capté (arrêt quasi-immédiat, micro coupé avant la première
+      // frame) : pas de blob vide silencieux, on repart proprement.
+      if (chunksRef.current.length === 0) {
+        setMemo({ step: "idle" });
+        setError("Aucun son capté — réessaie l'enregistrement.");
+        return;
+      }
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
       const durationSec = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
-      mic.stream.getTracks().forEach((t) => t.stop());
       setMemo({ step: "preview", blob, durationSec });
+    };
+    // Sur certains mobiles, l'OS peut réattribuer le micro en cours de route
+    // (appel entrant, autre appli, ou conflit avec la reconnaissance vocale
+    // ci-dessous) — sans ce filet, l'enregistrement reste bloqué en
+    // "recording" indéfiniment côté UI puisque `onstop` ne se déclenche
+    // jamais tout seul. On force l'arrêt propre dès que la piste meurt.
+    mic.stream.getAudioTracks().forEach((track) => {
+      track.onended = () => {
+        if (recorderRef.current && recorderRef.current.state !== "inactive") {
+          try { recorderRef.current.stop(); } catch { /* déjà arrêté */ }
+        }
+      };
+    });
+    recorder.onerror = () => {
+      transcriberRef.current?.stop();
+      transcriberRef.current = null;
+      mic.stream.getTracks().forEach((t) => t.stop());
+      setError("Erreur d'enregistrement — réessaie.");
+      setMemo({ step: "idle" });
     };
 
     setTranscript("");
-    transcriberRef.current = startLiveTranscription(setTranscript);
+    // Démarre l'enregistrement AVANT la reconnaissance vocale : sur Android,
+    // faire les deux demandes de micro simultanément est une source connue
+    // d'instabilité (l'une peut couper l'autre) — décaler légèrement réduit
+    // le risque que MediaRecorder perde la main dès l'ouverture.
     startedAtRef.current = Date.now();
     setElapsed(0);
     recorder.start();
     setMemo({ step: "recording", startedAt: startedAtRef.current });
+    window.setTimeout(() => {
+      if (recorderRef.current === recorder && recorder.state === "recording") {
+        transcriberRef.current = startLiveTranscription(setTranscript);
+      }
+    }, 200);
   };
 
   const stopMemo = () => {
     const finalText = transcriberRef.current?.stop() ?? "";
     if (finalText) setTranscript(finalText);
     transcriberRef.current = null;
-    recorderRef.current?.stop();
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      // `onstop` a déjà tranché (piste coupée plus tôt, ou jamais démarré) —
+      // rien à faire de plus ; si l'UI était restée bloquée en "recording"
+      // sans qu'aucune donnée n'ait été produite, le signaler plutôt que de
+      // laisser la feuille ouverte sans réaction au tap sur "Terminer".
+      if (memo.step === "recording") {
+        setError("L'enregistrement s'est arrêté de façon inattendue — réessaie.");
+        setMemo({ step: "idle" });
+      }
+      return;
+    }
+    try {
+      recorder.stop();
+    } catch {
+      setError("Erreur lors de l'arrêt de l'enregistrement.");
+      setMemo({ step: "idle" });
+    }
   };
 
   const cancelMemo = () => {
@@ -160,6 +232,10 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const saveMemo = async () => {
     if (memo.step !== "preview") return;
     const { blob, durationSec } = memo;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("Hors ligne — connexion requise pour envoyer le mémo. Le clip reste dans l'aperçu.");
+      return;
+    }
     setMemo({ step: "saving" });
     setError(null);
     try {

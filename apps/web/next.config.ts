@@ -9,15 +9,16 @@ const securityHeaders = [
   { key: "X-XSS-Protection", value: "1; mode=block" },
   // Strict referrer policy
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Permissions policy — disable unused browser features. `microphone=(self)`
-  // autorise le navigateur à MÊME PROPOSER la permission sur notre propre
-  // origine (nécessaire pour l'enregistrement audio du carnet de visite) —
-  // sans ça, `getUserMedia` échoue instantanément en NotAllowedError et le
-  // navigateur n'affiche jamais la demande de permission native, quel que
-  // soit le choix de l'utilisateur.
+  // Permissions policy — disable unused browser features. `(self)` autorise
+  // le navigateur à MÊME PROPOSER la permission sur notre propre origine —
+  // sans ça, `getUserMedia`/`getCurrentPosition` échouent instantanément
+  // (NotAllowedError / PERMISSION_DENIED) et le navigateur n'affiche jamais
+  // la demande native, quel que soit le choix de l'utilisateur. Microphone
+  // (enregistrement carnet) et geolocation ("ma position" à la création
+  // d'une visite) sont utilisés ; camera ne l'est pas.
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(self), geolocation=()",
+    value: "camera=(), microphone=(self), geolocation=(self)",
   },
 ];
 
