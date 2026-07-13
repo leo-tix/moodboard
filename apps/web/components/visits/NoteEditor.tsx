@@ -93,7 +93,18 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
 
   return (
     <div className={cn("flex-1 min-w-0", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
-      {editable && <NoteToolbar editor={editor} visitImages={visitImages} visitId={visitId} />}
+      {editable && (
+        <NoteToolbar
+          editor={editor}
+          visitImages={visitImages}
+          visitId={visitId}
+          // L'insertion d'un bloc image/audio via la toolbar ne déclenche pas
+          // de blur (l'éditeur reste focus) — sans sauvegarde immédiate, un
+          // rechargement/navigation avant le prochain blur perdait le bloc
+          // inséré (il n'avait jamais été persisté). Même callback que blur.
+          onSave={() => onBlurSave(editor.getHTML())}
+        />
+      )}
       <EditorContent editor={editor} />
       {/* Après les images flottantes, le texte peut ne plus déborder assez
           bas pour "clear" le float — sans ça la bordure/le padding du bloc
@@ -110,10 +121,12 @@ function NoteToolbar({
   editor,
   visitImages,
   visitId,
+  onSave,
 }: {
   editor: ReturnType<typeof useEditor>;
   visitImages: NoteEditorImage[];
   visitId?: string;
+  onSave: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [recorderOpen, setRecorderOpen] = useState(false);
@@ -177,6 +190,7 @@ function NoteToolbar({
                   onClick={() => {
                     editor.chain().focus().insertInlineImage({ inspirationId: img.id, thumbnailKey: img.thumbnailKey ?? "" }).run();
                     setPickerOpen(false);
+                    onSave();
                   }}
                   className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
                 >
@@ -208,7 +222,7 @@ function NoteToolbar({
             🎙
           </button>
           {recorderOpen && (
-            <AudioRecorderPopover visitId={visitId} editor={editor} onClose={() => setRecorderOpen(false)} />
+            <AudioRecorderPopover visitId={visitId} editor={editor} onClose={() => setRecorderOpen(false)} onSave={onSave} />
           )}
         </>
       )}
@@ -220,10 +234,12 @@ function AudioRecorderPopover({
   visitId,
   editor,
   onClose,
+  onSave,
 }: {
   visitId: string;
   editor: NonNullable<ReturnType<typeof useEditor>>;
   onClose: () => void;
+  onSave: () => void;
 }) {
   const [recording, setRecording] = useState(false);
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -241,15 +257,38 @@ function AudioRecorderPopover({
 
   const startRecording = async () => {
     setError(null);
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Micro non disponible — HTTPS (ou localhost) requis pour enregistrer.");
+      return;
+    }
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const recorder = new MediaRecorder(stream);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setError("Permission micro refusée — autorise l'accès dans les réglages du navigateur.");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setError("Aucun micro détecté sur cet appareil.");
+      } else {
+        setError("Micro inaccessible — vérifie les permissions du navigateur.");
+      }
+      return;
+    }
+    streamRef.current = stream;
+
+    // `new MediaRecorder(stream)` sans type explicite échoue sur Safari/iOS
+    // (pas de type par défaut pris en charge) — on essaie une liste de types
+    // courants avant de laisser le navigateur choisir.
+    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+    const supported = candidates.find((t) => typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(t));
+    try {
+      const recorder = supported ? new MediaRecorder(stream, { mimeType: supported }) : new MediaRecorder(stream);
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        setBlob(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
+        setBlob(new Blob(chunksRef.current, { type: recorder.mimeType || supported || "audio/webm" }));
         setDurationSec(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)));
         stream.getTracks().forEach((t) => t.stop());
       };
@@ -257,7 +296,8 @@ function AudioRecorderPopover({
       recorder.start();
       setRecording(true);
     } catch {
-      setError("Micro inaccessible — vérifie les permissions du navigateur.");
+      stream.getTracks().forEach((t) => t.stop());
+      setError("Format d'enregistrement non pris en charge par ce navigateur.");
     }
   };
 
@@ -286,6 +326,7 @@ function AudioRecorderPopover({
         storageKey: data.storageKey,
         durationSec: data.durationSec,
       }).run();
+      onSave();
       onClose();
     } finally {
       setUploading(false);

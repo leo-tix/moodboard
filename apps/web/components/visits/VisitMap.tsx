@@ -2,19 +2,22 @@
 
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
+import { getThumbnailUrl } from "@/lib/storage/urls";
 
 interface VisitMapProps {
   latitude: number;
   longitude: number;
   /** Libellé de la popup (nom du lieu) */
   label?: string;
+  /** Vignette mise en avant dans le pin (même style que la carte cumulée) — à défaut, simple point. */
+  thumbnailKey?: string | null;
   className?: string;
 }
 
 // Mini-carte Leaflet + tuiles CARTO dark (assorties au thème sombre).
 // Leaflet est importé dynamiquement dans useEffect : il touche `window`
 // au chargement et casserait le rendu SSR sinon.
-export function VisitMap({ latitude, longitude, label, className }: VisitMapProps) {
+export function VisitMap({ latitude, longitude, label, thumbnailKey, className }: VisitMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
 
@@ -44,13 +47,22 @@ export function VisitMap({ latitude, longitude, label, className }: VisitMapProp
         },
       ).addTo(map);
 
-      // Marqueur en divIcon (pas d'assets PNG Leaflet à configurer)
-      const icon = L.divIcon({
-        className: "",
-        html: '<div style="width:14px;height:14px;border-radius:50%;background:#e8e0d4;border:3px solid rgba(10,10,10,0.8);box-shadow:0 0 0 2px rgba(232,224,212,0.35)"></div>',
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
-      });
+      // Pin-photo (même style que VisitsGlobalMap) si une vignette est
+      // disponible, sinon simple point — "carte premium" plutôt qu'un point uni.
+      const thumb = thumbnailKey ? getThumbnailUrl(thumbnailKey) : null;
+      const icon = thumb
+        ? L.divIcon({
+            className: "",
+            html: `<div style="width:52px;height:52px;border-radius:50%;overflow:hidden;border:3px solid #e8e0d4;box-shadow:0 4px 14px rgba(0,0,0,0.55)"><img src="${thumb}" style="width:100%;height:100%;object-fit:cover" /></div>`,
+            iconSize: [52, 52],
+            iconAnchor: [26, 26],
+          })
+        : L.divIcon({
+            className: "",
+            html: '<div style="width:14px;height:14px;border-radius:50%;background:#e8e0d4;border:3px solid rgba(10,10,10,0.8);box-shadow:0 0 0 2px rgba(232,224,212,0.35)"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
+          });
       const marker = L.marker([latitude, longitude], { icon }).addTo(map);
       if (label) marker.bindPopup(label);
 
@@ -62,7 +74,7 @@ export function VisitMap({ latitude, longitude, label, className }: VisitMapProp
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [latitude, longitude, label]);
+  }, [latitude, longitude, label, thumbnailKey]);
 
   return (
     <div

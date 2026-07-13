@@ -60,51 +60,53 @@ export function VisitHeaderEditable({ visitId, place, exhibition, visitDate, ima
 
   return (
     <div className="min-w-0">
-      {editingField === "place" ? (
+      {/* Hiérarchie inversée : l'exposition est l'info principale (le lieu
+          n'est qu'un contenant), le lieu passe en ligne secondaire. */}
+      {editingField === "exhibition" ? (
         <input
           autoFocus
-          value={localPlace}
-          onChange={(e) => setLocalPlace(e.target.value)}
-          onBlur={savePlace}
+          value={localExhibition}
+          onChange={(e) => setLocalExhibition(e.target.value)}
+          onBlur={saveExhibition}
           onKeyDown={(e) => {
-            if (e.key === "Enter") savePlace();
-            if (e.key === "Escape") { setLocalPlace(place); setEditingField(null); }
+            if (e.key === "Enter") saveExhibition();
+            if (e.key === "Escape") { setLocalExhibition(exhibition ?? ""); setEditingField(null); }
           }}
+          placeholder="Titre de l'exposition"
           className={cn(inputCls, "text-xl md:text-2xl font-light text-[var(--text-primary)] w-full max-w-md")}
         />
       ) : (
         <h1
-          onClick={() => setEditingField("place")}
+          onClick={() => setEditingField("exhibition")}
           className="text-xl md:text-2xl font-light text-[var(--text-primary)] flex items-baseline gap-2 flex-wrap cursor-text group/title"
-          title="Cliquer pour renommer"
+          title="Cliquer pour modifier le titre de l'exposition"
         >
-          {place}
+          {exhibition || <span className="text-[var(--text-tertiary)]">+ Titre de l&apos;exposition</span>}
           <span className="text-sm font-normal text-[var(--text-tertiary)]">{imageCount}</span>
           <span className="text-xs text-[var(--text-tertiary)] opacity-0 group-hover/title:opacity-100 pointer-coarse:opacity-100 transition-opacity">✎</span>
         </h1>
       )}
 
       <p className="text-sm text-[var(--text-secondary)] mt-0.5 flex items-center gap-1.5 flex-wrap">
-        {editingField === "exhibition" ? (
+        {editingField === "place" ? (
           <input
             autoFocus
-            value={localExhibition}
-            onChange={(e) => setLocalExhibition(e.target.value)}
-            onBlur={saveExhibition}
+            value={localPlace}
+            onChange={(e) => setLocalPlace(e.target.value)}
+            onBlur={savePlace}
             onKeyDown={(e) => {
-              if (e.key === "Enter") saveExhibition();
-              if (e.key === "Escape") { setLocalExhibition(exhibition ?? ""); setEditingField(null); }
+              if (e.key === "Enter") savePlace();
+              if (e.key === "Escape") { setLocalPlace(place); setEditingField(null); }
             }}
-            placeholder="Nom de l'exposition"
-            className={cn(inputCls, "italic text-sm w-44")}
+            className={cn(inputCls, "text-sm w-44")}
           />
         ) : (
           <span
-            onClick={() => setEditingField("exhibition")}
-            className="italic cursor-text"
-            title="Cliquer pour modifier l'exposition"
+            onClick={() => setEditingField("place")}
+            className="cursor-text"
+            title="Cliquer pour modifier le lieu"
           >
-            {exhibition || <span className="text-[var(--text-tertiary)] not-italic">+ exposition</span>}
+            {place}
           </span>
         )}
         <span className="text-[var(--text-tertiary)]">·</span>

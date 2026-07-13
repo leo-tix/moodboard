@@ -76,17 +76,22 @@ export default async function VisiteDetailPage({ params }: Props) {
 
   const hasMap = visit.latitude !== null && visit.longitude !== null;
 
-  const coverImages = [...visit.inspirations]
-    .sort((a, b) => a.visitOrder - b.visitOrder || a.createdAt.getTime() - b.createdAt.getTime())
+  const orderedInspirations = [...visit.inspirations].sort(
+    (a, b) => a.visitOrder - b.visitOrder || a.createdAt.getTime() - b.createdAt.getTime()
+  );
+  const coverImages = orderedInspirations
     .slice(0, 12)
     .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey, width: i.images[0]?.width ?? null, height: i.images[0]?.height ?? null }))
     .filter((i): i is { id: string; storageKey: string; width: number | null; height: number | null } => Boolean(i.storageKey));
+  // Même première image que la couverture, mais en vignette pour le pin de carte.
+  const mapThumbnailKey = orderedInspirations[0]?.images[0]?.thumbnailKey ?? null;
 
   const hasCover = coverImages.length > 0;
+  const coverTitle = visit.exhibition || visit.place;
 
   return (
     <div className="p-4 md:p-6">
-      <VisitCoverCarousel images={coverImages} backHref="/visites" />
+      <VisitCoverCarousel images={coverImages} title={coverTitle} backHref="/visites" />
 
       <header className="mb-5">
         {/* Sans cover (visite sans image), le retour flottant n'existe pas —
@@ -100,39 +105,36 @@ export default async function VisiteDetailPage({ params }: Props) {
           </Link>
         )}
 
-        <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
-          <div className="flex-1 min-w-0">
-            <VisitHeaderEditable
-              visitId={visit.id}
-              place={visit.place}
-              exhibition={visit.exhibition}
-              visitDate={visit.visitDate.toISOString()}
-              imageCount={visit.inspirations.length}
-            />
-            {visit.address && (
-              <p className="text-xs text-[var(--text-tertiary)] mt-1">{visit.address}</p>
-            )}
-            {visit.notes && (
-              <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl whitespace-pre-wrap">
-                {visit.notes}
-              </p>
-            )}
-          </div>
-
-          {/* Mini-carte compacte (hauteur alignée sur le bloc texte pour
-              éviter la zone morte relevée à l'audit) */}
-          {hasMap && (
-            <div className="w-full md:w-56 lg:w-64 flex-shrink-0 rounded-lg overflow-hidden border border-[var(--border-subtle)]">
-              <VisitMap
-                latitude={visit.latitude!}
-                longitude={visit.longitude!}
-                label={visit.place}
-                className="h-28 w-full"
-              />
-            </div>
-          )}
-        </div>
+        <VisitHeaderEditable
+          visitId={visit.id}
+          place={visit.place}
+          exhibition={visit.exhibition}
+          visitDate={visit.visitDate.toISOString()}
+          imageCount={visit.inspirations.length}
+        />
+        {visit.address && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-1">{visit.address}</p>
+        )}
+        {visit.notes && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl whitespace-pre-wrap">
+            {visit.notes}
+          </p>
+        )}
       </header>
+
+      {/* Carte pleine largeur juste après le titre/lieu — pin avec vignette
+          mise en avant (même style que la carte cumulée), "carte premium". */}
+      {hasMap && (
+        <div className="mb-6 rounded-xl overflow-hidden border border-[var(--border-subtle)]">
+          <VisitMap
+            latitude={visit.latitude!}
+            longitude={visit.longitude!}
+            label={visit.place}
+            thumbnailKey={mapThumbnailKey}
+            className="h-64 md:h-80 w-full"
+          />
+        </div>
+      )}
 
       <VisitJournal visitId={visit.id} initialItems={items} />
     </div>

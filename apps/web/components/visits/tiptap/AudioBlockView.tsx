@@ -2,24 +2,17 @@
 
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { getAudioUrl } from "@/lib/storage/urls";
+import { AudioPlayer } from "@/components/visits/AudioPlayer";
 
 export function AudioBlockView({ node, deleteNode, editor }: NodeViewProps) {
   const { storageKey, durationSec } = node.attrs as { storageKey: string | null; durationSec: number | null };
 
   return (
     <NodeViewWrapper
-      className="my-2 flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2"
+      className="my-2 flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2"
       contentEditable={false}
     >
-      <span className="text-[var(--text-tertiary)] text-sm flex-shrink-0">🎙</span>
-      {storageKey && (
-        <audio controls src={getAudioUrl(storageKey)} className="flex-1 h-8" style={{ minWidth: 0 }} />
-      )}
-      {durationSec != null && (
-        <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0">
-          {Math.floor(durationSec / 60)}:{String(durationSec % 60).padStart(2, "0")}
-        </span>
-      )}
+      {storageKey && <AudioPlayer src={getAudioUrl(storageKey)} durationSec={durationSec} />}
       {editor.isEditable && (
         <button
           type="button"
