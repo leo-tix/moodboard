@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 interface Props {
@@ -94,6 +95,15 @@ export function VisitShareButton({ visitId, shareToken: initialToken, shareExpir
           ref={popoverRef}
           className="absolute right-0 top-full mt-2 z-50 w-72 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl p-4 space-y-3"
         >
+          <Link
+            href={`/visites/${visitId}/dossier`}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs bg-[var(--bg-base)] hover:bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            🗂 Partager en dossier (image)
+          </Link>
+
+          <div className="h-px bg-[var(--border-subtle)]" />
+
           <p className="text-xs font-medium text-[var(--text-secondary)]">Carnet public</p>
 
           {isActive ? (
