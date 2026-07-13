@@ -16,6 +16,12 @@ import { compressImageForUpload } from "@/lib/image/clientResize";
 const LONG_PRESS_MS = 450;
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
 
+// Transcription live désactivée sur tactile (voir beginRecording) — la
+// concurrence MediaRecorder/SpeechRecognition sur le même micro y est
+// instable en conditions réelles.
+const isTouchDevice = () =>
+  typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+
 type MemoPhase =
   | { step: "idle" }
   | { step: "onboarding" }
@@ -97,12 +103,27 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         else setError(data.error ?? "Échec de l'upload");
       }
       if (ids.length > 0) {
-        await fetch(`/api/visits/${visitId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ addInspirationIds: ids }),
-        });
-        router.refresh();
+        // L'image est déjà créée (visible en triage) à ce stade — sans
+        // vérifier cette réponse, un échec réseau (fréquent en wifi musée)
+        // laissait l'image orpheline : uploadée mais jamais rattachée à la
+        // visite, invisible dans le carnet, seulement retrouvable en triage.
+        // Un essai de secours avant d'abandonner (le premier échec est
+        // souvent un simple blip réseau).
+        const attach = () =>
+          fetch(`/api/visits/${visitId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ addInspirationIds: ids }),
+          });
+        let res = await attach();
+        if (!res.ok) res = await attach();
+        if (!res.ok) {
+          setError(
+            `${ids.length > 1 ? "Photos envoyées" : "Photo envoyée"} mais pas rattachée à la visite (réseau instable ?) — elle${ids.length > 1 ? "s restent" : " reste"} disponible${ids.length > 1 ? "s" : ""} en triage.`
+          );
+        } else {
+          router.refresh();
+        }
       }
     } finally {
       setUploadingPhoto(false);
@@ -178,19 +199,27 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     };
 
     setTranscript("");
-    // Démarre l'enregistrement AVANT la reconnaissance vocale : sur Android,
-    // faire les deux demandes de micro simultanément est une source connue
-    // d'instabilité (l'une peut couper l'autre) — décaler légèrement réduit
-    // le risque que MediaRecorder perde la main dès l'ouverture.
     startedAtRef.current = Date.now();
     setElapsed(0);
     recorder.start();
     setMemo({ step: "recording", startedAt: startedAtRef.current });
-    window.setTimeout(() => {
-      if (recorderRef.current === recorder && recorder.state === "recording") {
-        transcriberRef.current = startLiveTranscription(setTranscript);
-      }
-    }, 200);
+    // Reconnaissance vocale en direct — DESKTOP UNIQUEMENT. Faire tourner
+    // MediaRecorder et SpeechRecognition en même temps sur le même micro
+    // s'est révélé cassant sur mobile réel (retour terrain) : l'OS/le
+    // navigateur peut réattribuer le flux micro à la reconnaissance vocale,
+    // ce qui coupe MediaRecorder en plein enregistrement — l'utilisateur
+    // valide le mémo mais rien n'est jamais capté. Décaler le démarrage
+    // (200ms) ne suffisait pas à fiabiliser ça sur les appareils testés. On
+    // sacrifie donc la transcription live sur tactile pour garantir que le
+    // clip audio, lui, arrive bien dans le carnet — c'est la fonctionnalité
+    // principale.
+    if (!isTouchDevice()) {
+      window.setTimeout(() => {
+        if (recorderRef.current === recorder && recorder.state === "recording") {
+          transcriberRef.current = startLiveTranscription(setTranscript);
+        }
+      }, 200);
+    }
   };
 
   const stopMemo = () => {
@@ -361,9 +390,15 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
                   <p className="text-sm font-medium text-[var(--text-primary)]">Enregistrement…</p>
                   <span className="ml-auto text-sm text-[var(--text-tertiary)] tabular-nums">{fmt(elapsed)}</span>
                 </div>
-                <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
-                  {transcript || <span className="text-[var(--text-tertiary)] italic">La transcription apparaît ici…</span>}
-                </p>
+                {isTouchDevice() ? (
+                  <p className="text-xs text-[var(--text-tertiary)] italic">
+                    Transcription en direct disponible sur desktop — ce mémo sera enregistré tel quel.
+                  </p>
+                ) : (
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
+                    {transcript || <span className="text-[var(--text-tertiary)] italic">La transcription apparaît ici…</span>}
+                  </p>
+                )}
                 <button
                   onClick={stopMemo}
                   className="w-full py-3 rounded-lg text-sm font-medium bg-red-500/15 text-red-400 border border-red-500/30"
