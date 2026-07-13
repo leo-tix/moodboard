@@ -415,6 +415,43 @@ reste identique au comportement actuel.
 - **Tags transversaux** (#Typographie, #Scénographie) — les tags existent
   sur Inspiration ; le filtrage transversal niveau visites est nouveau.
 
+- **Module de partage "folder lab" (demande explicite utilisateur 2026-07-13)** —
+  reproduire **exactement le fonctionnement ET le design** de
+  https://folderlab.javii.tools/ ("folderlab — macOS folders with peek
+  photos", made by javi), appliqué aux images d'une visite (ou d'une planche) :
+  générer un visuel "dossier macOS d'où débordent des cartes photos", partageable
+  en image ou vidéo. Recoupe l'item "Export 9:16 story/reel" ci-dessus mais avec
+  un rendu et une UX très précis à cloner. Spécification à reproduire fidèlement :
+  - **Scène centrale** : un dossier macOS stylisé (grand rectangle arrondi,
+    teinte réglable) avec 1 à 6 cartes photos glissées derrière/dedans qui
+    « dépassent » en éventail par le haut.
+  - **Nuancier de teinte du dossier** (colonne de gauche) : grille de pastilles
+    de couleurs (teintes façon dossiers macOS), sélection = change la couleur du
+    dossier ; pastille sélectionnée entourée d'un anneau.
+  - **Ajout de photos** : bouton « + add (N/6) » (max 6), miniatures des photos
+    ajoutées affichées en bas ; « clear » vide tout.
+  - **Styles d'agencement des cartes** (exclusifs, colonne de droite) :
+    **Tucked** (rangées bien dans le dossier), **Peek** (dépassent un peu),
+    **Open** (écartées), **Spill** (débordent largement en éventail).
+  - **Orientation / découpe** : **Vertical** (icône ciseaux — ratio/orientation
+    des cartes, portrait) ; **Frame** (cadre/bordure autour des cartes) ;
+    **Glass** (effet glassmorphism — **réservé premium**, cadenas).
+  - **Animations** : « shake » (secousse/jiggle des cartes), transitions
+    fluides entre styles.
+  - **Export** : « ↓ PNG » (image fixe, gratuit) et « ↓ Video » (export animé,
+    **réservé premium**, cadenas). Pour Moodboard, remplacer le gating premium
+    par un accès libre (app perso mono-tenant) OU le conserver désactivé —
+    décision produit à trancher au moment du build.
+  - **Design** : fond sombre quasi noir, contrôles en **pills** arrondies
+    (clair sur sombre), état actif d'un style = pill sombre inversée, boutons
+    d'action premium teintés (bleu). Playful, minimal, centré.
+  - **Intégration Moodboard suggérée** (à préciser au build) : accessible depuis
+    une visite (« Partager en dossier ») pré-rempli avec ses images / cover ;
+    rendu client réutilisant le pipeline canvas de l'export PNG des planches ;
+    l'export vidéo = capture d'animation (piste à définir : `MediaRecorder` sur
+    canvas, ou WebCodecs). URL de référence à garder sous les yeux pendant le
+    build : https://folderlab.javii.tools/.
+
 ---
 
 ## Notes d'implémentation générales
