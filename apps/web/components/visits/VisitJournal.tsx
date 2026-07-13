@@ -50,6 +50,19 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
+  // Resynchronise avec les données serveur quand elles changent — sans ça,
+  // le `router.refresh()` déclenché après une capture FAB (photo ou mémo
+  // vocal) rechargeait bien le payload RSC mais ce state, initialisé une
+  // seule fois au mount, l'ignorait : il fallait recharger la page à la main
+  // pour voir apparaître le nouvel élément.
+  const initialItemsRef = useRef(initialItems);
+  useEffect(() => {
+    if (initialItemsRef.current !== initialItems) {
+      initialItemsRef.current = initialItems;
+      setItems(initialItems);
+    }
+  }, [initialItems]);
+
   const keyOf = (item: JournalItem) => `${item.type}-${item.id}`;
 
   useEffect(() => {

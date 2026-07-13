@@ -170,7 +170,11 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
                 // vide pendant/après un décodage lent ou échoué.
                 peaks ? (played ? "bg-[var(--text-primary)]" : "bg-[var(--border-strong)]") : "bg-[var(--border-strong)] animate-pulse"
               )}
-              style={{ height: `${Math.round(h * 100)}%`, minHeight: 2 }}
+              // Hauteur en PIXELS, pas en % : un pourcentage sur un enfant de
+              // flexbox peut s'effondrer à 0 sur Safari/iOS (base de calcul
+              // ambiguë) — c'était l'autre raison des waveforms invisibles
+              // sur mobile. 28px = h-8 (32px) moins un peu de respiration.
+              style={{ height: Math.max(2, Math.round(h * 28)) }}
             />
           );
         })}

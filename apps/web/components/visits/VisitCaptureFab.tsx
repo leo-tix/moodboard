@@ -12,6 +12,7 @@ import {
   type LiveTranscriber,
 } from "@/lib/audio/recorder";
 import { compressImageForUpload } from "@/lib/image/clientResize";
+import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
 
 const LONG_PRESS_MS = 450;
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
@@ -42,6 +43,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const [elapsed, setElapsed] = useState(0);
   // null = pas encore déterminé (reconnaissance lancée avec un léger délai)
   const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
+  // Progression de la transcription locale post-enregistrement (Whisper WASM)
+  const [transcribing, setTranscribing] = useState<TranscribeProgress | null>(null);
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
@@ -256,6 +259,24 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     setTranscript("");
   };
 
+  const transcribeMemo = async () => {
+    if (memo.step !== "preview" || transcribing) return;
+    setError(null);
+    setTranscribing({ phase: "decoding" });
+    try {
+      const text = await transcribeBlobLocally(memo.blob, setTranscribing);
+      if (text) setTranscript(text);
+      else setError("Rien à transcrire (silence ou parole non détectée).");
+    } catch (err) {
+      // Message technique inclus : indispensable pour diagnostiquer sur le
+      // terrain (les échecs varient selon plateforme/réseau).
+      const detail = err instanceof Error ? ` (${err.message.slice(0, 120)})` : "";
+      setError(`Transcription impossible${detail} — le mémo reste enregistrable tel quel.`);
+    } finally {
+      setTranscribing(null);
+    }
+  };
+
   const saveMemo = async () => {
     if (memo.step !== "preview") return;
     const { blob, durationSec } = memo;
@@ -417,6 +438,25 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
                   placeholder="Transcription (modifiable, ou vide)…"
                   className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)] resize-y placeholder:text-[var(--text-tertiary)]"
                 />
+                {/* Transcription locale post-enregistrement (Whisper WASM) —
+                    la solution quand la Web Speech API n'a rien donné (PWA
+                    iOS notamment). Action explicite : le 1er usage télécharge
+                    le modèle (~40 Mo), pas de surprise sur données mobiles. */}
+                {!transcript.trim() && memo.step === "preview" && (
+                  <button
+                    onClick={transcribeMemo}
+                    disabled={transcribing !== null}
+                    className="w-full py-2 rounded-lg text-xs text-[var(--text-secondary)] border border-dashed border-[var(--border-default)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors disabled:opacity-60"
+                  >
+                    {transcribing === null
+                      ? "✎ Transcrire ce mémo (local, ~40 Mo au 1er usage)"
+                      : transcribing.phase === "downloading"
+                        ? `Téléchargement du modèle… ${transcribing.loadedMB ?? 0}/${transcribing.totalMB ?? "?"} Mo`
+                        : transcribing.phase === "transcribing"
+                          ? "Transcription en cours…"
+                          : "Préparation de l'audio…"}
+                  </button>
+                )}
                 {error && <p className="text-xs text-red-400">{error}</p>}
                 <div className="flex gap-2">
                   <button
