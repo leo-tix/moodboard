@@ -209,6 +209,10 @@ model Visit {
   latitude     Float?
   longitude    Float?
   address      String?       // Adresse d'affichage retournée par le géocodeur
+  // Partage public (Phase 5) — même pattern que Moodboard. Token nul = privé
+  // (non partagé) ; posé/révoqué via /api/visits/[id]/share.
+  shareToken   String?       @unique
+  shareExpiry  DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   inspirations Inspiration[]

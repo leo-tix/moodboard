@@ -3,12 +3,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
-import { VisitJournal, type JournalItem, type JournalBlock } from "@/components/visits/VisitJournal";
+import { VisitJournal } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
 import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
+import { VisitShareButton } from "@/components/visits/VisitShareButton";
+import { buildJournalItems } from "@/lib/visits/journalItems";
 
 export const revalidate = 0;
 
@@ -60,78 +62,9 @@ export default async function VisiteDetailPage({ params }: Props) {
 
   if (!visit) notFound();
 
-  // Fusion des 6 tables de blocs dans une seule séquence de carnet façon
-  // Notion (voir schema.prisma) : chaque bloc "réclamé" par une colonne
-  // (référencé dans la pile left/right d'un VisitColumns) est retiré de la
-  // séquence plate — il ne s'affiche qu'imbriqué dans son bloc colonnes.
-  type BlockLookupKey = `${"image" | "note" | "title" | "quote" | "audio"}-${string}`;
-  const blocks = new Map<BlockLookupKey, JournalBlock>();
-  visit.inspirations.forEach((i) => {
-    blocks.set(`image-${i.id}`, {
-      type: "image",
-      id: i.id,
-      title: i.title,
-      author: i.author,
-      year: i.year,
-      thumbnailKey: i.images[0]?.thumbnailKey ?? null,
-      width: i.images[0]?.width ?? null,
-      height: i.images[0]?.height ?? null,
-    });
-  });
-  visit.noteBlocks.forEach((n) => blocks.set(`note-${n.id}`, { type: "note", id: n.id, content: n.content }));
-  visit.titleBlocks.forEach((t) => blocks.set(`title-${t.id}`, { type: "title", id: t.id, content: t.content }));
-  visit.quoteBlocks.forEach((q) => blocks.set(`quote-${q.id}`, { type: "quote", id: q.id, content: q.content }));
-  visit.audioClips.forEach((a) =>
-    blocks.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript }),
-  );
-
-  const REF_TO_KEY: Record<string, "image" | "note" | "title" | "quote" | "audio"> = { IMAGE: "image", TEXT: "note", TITLE: "title", QUOTE: "quote", AUDIO: "audio" };
-  // Chaque pile (left/right) est un tableau JSON [{type,id}, ...] — ordre
-  // conservé, résolu en blocs purs via le lookup map ci-dessus (une entrée
-  // orpheline, ex. bloc supprimé sans passer par l'API, est silencieusement
-  // ignorée plutôt que de planter le rendu).
-  const resolveStack = (stack: unknown): JournalBlock[] =>
-    (Array.isArray(stack) ? stack : [])
-      .map((ref) => {
-        const r = ref as { type?: string; id?: string };
-        return r?.type && r?.id ? blocks.get(`${REF_TO_KEY[r.type]}-${r.id}`) : undefined;
-      })
-      .filter((b): b is JournalBlock => Boolean(b));
-
-  const claimed = new Set<BlockLookupKey>();
-  visit.columnBlocks.forEach((c) => {
-    resolveStack(c.left).forEach((b) => claimed.add(`${b.type}-${b.id}`));
-    resolveStack(c.right).forEach((b) => claimed.add(`${b.type}-${b.id}`));
-  });
-
-  const merged: { item: JournalItem; order: number; createdAt: Date }[] = [];
-  visit.inspirations.forEach((i) => {
-    if (!claimed.has(`image-${i.id}`)) merged.push({ item: blocks.get(`image-${i.id}`)!, order: i.visitOrder, createdAt: i.createdAt });
-  });
-  visit.noteBlocks.forEach((n) => {
-    if (!claimed.has(`note-${n.id}`)) merged.push({ item: blocks.get(`note-${n.id}`)!, order: n.order, createdAt: n.createdAt });
-  });
-  visit.titleBlocks.forEach((t) => {
-    if (!claimed.has(`title-${t.id}`)) merged.push({ item: blocks.get(`title-${t.id}`)!, order: t.order, createdAt: t.createdAt });
-  });
-  visit.quoteBlocks.forEach((q) => {
-    if (!claimed.has(`quote-${q.id}`)) merged.push({ item: blocks.get(`quote-${q.id}`)!, order: q.order, createdAt: q.createdAt });
-  });
-  visit.audioClips.forEach((a) => {
-    if (!claimed.has(`audio-${a.id}`)) merged.push({ item: blocks.get(`audio-${a.id}`)!, order: a.order, createdAt: a.createdAt });
-  });
-  visit.columnBlocks.forEach((c) => {
-    merged.push({
-      item: { type: "columns", id: c.id, left: resolveStack(c.left), right: resolveStack(c.right) },
-      order: c.order,
-      createdAt: c.createdAt,
-    });
-  });
-
-  // Tri : ordre explicite, puis createdAt pour départager (blocs ajoutés en
-  // lot partagent le même order → ordre chrono naturel).
-  merged.sort((a, b) => a.order - b.order || a.createdAt.getTime() - b.createdAt.getTime());
-  const items = merged.map((m) => m.item);
+  // Fusion des 6 tables de blocs dans une seule séquence de carnet façon Notion
+  // (logique partagée avec la page publique, voir lib/visits/journalItems.ts).
+  const items = buildJournalItems(visit);
 
   const hasMap = visit.latitude !== null && visit.longitude !== null;
 
@@ -164,13 +97,22 @@ export default async function VisiteDetailPage({ params }: Props) {
           </Link>
         )}
 
-        <VisitHeaderEditable
-          visitId={visit.id}
-          place={visit.place}
-          exhibition={visit.exhibition}
-          visitDate={visit.visitDate.toISOString()}
-          imageCount={visit.inspirations.length}
-        />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <VisitHeaderEditable
+              visitId={visit.id}
+              place={visit.place}
+              exhibition={visit.exhibition}
+              visitDate={visit.visitDate.toISOString()}
+              imageCount={visit.inspirations.length}
+            />
+          </div>
+          <VisitShareButton
+            visitId={visit.id}
+            shareToken={visit.shareToken}
+            shareExpiry={visit.shareExpiry ? visit.shareExpiry.toISOString() : null}
+          />
+        </div>
         {visit.address && (
           <p className="text-xs text-[var(--text-tertiary)] mt-1">{visit.address}</p>
         )}
