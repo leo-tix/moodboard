@@ -23,10 +23,50 @@ export function CreateVisitModal({ inspirationIds, onClose, onCreated }: CreateV
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [geo, setGeo] = useState<PlaceGeo | null>(null);
   const [creating, setCreating] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
+
+  // Enrichissement auto (plan "friction zéro") : position GPS → reverse
+  // geocoding Photon (le géocodeur déjà utilisé par PlaceAutocomplete) →
+  // remplit lieu + coordonnées sans rien taper. Permission demandée
+  // seulement au clic (onboarding contextuel), jamais à l'ouverture.
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      setError("Géolocalisation non disponible sur cet appareil.");
+      return;
+    }
+    setLocating(true);
+    setError("");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const res = await fetch(
+            `https://photon.komoot.io/reverse?lat=${latitude}&lon=${longitude}&lang=fr`
+          );
+          const data = await res.json();
+          const p = data?.features?.[0]?.properties ?? {};
+          const name = p.name || [p.street, p.housenumber].filter(Boolean).join(" ") || "";
+          const address = [name, p.city, p.country].filter(Boolean).join(", ");
+          if (name) setPlace(name);
+          setGeo({ latitude, longitude, address: address || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` });
+        } catch {
+          // Reverse geocoding indisponible : on garde quand même les coordonnées
+          setGeo({ latitude, longitude, address: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` });
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setError("Position refusée ou indisponible.");
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
 
   const create = async () => {
     if (!place.trim() || creating) return;
@@ -89,13 +129,35 @@ export function CreateVisitModal({ inspirationIds, onClose, onCreated }: CreateV
         </div>
 
         <div className="p-4 space-y-3">
-          <PlaceAutocomplete
-            className={fld}
-            placeholder="Lieu * (musée, galerie…)"
-            value={place}
-            onChange={setPlace}
-            onSelectGeo={setGeo}
-          />
+          <div className="flex gap-2">
+            <div className="flex-1 min-w-0">
+              <PlaceAutocomplete
+                className={fld}
+                placeholder="Lieu * (musée, galerie…)"
+                value={place}
+                onChange={setPlace}
+                onSelectGeo={setGeo}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={useMyLocation}
+              disabled={locating}
+              title="Utiliser ma position actuelle"
+              className="flex-shrink-0 w-10 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)] transition-colors flex items-center justify-center disabled:opacity-50"
+            >
+              {locating ? (
+                <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                </svg>
+              )}
+            </button>
+          </div>
+          {geo && (
+            <p className="text-[10px] text-[var(--text-tertiary)] -mt-1.5 truncate">📍 {geo.address}</p>
+          )}
           <input
             className={fld}
             placeholder="Exposition (optionnel)"

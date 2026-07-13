@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { InlineImage } from "./tiptap/InlineImage";
 import { AudioBlock } from "./tiptap/AudioBlock";
+import { pickSupportedAudioMimeType, requestMicrophone } from "@/lib/audio/recorder";
 
 // ── Bloc de note façon Notion ────────────────────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
@@ -257,46 +258,29 @@ function AudioRecorderPopover({
 
   const startRecording = async () => {
     setError(null);
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("Micro non disponible — HTTPS (ou localhost) requis pour enregistrer.");
+    const mic = await requestMicrophone();
+    if (!mic.ok) {
+      setError(mic.error);
       return;
     }
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (err) {
-      const name = err instanceof DOMException ? err.name : "";
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-        setError("Permission micro refusée — autorise l'accès dans les réglages du navigateur.");
-      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        setError("Aucun micro détecté sur cet appareil.");
-      } else {
-        setError("Micro inaccessible — vérifie les permissions du navigateur.");
-      }
-      return;
-    }
-    streamRef.current = stream;
+    streamRef.current = mic.stream;
 
-    // `new MediaRecorder(stream)` sans type explicite échoue sur Safari/iOS
-    // (pas de type par défaut pris en charge) — on essaie une liste de types
-    // courants avant de laisser le navigateur choisir.
-    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
-    const supported = candidates.find((t) => typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(t));
+    const supported = pickSupportedAudioMimeType();
     try {
-      const recorder = supported ? new MediaRecorder(stream, { mimeType: supported }) : new MediaRecorder(stream);
+      const recorder = supported ? new MediaRecorder(mic.stream, { mimeType: supported }) : new MediaRecorder(mic.stream);
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
         setBlob(new Blob(chunksRef.current, { type: recorder.mimeType || supported || "audio/webm" }));
         setDurationSec(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)));
-        stream.getTracks().forEach((t) => t.stop());
+        mic.stream.getTracks().forEach((t) => t.stop());
       };
       startedAtRef.current = Date.now();
       recorder.start();
       setRecording(true);
     } catch {
-      stream.getTracks().forEach((t) => t.stop());
+      mic.stream.getTracks().forEach((t) => t.stop());
       setError("Format d'enregistrement non pris en charge par ce navigateur.");
     }
   };

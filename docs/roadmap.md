@@ -140,6 +140,66 @@ albums partagés** (collaboratif, export/partage public), **Notion**
   2026-07-10 (scope resserré à éditeur + couverture + carte). Pas commencé.
 - **Menu "/" façon Notion** pour insérer un bloc dans une note — reporté au
   profit de boutons dédiés (🖼/🎙) dans la toolbar, plus rapide à livrer.
+  **Remis au programme par le plan du 2026-07-13 (Phase 2 ci-dessous).**
+
+---
+
+## 7. Plan "Assistant de Visite Culturelle" (brief utilisateur 2026-07-13)
+
+Brief produit complet fourni par l'utilisateur — vision : PWA sombre,
+assistant de visite pour directeur artistique. Deux paradigmes stricts :
+**mobile = captation friction zéro (Apple Journal)**, **desktop = table de
+montage modulaire (Notion)**. Statut de chaque item vs l'existant :
+
+### Phase 1 — Mobile "friction zéro"
+- **FAB `+` persistant** (safe-area-inset-bottom) — nouveau.
+- **Scan & Snap** : `<input type="file" accept="image/*"
+  capture="environment">` → appareil photo natif instantané — recoupe
+  le "+ Photo temps réel" déjà en roadmap, pas commencé.
+- **Mémos vocaux + transcription** (appui long FAB → audio → texte en
+  arrière-plan, ex. Whisper) — ⚠️ l'enregistrement existe ; la
+  transcription = réintroduire une API IA externe payante alors que
+  Gemini a été retiré volontairement (2026-07-09). **Décision produit
+  explicite requise avant d'implémenter.**
+- **Enrichissement auto** GPS/date/heure → tag lieu sans formulaire — nouveau.
+- **Onboarding contextuel des permissions** (micro/GPS à la première
+  utilisation, modale explicative) — nouveau.
+
+### Phase 2 — Desktop "table de montage"
+- Éditeur par blocs D&D — ✅ largement en place (overlay+fantôme + Tiptap).
+- **Design "flottant"** : suppression bordures/fonds gris, structuration
+  par marges seules sur fond noir — passe design, nouveau.
+- **Bloc "Œuvre"** (photo + Titre/Artiste/Année typographiés) — les données
+  existent déjà (`Inspiration.title/author/year`), c'est un rendu à créer.
+- **Bloc "Moodboard"** (grille d'images pleine largeur) — nouveau.
+- **Bloc "Citation"** — `blockquote` volontairement désactivé dans
+  StarterKit : réactivation + style, trivial.
+- **Toolbar fantôme** (au surlignage) + **commande `/`** — le "/" était
+  reporté, remis au programme.
+- **Auto-save continu + indicateur de statut** — le save au blur et à
+  l'insertion existent ; manque le save debounced pendant la frappe et
+  l'indicateur ●/✓ (pattern déjà présent dans MetadataPanel).
+
+### Phase 3 — Refonte UI/UX de l'existant
+- Hiérarchie typographique de la grille d'archives (/visites) ; menus
+  lourds → icônes au survol ; **bottom sheets** pour le détail visite
+  sur la carte mobile (pattern FilterDrawer/AddToCollectionModal réutilisable).
+
+### Phase 4 — PWA & perfs
+- **Offline-first** : IndexedDB pour photos/notes + sync Service Worker au
+  retour réseau — **le plus gros chantier architectural du plan**
+  (IndexedDB déjà utilisé par le flux Share Target, base réutilisable).
+- Animations transform/opacity only — déjà largement le cas.
+- Blocage pull-to-refresh / sélection texte UI ; manifest `standalone` — ✅
+  manifest déjà standalone, le reste = petite passe CSS.
+
+### Phase 5 — Social & export
+- **Carnet public read-only** (article éditorial) — pattern
+  `shareToken`/`shareExpiry` des planches réutilisable, déjà en roadmap §6.
+- **Export 9:16** (story/reel) sur blocs Œuvre/Moodboard — nouveau,
+  le pipeline canvas de l'export PNG moodboard est réutilisable.
+- **Tags transversaux** (#Typographie, #Scénographie) — les tags existent
+  sur Inspiration ; le filtrage transversal niveau visites est nouveau.
 
 ---
 

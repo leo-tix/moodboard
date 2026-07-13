@@ -7,6 +7,7 @@ import { VisitJournal, type JournalItem } from "@/components/visits/VisitJournal
 import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
+import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
 
 export const revalidate = 0;
 
@@ -137,6 +138,9 @@ export default async function VisiteDetailPage({ params }: Props) {
       )}
 
       <VisitJournal visitId={visit.id} initialItems={items} />
+
+      {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
+      <VisitCaptureFab visitId={visit.id} />
     </div>
   );
 }
