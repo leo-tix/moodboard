@@ -286,6 +286,36 @@ bloc qui y a été inséré, et switcher la position des blocs qui y sont.
   précise (après le fix stopPropagation), et régression du drag top-level →
   colonne — tout persisté et revérifié après rechargement complet.
 
+### Phase 2F — FAB : menu d'action à 3 icônes (✅ 2026-07-13)
+Refonte du bouton "+" de capture basée sur un zoning/wireframe fourni par
+l'utilisateur (4 panneaux : idle, filler, menu ouvert 3 icônes + fermer,
+enregistrement). Décisions clarifiées via AskUserQuestion (toutes acceptées
+sur l'option recommandée) : tap ouvre un menu, appui long conservé tel quel
+(bypass direct du menu, instruction explicite de l'utilisateur) ; l'icône
+image ouvre la galerie (nouveau, pas de capture forcée) ; l'icône caméra
+reste identique au comportement actuel.
+- `VisitCaptureFab.tsx` : `fileInputRef` unique scindé en `galleryInputRef`
+  (sans `capture`) et `cameraInputRef` (`capture="environment"` conservé).
+- Tap sur le FAB ouvre `actionMenuOpen` (popover 3 boutons ronds 🖼/🎙/📷 + ✕
+  Fermer en dessous, fermeture au clic extérieur). Appui long : timer
+  identique à avant, ferme le menu s'il était ouvert puis appelle
+  `startMemo()` directement, sans jamais passer par le menu.
+- Vérifié en navigateur réel (compte de test jetable) : tap ouvre les 4
+  boutons ; 🖼 déclenche `galleryInputRef` (`capture:null` confirmé par
+  espionnage de `HTMLInputElement.prototype.click`) ; 📷 déclenche
+  `cameraInputRef` (`capture:"environment"` confirmé) ; ✕ ferme le menu sans
+  effet de bord ; 🎙 ferme le menu et ouvre le même écran d'onboarding mémo
+  vocal qu'avant ; appui long simulé (pointerdown + ~1s + pointerup) ouvre
+  directement l'onboarding mémo vocal sans jamais afficher le menu
+  (`hasMenu: false` vérifié) — régression explicitement à éviter, confirmée
+  absente.
+- Piège d'automatisation retrouvé : après un clic déclenchant un
+  `<input type="file">` OU l'ouverture d'une demande de permission micro,
+  `computer{action:"screenshot"}` peut timeout (rendu mis en pause par un
+  dialogue natif du navigateur), alors que `javascript_tool` continue de lire
+  le DOM réel sans problème — se fier à l'état DOM (JS) plutôt qu'au
+  screenshot dans ce cas.
+
 ### Phase 3 — Refonte UI/UX de l'existant
 - Hiérarchie typographique de la grille d'archives (/visites) ; menus
   lourds → icônes au survol ; **bottom sheets** pour le détail visite

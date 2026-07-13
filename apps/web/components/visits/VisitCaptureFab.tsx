@@ -25,18 +25,27 @@ type MemoPhase =
   | { step: "saving" };
 
 // FAB de capture "friction zéro" (Phase 1 mobile du plan Assistant de Visite) :
-// - **Tap** → appareil photo natif (`capture="environment"`) → upload →
-//   rattachement direct à la visite, zéro formulaire.
-// - **Appui long** → mémo vocal : enregistrement micro + transcription EN
-//   DIRECT via la Web Speech API (localement dans le navigateur — décision
-//   produit : pas d'API IA externe). Au relâchement : aperçu + transcript
-//   éditable, puis le mémo devient une note du carnet (bloc audio + texte).
+// - **Tap** → ouvre un petit menu à 3 choix (galerie / micro / appareil
+//   photo) — zoning UI du 2026-07-13, remplace l'ancien tap = appareil
+//   photo direct.
+// - **Appui long** → INCHANGÉ, raccourci direct vers le mémo vocal (ne passe
+//   pas par le menu) : enregistrement micro + transcription EN DIRECT via
+//   la Web Speech API (localement dans le navigateur — décision produit :
+//   pas d'API IA externe). Au relâchement : aperçu + transcript éditable,
+//   puis le mémo devient un bloc Audio autonome du carnet.
 // - Permission micro demandée au PREMIER usage seulement, précédée d'une
 //   modale explicative (onboarding contextuel).
 export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Deux inputs distincts : la galerie (pas de `capture`, l'utilisateur
+  // choisit des photos existantes) et l'appareil photo (`capture="environment"`,
+  // force la prise de vue) — même pipeline d'upload derrière les deux.
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const fabButtonRef = useRef<HTMLButtonElement>(null);
   const [memo, setMemo] = useState<MemoPhase>({ step: "idle" });
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +74,25 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
   }, []);
+
+  // Ferme le menu d'actions au clic/tap en dehors (le bouton FAB lui-même
+  // gère son propre toggle via onFabPointerUp, exclu ici pour ne pas
+  // rouvrir immédiatement ce qu'il vient de fermer).
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      const insideMenu = actionMenuRef.current?.contains(target);
+      const onFabButton = fabButtonRef.current?.contains(target);
+      if (!insideMenu && !onFabButton) setActionMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [actionMenuOpen]);
 
   // Si l'appli passe en arrière-plan pendant un enregistrement (verrouillage
   // écran, changement d'appli — courant en visite), arrêter et conserver ce
@@ -129,7 +157,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
       }
     } finally {
       setUploadingPhoto(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
     }
   };
 
@@ -313,23 +342,33 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   };
 
   // ── Gestion tap vs appui long sur le FAB ──
+  // Tap → ouvre/ferme le petit menu (galerie/micro/appareil photo). Appui
+  // long → INCHANGÉ, raccourci direct vers le mémo vocal, ne passe jamais
+  // par le menu (démarre avant même que le tap n'ait eu la chance de
+  // s'exécuter, via longPressFired).
   const onFabPointerDown = () => {
     longPressFired.current = false;
     longPressTimer.current = window.setTimeout(() => {
       longPressFired.current = true;
       navigator.vibrate?.(15);
+      setActionMenuOpen(false);
       startMemo();
     }, LONG_PRESS_MS);
   };
   const onFabPointerUp = () => {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
     if (!longPressFired.current && memo.step === "idle" && !uploadingPhoto) {
-      fileInputRef.current?.click();
+      setActionMenuOpen((v) => !v);
     }
   };
   const onFabPointerLeave = () => {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
   };
+
+  // ── Actions du menu (galerie / micro / appareil photo) ──
+  const openGallery = () => { setActionMenuOpen(false); galleryInputRef.current?.click(); };
+  const openCamera = () => { setActionMenuOpen(false); cameraInputRef.current?.click(); };
+  const openMicFromMenu = () => { setActionMenuOpen(false); startMemo(); };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const memoOpen = memo.step !== "idle";
@@ -471,8 +510,19 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
 
   return (
     <>
+      {/* Galerie : pas de `capture`, l'utilisateur choisit des photos déjà
+          existantes sur son appareil. */}
       <input
-        ref={fileInputRef}
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => handlePhotoFiles(e.target.files)}
+      />
+      {/* Appareil photo : `capture` force la prise de vue native. */}
+      <input
+        ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
@@ -481,8 +531,61 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         onChange={(e) => handlePhotoFiles(e.target.files)}
       />
 
+      {/* Menu d'actions (galerie / micro / appareil photo) — ouvert par un
+          simple tap sur le FAB, zoning UI du 2026-07-13. L'appui long reste
+          un raccourci direct vers le mémo vocal, sans jamais passer par ce
+          menu (voir onFabPointerDown). */}
+      <AnimatePresence>
+        {actionMenuOpen && (
+          <motion.div
+            ref={actionMenuRef}
+            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            transition={{ type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] }}
+            className="fixed right-4 md:right-6 z-[66] bottom-[calc(8.75rem+env(safe-area-inset-bottom))] md:bottom-[10.25rem] flex flex-col items-center gap-2.5"
+          >
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={openGallery}
+                title="Choisir dans la galerie"
+                className="w-12 h-12 rounded-full flex items-center justify-center text-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
+              >
+                🖼
+              </button>
+              <button
+                type="button"
+                onClick={openMicFromMenu}
+                title="Mémo vocal"
+                className="w-12 h-12 rounded-full flex items-center justify-center text-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
+              >
+                🎙
+              </button>
+              <button
+                type="button"
+                onClick={openCamera}
+                title="Prendre une photo"
+                className="w-12 h-12 rounded-full flex items-center justify-center text-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
+              >
+                📷
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionMenuOpen(false)}
+              title="Fermer"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-sm bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-tertiary)] hover:text-[var(--text-primary)] active:scale-95 transition-transform"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* FAB — au-dessus de la BottomNav mobile (h-14) + safe area */}
       <button
+        ref={fabButtonRef}
         type="button"
         onPointerDown={onFabPointerDown}
         onPointerUp={onFabPointerUp}
@@ -492,7 +595,7 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         // fantôme après coup.
         onPointerCancel={onFabPointerLeave}
         onContextMenu={(e) => e.preventDefault()}
-        title="Photo (appui long : mémo vocal)"
+        title="Ajouter (appui long : mémo vocal)"
         className={cn(
           "fixed right-4 md:right-6 z-[65] w-14 h-14 rounded-full flex items-center justify-center",
           // Mobile : au-dessus de la BottomNav (h-14) + safe area ; desktop : coin bas-droit
