@@ -35,6 +35,8 @@ export default async function VisiteDetailPage({ params }: Props) {
         select: {
           id: true,
           title: true,
+          author: true,
+          year: true,
           visitOrder: true,
           createdAt: true,
           images: {
@@ -59,6 +61,8 @@ export default async function VisiteDetailPage({ params }: Props) {
         type: "image" as const,
         id: i.id,
         title: i.title,
+        author: i.author,
+        year: i.year,
         thumbnailKey: i.images[0]?.thumbnailKey ?? null,
         width: i.images[0]?.width ?? null,
         height: i.images[0]?.height ?? null,

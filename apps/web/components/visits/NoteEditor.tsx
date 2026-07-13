@@ -22,10 +22,10 @@ import { pickSupportedAudioMimeType, requestMicrophone } from "@/lib/audio/recor
 const EXTENSIONS = [
   StarterKit.configure({
     heading: { levels: [2, 3] },
-    // Pas de bloc de code / citation / règle horizontale : hors périmètre
-    // pour une note de carnet, on garde la barre d'outils courte.
+    // Pas de bloc de code / règle horizontale : hors périmètre pour une note
+    // de carnet. La citation (blockquote) est en revanche un bloc du plan
+    // "table de montage" (Phase 2) — mise en avant typographique.
     codeBlock: false,
-    blockquote: false,
     horizontalRule: false,
   }),
   InlineImage,
@@ -41,6 +41,11 @@ interface NoteEditorProps {
   content: string;
   editable: boolean;
   onBlurSave: (html: string) => void;
+  /**
+   * Sauvegarde continue pendant la frappe (debouncée) — ne ferme pas
+   * l'édition, contrairement à onBlurSave. Alimente l'indicateur ●/✓.
+   */
+  onAutoSave?: (html: string) => Promise<void>;
   placeholder?: string;
   className?: string;
   /** Images déjà attachées à la visite, proposées pour l'insertion inline. */
@@ -49,7 +54,45 @@ interface NoteEditorProps {
   visitId?: string;
 }
 
-export function NoteEditor({ content, editable, onBlurSave, placeholder, className, visitImages = [], visitId }: NoteEditorProps) {
+type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
+
+const AUTOSAVE_DEBOUNCE_MS = 800;
+
+export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placeholder, className, visitImages = [], visitId }: NoteEditorProps) {
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const debounceRef = useRef<number | null>(null);
+  const savedFadeRef = useRef<number | null>(null);
+  // Refs pour lire les callbacks/état à jour depuis les handlers Tiptap
+  // (figés à la création de l'instance, cf. pièges useEditor plus bas).
+  const onAutoSaveRef = useRef(onAutoSave);
+  onAutoSaveRef.current = onAutoSave;
+
+  const scheduleAutoSave = (getHtml: () => string) => {
+    if (!onAutoSaveRef.current) return;
+    setSaveState("dirty");
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(async () => {
+      const html = getHtml();
+      // Une note momentanément vide ne se sauvegarde pas en continu — la
+      // décision vide→suppression appartient au blur.
+      if (!html.replace(/<[^>]*>/g, "").trim() && !html.includes("data-type")) return;
+      setSaveState("saving");
+      try {
+        await onAutoSaveRef.current?.(html);
+        setSaveState("saved");
+        if (savedFadeRef.current) window.clearTimeout(savedFadeRef.current);
+        savedFadeRef.current = window.setTimeout(() => setSaveState("idle"), 1600);
+      } catch {
+        setSaveState("error");
+      }
+    }, AUTOSAVE_DEBOUNCE_MS);
+  };
+
+  useEffect(() => () => {
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    if (savedFadeRef.current) window.clearTimeout(savedFadeRef.current);
+  }, []);
+
   const editor = useEditor({
     extensions: EXTENSIONS,
     content,
@@ -67,7 +110,14 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
         return false;
       },
     },
-    onBlur: ({ editor: e }) => onBlurSave(e.getHTML()),
+    onUpdate: ({ editor: e }) => scheduleAutoSave(() => e.getHTML()),
+    onBlur: ({ editor: e }) => {
+      // Le blur prend la main : annule l'auto-save en attente pour ne pas
+      // sauvegarder après coup un contenu que le blur a pu supprimer (vide).
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      setSaveState("idle");
+      onBlurSave(e.getHTML());
+    },
   });
 
   // Le carnet peut réordonner l'item en dehors de l'édition (isEditing bascule
@@ -102,8 +152,19 @@ export function NoteEditor({ content, editable, onBlurSave, placeholder, classNa
           // L'insertion d'un bloc image/audio via la toolbar ne déclenche pas
           // de blur (l'éditeur reste focus) — sans sauvegarde immédiate, un
           // rechargement/navigation avant le prochain blur perdait le bloc
-          // inséré (il n'avait jamais été persisté). Même callback que blur.
-          onSave={() => onBlurSave(editor.getHTML())}
+          // inséré (il n'avait jamais été persisté). Persiste SANS fermer
+          // l'édition quand l'auto-save est câblé, sinon retombe sur le blur.
+          onSave={() => {
+            if (onAutoSaveRef.current) {
+              setSaveState("saving");
+              onAutoSaveRef.current(editor.getHTML())
+                .then(() => setSaveState("saved"))
+                .catch(() => setSaveState("error"));
+            } else {
+              onBlurSave(editor.getHTML());
+            }
+          }}
+          saveState={saveState}
         />
       )}
       <EditorContent editor={editor} />
@@ -123,11 +184,13 @@ function NoteToolbar({
   visitImages,
   visitId,
   onSave,
+  saveState,
 }: {
   editor: ReturnType<typeof useEditor>;
   visitImages: NoteEditorImage[];
   visitId?: string;
   onSave: () => void;
+  saveState: SaveState;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [recorderOpen, setRecorderOpen] = useState(false);
@@ -140,6 +203,7 @@ function NoteToolbar({
     { label: "H2", title: "Titre", active: editor.isActive("heading", { level: 2 }), onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
     { label: "•", title: "Liste à puces", active: editor.isActive("bulletList"), onClick: () => editor.chain().focus().toggleBulletList().run() },
     { label: "1.", title: "Liste numérotée", active: editor.isActive("orderedList"), onClick: () => editor.chain().focus().toggleOrderedList().run() },
+    { label: "❝", title: "Citation", active: editor.isActive("blockquote"), onClick: () => editor.chain().focus().toggleBlockquote().run() },
   ];
 
   return (
@@ -227,6 +291,14 @@ function NoteToolbar({
           )}
         </>
       )}
+
+      {/* Indicateur d'auto-save — même vocabulaire ●/✓ que MetadataPanel */}
+      <span className="ml-auto pr-1 text-[10px] select-none" aria-live="polite">
+        {saveState === "dirty" && <span className="text-[var(--text-tertiary)]">●</span>}
+        {saveState === "saving" && <span className="text-[var(--text-tertiary)] animate-pulse">●</span>}
+        {saveState === "saved" && <span className="text-[var(--accent)]">✓</span>}
+        {saveState === "error" && <span className="text-red-400">⚠ non sauvegardé</span>}
+      </span>
     </div>
   );
 }

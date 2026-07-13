@@ -15,6 +15,9 @@ export interface JournalImage {
   type: "image";
   id: string; // inspirationId
   title: string;
+  /** Artiste / auteur de l'œuvre — légende typographique du bloc Œuvre */
+  author: string | null;
+  year: number | null;
   thumbnailKey: string | null;
   width: number | null;
   height: number | null;
@@ -152,6 +155,21 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   // un simple `.trim()` (un doc vide sérialise en "<p></p>", jamais "").
   const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
 
+  // Persistance PENDANT la frappe (auto-save debouncé, voir NoteEditor) —
+  // ne ferme pas l'éditeur et ne supprime jamais (une note momentanément
+  // vide en cours de frappe ne doit pas s'autodétruire).
+  const persistNote = async (noteId: string, html: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.type === "note" && it.id === noteId ? { ...it, content: html } : it)),
+    );
+    const res = await fetch(`/api/visits/${visitId}/notes/${noteId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: html }),
+    }).catch(() => null);
+    if (!res?.ok) throw new Error("save failed");
+  };
+
   const saveNote = async (noteId: string, html: string) => {
     setEditingNoteId(null);
     if (isEmptyHtml(html)) {
@@ -159,14 +177,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
       deleteNote(noteId);
       return;
     }
-    setItems((prev) =>
-      prev.map((it) => (it.type === "note" && it.id === noteId ? { ...it, content: html } : it)),
-    );
-    await fetch(`/api/visits/${visitId}/notes/${noteId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: html }),
-    }).catch(() => {});
+    await persistNote(noteId, html).catch(() => {});
   };
 
   const deleteNote = async (noteId: string) => {
@@ -209,6 +220,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onInsertNoteAfter={() => insertNoteAfter(idx)}
             onDeleteNote={() => deleteNote(item.id)}
             onSaveNote={(content) => saveNote(item.id, content)}
+            onPersistNote={(content) => persistNote(item.id, content)}
             sortable={sortable}
             isDragging={sortable.draggingKey === keyOf(item)}
             visitImages={visitImages}
@@ -265,6 +277,7 @@ function JournalItemBlock({
   onInsertNoteAfter,
   onDeleteNote,
   onSaveNote,
+  onPersistNote,
   sortable,
   isDragging,
   visitImages,
@@ -283,6 +296,7 @@ function JournalItemBlock({
   onInsertNoteAfter: () => void;
   onDeleteNote: () => void;
   onSaveNote: (content: string) => void;
+  onPersistNote: (content: string) => Promise<void>;
   sortable: SortableGrid;
   isDragging: boolean;
   visitImages: NoteEditorImage[];
@@ -363,17 +377,24 @@ function JournalItemBlock({
       <motion.div
         layout
         {...dragBindings}
-        className="col-span-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 transition-colors relative"
+        // Design "table de montage" (Phase 2) : les notes flottent sur le
+        // fond noir, structurées par les marges seules — plus de bordure ni
+        // de fond gris permanent. Le fond n'apparaît qu'au survol (affordance
+        // d'édition) et pendant l'édition (délimite la zone de saisie).
+        className={cn(
+          "col-span-full rounded-lg px-4 py-3 transition-colors relative group/note",
+          isEditing ? "bg-[var(--bg-surface)]" : "hover:bg-white/[0.03]"
+        )}
       >
         <div
           className="flex items-start gap-2"
           onClick={() => { if (!isEditing && !sortable.wasDragging()) setEditingNoteId(item.id); }}
         >
-          <span className="text-[var(--text-tertiary)] text-xs mt-0.5 flex-shrink-0 select-none">✎</span>
           <NoteEditor
             content={item.content}
             editable={isEditing}
             onBlurSave={(html) => onSaveNote(html)}
+            onAutoSave={onPersistNote}
             placeholder="Note vide — cliquer pour éditer"
             visitImages={visitImages}
             visitId={visitId}
@@ -387,48 +408,66 @@ function JournalItemBlock({
     );
   }
 
-  // Image
+  // ── Bloc Œuvre : image + légende typographique automatique (Titre /
+  // Artiste · Année) tirée des métadonnées de l'inspiration — façon cartel
+  // de musée, esprit "table de montage" du plan Phase 2.
   const ar = item.width && item.height ? item.width / item.height : 1;
   return (
     <motion.div
       layout
       {...sortable.getContainerProps(sortableKey)}
-      className={cn(
-        // Surtout PAS `transition-all` : Framer pilote `transform` à la main
-        // pendant l'animation `layout`, et un `transition: all` CSS ré-anime ce
-        // même transform en parallèle → conflit, saccades ("bazar"). Les cartes
-        // de planches sont fluides justement parce qu'elles n'animent que la
-        // couleur. On se limite donc à la couleur ici aussi.
-        "group relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-colors",
-        isDragging && "opacity-40"
-      )}
-      style={{ aspectRatio: ar }}
+      className={cn("group relative", isDragging && "opacity-40")}
     >
-      <Link
-        href={`/library/${item.id}`}
-        className="absolute inset-0"
-        draggable={false}
-        onContextMenu={(e) => e.preventDefault()}
-        style={{ WebkitTouchCallout: "none" }}
-        onClick={(e) => { if (sortable.wasDragging()) e.preventDefault(); }}
-      >
-        {item.thumbnailKey ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={getThumbnailUrl(item.thumbnailKey)}
-            alt={item.title}
-            loading="lazy"
-            draggable={false}
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-[var(--text-tertiary)] text-xs">—</span>
-          </div>
+      <div
+        className={cn(
+          // Surtout PAS `transition-all` : Framer pilote `transform` à la main
+          // pendant l'animation `layout`, et un `transition: all` CSS ré-anime
+          // ce même transform en parallèle → conflit, saccades. On se limite
+          // à la couleur.
+          "relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-colors"
         )}
-      </Link>
-      <div className="absolute top-1.5 right-1.5 z-10">{itemMenu}</div>
-      <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
+        style={{ aspectRatio: ar }}
+      >
+        <Link
+          href={`/library/${item.id}`}
+          className="absolute inset-0"
+          draggable={false}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ WebkitTouchCallout: "none" }}
+          onClick={(e) => { if (sortable.wasDragging()) e.preventDefault(); }}
+        >
+          {item.thumbnailKey ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={getThumbnailUrl(item.thumbnailKey)}
+              alt={item.title}
+              loading="lazy"
+              draggable={false}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-[var(--text-tertiary)] text-xs">—</span>
+            </div>
+          )}
+        </Link>
+        <div className="absolute top-1.5 right-1.5 z-10">{itemMenu}</div>
+        <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
+      </div>
+
+      {/* Cartel — masqué s'il n'y a rien d'autre qu'un nom de fichier généré */}
+      <div className="mt-1.5 px-0.5 min-h-[1rem]">
+        <p className="text-[12px] leading-snug text-[var(--text-secondary)] line-clamp-2 group-hover:text-[var(--text-primary)] transition-colors">
+          {item.title}
+        </p>
+        {(item.author || item.year) && (
+          <p className="text-[11px] text-[var(--text-tertiary)] italic mt-0.5 truncate">
+            {item.author}
+            {item.author && item.year ? " · " : ""}
+            {item.year ?? ""}
+          </p>
+        )}
+      </div>
     </motion.div>
   );
 }
