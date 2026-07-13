@@ -13,6 +13,7 @@ import {
 } from "@/lib/audio/recorder";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
+import { enqueueCapture, OUTBOX_SYNCED_EVENT } from "@/lib/offline/outbox";
 
 const LONG_PRESS_MS = 450;
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
@@ -49,6 +50,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const [memo, setMemo] = useState<MemoPhase>({ step: "idle" });
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Message neutre (capture mise en file hors ligne) — distinct de `error`.
+  const [info, setInfo] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   // null = pas encore déterminé (reconnaissance lancée avec un léger délai)
   const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
@@ -107,30 +110,76 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memo.step]);
 
+  // Une capture rejouée depuis la file hors ligne vient d'atterrir côté serveur
+  // → rafraîchir le carnet pour la faire apparaître (offline-first Phase 4).
+  useEffect(() => {
+    const onSynced = (e: Event) => {
+      const detail = (e as CustomEvent<{ visitId: string }>).detail;
+      if (!detail || detail.visitId === visitId) router.refresh();
+    };
+    window.addEventListener(OUTBOX_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(OUTBOX_SYNCED_EVENT, onSynced);
+  }, [visitId, router]);
+
+  // Auto-effacement du message neutre "en attente de connexion".
+  useEffect(() => {
+    if (!info) return;
+    const t = window.setTimeout(() => setInfo(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [info]);
+
   // ── Photo (tap) ──
   const handlePhotoFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("Hors ligne — connexion requise pour envoyer la photo.");
-      return;
-    }
     setUploadingPhoto(true);
     setError(null);
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
     try {
+      // Une photo caméra brute dépasse souvent la limite serveur (10 Mo) —
+      // compression/ré-encodage local AVANT tout (aussi bien pour l'envoi direct
+      // que pour la mise en file, où l'on stocke déjà le blob compressé).
+      const compressed = await Promise.all(Array.from(files).map((f) => compressImageForUpload(f)));
+
+      // Hors ligne : mettre en file, ne rien perdre. Le rejeu se fera au retour
+      // du réseau (voir lib/offline/outbox.ts).
+      if (offline) {
+        for (const [i, blob] of compressed.entries()) {
+          await enqueueCapture({
+            kind: "photo",
+            visitId,
+            blob,
+            filename: `photo-${Date.now()}-${i}.jpg`,
+          });
+        }
+        setInfo(
+          `${compressed.length} photo${compressed.length > 1 ? "s" : ""} en attente de connexion — envoi automatique au retour du réseau.`,
+        );
+        return;
+      }
+
       const ids: string[] = [];
-      for (const file of Array.from(files)) {
-        // Une photo caméra brute dépasse souvent la limite serveur (10 Mo) —
-        // compression/ré-encodage local avant envoi (voir clientResize.ts).
-        const uploadFile = await compressImageForUpload(file);
-        const fd = new FormData();
-        fd.append("file", uploadFile);
-        const res = await fetch("/api/upload/image", { method: "POST", body: fd });
-        const data = await res.json().catch(() => ({}));
-        // ⚠ l'API renvoie `inspirationId`, pas `id` — lire le mauvais champ
-        // affichait "Échec de l'upload" alors que l'image était bien créée
-        // (retrouvée en triage), et le rattachement ne partait jamais.
-        if (res.ok && data.inspirationId) ids.push(data.inspirationId);
-        else setError(data.error ?? "Échec de l'upload");
+      for (const [i, uploadFile] of compressed.entries()) {
+        try {
+          const fd = new FormData();
+          fd.append("file", uploadFile);
+          const res = await fetch("/api/upload/image", { method: "POST", body: fd });
+          const data = await res.json().catch(() => ({}));
+          // ⚠ l'API renvoie `inspirationId`, pas `id` — lire le mauvais champ
+          // affichait "Échec de l'upload" alors que l'image était bien créée
+          // (retrouvée en triage), et le rattachement ne partait jamais.
+          if (res.ok && data.inspirationId) ids.push(data.inspirationId);
+          else throw new Error(data.error ?? "upload");
+        } catch {
+          // Échec réseau en cours d'upload (pas un vrai hors-ligne franc, mais
+          // un blip) : plutôt que d'abandonner, mettre en file pour rejeu.
+          await enqueueCapture({
+            kind: "photo",
+            visitId,
+            blob: uploadFile,
+            filename: `photo-${Date.now()}-${i}.jpg`,
+          });
+          setInfo("Réseau instable — photo mise en file, envoi automatique dès que possible.");
+        }
       }
       if (ids.length > 0) {
         // L'image est déjà créée (visible en triage) à ce stade — sans
@@ -309,18 +358,27 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const saveMemo = async () => {
     if (memo.step !== "preview") return;
     const { blob, durationSec } = memo;
+    const ext = blob.type.split(";")[0].split("/")[1] || "webm";
+    const filename = `memo-${Date.now()}.${ext}`;
+    const cleanTranscript = transcript.trim() || undefined;
+
+    // Hors ligne : mettre le mémo en file (avec sa transcription éditée) au lieu
+    // de bloquer l'utilisateur — rejeu automatique au retour du réseau.
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("Hors ligne — connexion requise pour envoyer le mémo. Le clip reste dans l'aperçu.");
+      await enqueueCapture({ kind: "memo", visitId, blob, filename, durationSec, transcript: cleanTranscript });
+      setMemo({ step: "idle" });
+      setTranscript("");
+      setInfo("Mémo en attente de connexion — envoi automatique au retour du réseau.");
       return;
     }
+
     setMemo({ step: "saving" });
     setError(null);
     try {
-      const ext = blob.type.split(";")[0].split("/")[1] || "webm";
       const fd = new FormData();
-      fd.append("file", blob, `memo.${ext}`);
+      fd.append("file", blob, filename);
       fd.append("durationSec", String(durationSec));
-      if (transcript.trim()) fd.append("transcript", transcript.trim());
+      if (cleanTranscript) fd.append("transcript", cleanTranscript);
       // Le mémo devient directement un bloc Audio autonome du carnet (refonte
       // "blocs purs" 2026-07-13) — plus de note wrapper, la transcription est
       // un champ natif de VisitAudio.
@@ -335,9 +393,12 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
       setTranscript("");
       router.refresh();
     } catch {
-      setError("Échec de l'envoi du mémo");
-      // Ne pas jeter l'enregistrement : retour à l'aperçu pour réessayer.
-      setMemo({ step: "preview", blob, durationSec });
+      // Échec réseau : ne pas jeter l'enregistrement — le mettre en file pour
+      // rejeu automatique plutôt que de forcer l'utilisateur à réessayer.
+      await enqueueCapture({ kind: "memo", visitId, blob, filename, durationSec, transcript: cleanTranscript });
+      setMemo({ step: "idle" });
+      setTranscript("");
+      setInfo("Réseau indisponible — mémo mis en file, envoi automatique dès que possible.");
     }
   };
 
@@ -616,10 +677,19 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
       </button>
 
       {error && memo.step === "idle" && (
-        <div className="fixed inset-x-4 z-[65] md:left-auto md:right-6 md:w-72" style={{ bottom: "calc(8.5rem + env(safe-area-inset-bottom))" }}>
+        <div className="fixed inset-x-4 z-[65] md:left-auto md:right-6 md:w-72" style={{ bottom: "calc(11rem + env(safe-area-inset-bottom))" }}>
           <div className="rounded-lg bg-[var(--bg-elevated)] border border-red-500/30 px-3 py-2 text-xs text-red-400 shadow-xl flex items-start gap-2">
             <span className="flex-1">{error}</span>
             <button onClick={() => setError(null)} className="text-[var(--text-tertiary)]">✕</button>
+          </div>
+        </div>
+      )}
+
+      {info && memo.step === "idle" && (
+        <div className="fixed inset-x-4 z-[65] md:left-auto md:right-6 md:w-72" style={{ bottom: "calc(11rem + env(safe-area-inset-bottom))" }}>
+          <div className="rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] px-3 py-2 text-xs text-[var(--text-secondary)] shadow-xl flex items-start gap-2">
+            <span className="flex-1">{info}</span>
+            <button onClick={() => setInfo(null)} className="text-[var(--text-tertiary)]">✕</button>
           </div>
         </div>
       )}

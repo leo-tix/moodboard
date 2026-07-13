@@ -8,6 +8,7 @@ import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
 import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
+import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
 
 export const revalidate = 0;
 
@@ -198,6 +199,8 @@ export default async function VisiteDetailPage({ params }: Props) {
 
       {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
       <VisitCaptureFab visitId={visit.id} />
+      {/* File hors ligne (Phase 4) : captures en attente de synchronisation */}
+      <OutboxIndicator visitId={visit.id} />
     </div>
   );
 }

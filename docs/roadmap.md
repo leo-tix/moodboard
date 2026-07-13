@@ -367,9 +367,42 @@ reste identique au comportement actuel.
   interactions **clic/tap**, qui fonctionnent normalement.
 
 ### Phase 4 — PWA & perfs
-- **Offline-first** : IndexedDB pour photos/notes + sync Service Worker au
-  retour réseau — **le plus gros chantier architectural du plan**
-  (IndexedDB déjà utilisé par le flux Share Target, base réutilisable).
+- **Offline-first — outbox de capture (✅ 2026-07-13)** : périmètre choisi
+  par l'utilisateur (AskUserQuestion parmi outbox seul / +création visite /
+  offline-first complet) = **outbox de capture** (photos + mémos vocaux vers
+  une visite existante), le scénario musée à wifi instable qui a motivé le
+  plan. Reste hors périmètre pour l'instant : création de visite hors ligne
+  (mapping d'ids locaux) et lecture hors ligne du carnet/archives.
+  - `lib/offline/outbox.ts` : store IndexedDB `moodboard-offline/captures`
+    (le blob est cloné-structuré tel quel), `enqueueCapture` /
+    `listPending` / `flushOutbox` (rejoue exactement les API du chemin en
+    ligne : `POST /api/upload/image` + `PATCH addInspirationIds` pour une
+    photo, `POST /api/visits/[id]/audio` pour un mémo), pubsub pour les vues
+    React, garde-fou de réentrance `flushing`, event `moodboard-outbox-synced`.
+  - **⚠ iPhone = pas de Background Sync API en PWA iOS** : la resync ne
+    repose PAS dessus. `ensureAutoFlush()` installe des déclencheurs qui
+    marchent partout, iOS compris : événement `online`, `visibilitychange`
+    (retour au premier plan), et flush au chargement (rattrape une session
+    fermée hors ligne). Rien n'est délégué au Service Worker (qui dupliquerait
+    la logique upload+rattachement).
+  - `lib/offline/useOutbox.ts` (hook) + `components/visits/OutboxIndicator.tsx`
+    (pastille au-dessus du FAB : "N en attente · hors ligne" / "…·réessayer" +
+    bouton de rejeu manuel / "Synchronisation…").
+  - `VisitCaptureFab.tsx` : hors ligne → `enqueueCapture` au lieu du message
+    "connexion requise" ; en ligne, si l'upload échoue en cours de route
+    (blip réseau) → fallback enqueue (mais PAS si l'upload a réussi et que
+    seul le rattachement a échoué — sinon ré-upload en double). Écoute
+    `moodboard-outbox-synced` → `router.refresh()` pour faire apparaître la
+    capture synchronisée dans le carnet.
+  - Vérifié en navigateur réel (compte de test jetable, nettoyé + R2 purgé) :
+    photo injectée hors ligne (`navigator.onLine` forcé à false) → 1 entrée
+    IndexedDB + indicateur "1 en attente · hors ligne" ; retour online +
+    event `online` → `POST /api/upload/image` 200 puis `PATCH …` 200, outbox
+    vidée, indicateur disparu, image rattachée à la visite côté serveur
+    (`status:READY`, clés R2 présentes).
+  - **Améliorations possibles ensuite** (non faites) : rendu optimiste des
+    captures en attente directement dans le carnet (placeholders), et
+    Background Sync API en enrichissement progressif sur Chrome/Android.
 - Animations transform/opacity only — déjà largement le cas.
 - Blocage pull-to-refresh / sélection texte UI ; manifest `standalone` — ✅
   manifest déjà standalone, le reste = petite passe CSS.
