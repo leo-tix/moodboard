@@ -226,23 +226,19 @@ model Visit {
 // ── Carnet façon Notion (2026-07-13) ────────────────────────────────────────
 // Chaque type de bloc reste dans sa propre table (image = Inspiration, texte
 // = VisitNote, citation = VisitQuote, audio = VisitAudio) — PAS de table
-// polymorphique unique. `order` partage le même espace de tri sur les 4
+// polymorphique unique. `order` partage le même espace de tri sur les 5
 // tables au sein d'une visite (place dans la séquence du carnet).
 // Chaque bloc est PUR : un bloc texte ne contient plus d'image/audio/citation
 // intégrés (contrainte produit explicite — "on prend le parti pris de
-// Notion"). `VisitColumns` compose deux blocs existants côte à côte en
-// référençant leur (type, id) — un bloc "réclamé" par une colonne (son id
-// apparaît en leftId/rightId) est exclu de la séquence plate au niveau
-// applicatif, pas contraint en base (pas de FK typée possible sur un id
-// polymorphique en Prisma).
-
-enum VisitBlockRef {
-  IMAGE
-  TEXT
-  QUOTE
-  AUDIO
-  TITLE
-}
+// Notion"). `VisitColumns` compose DES LISTES de blocs existants côte à
+// côte (une pile par côté, pas juste un bloc — "titre puis texte puis
+// audio" dans une même colonne) en référençant leur (type, id) dans un
+// tableau JSON `[{type,id}, ...]` : pas de FK typée possible sur un id
+// polymorphique en Prisma, et un tableau de paires typées n'a pas
+// d'équivalent relationnel simple sans table de jonction dédiée — un champ
+// Json reste le plus direct, résolu et validé au niveau applicatif. Un bloc
+// "réclamé" par une colonne (son id apparaît dans un des deux tableaux) est
+// exclu de la séquence plate au niveau applicatif, pas contraint en base.
 
 // Enregistrement audio — bloc autonome du carnet (waveform + lecture ±15s +
 // transcription). Modèle dédié (plutôt qu'une clé R2 brute) pour compter
@@ -311,19 +307,19 @@ model VisitTitle {
   @@map("visit_titles")
 }
 
-// Bloc "2 colonnes" — compose deux blocs existants côte à côte (texte/image/
-// citation/audio, pas de colonnes imbriquées). Slot vide = null.
+// Bloc "2 colonnes" — compose deux PILES de blocs existants côte à côte
+// (texte/titre/citation/image/audio, pas de colonnes imbriquées). Chaque
+// pile est un tableau JSON ordonné `[{type: "IMAGE"|"TEXT"|"TITLE"|"QUOTE"|
+// "AUDIO", id: string}, ...]` — pile vide = "[]".
 model VisitColumns {
-  id        String         @id @default(cuid())
+  id        String   @id @default(cuid())
   visitId   String
-  visit     Visit          @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  leftType  VisitBlockRef?
-  leftId    String?
-  rightType VisitBlockRef?
-  rightId   String?
-  order     Int            @default(0)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  left      Json     @default("[]")
+  right     Json     @default("[]")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([visitId])
   @@map("visit_columns")

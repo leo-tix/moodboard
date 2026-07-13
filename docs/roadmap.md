@@ -248,6 +248,44 @@ Retour utilisateur immédiat sur 2C, six demandes ciblées :
   pour la technique) : les 6 points testés de bout en bout, compte supprimé
   après coup.
 
+### Phase 2E — Colonnes multi-blocs, sortir/redéplacer, switch (✅ 2026-07-13)
+Trois demandes utilisateur sur le bloc "2 colonnes" : empiler plusieurs blocs
+dans un même côté (titre puis texte puis audio), pouvoir sortir/redéplacer un
+bloc qui y a été inséré, et switcher la position des blocs qui y sont.
+- **`VisitColumns.left`/`.right` : d'un bloc unique à une PILE** —
+  `leftType/leftId/rightType/rightId` remplacés par `left`/`right` (`Json`,
+  tableau ordonné `[{type,id}, ...]`). Migration expand→migrate (les 2
+  lignes réelles existantes converties en tableaux à un élément, confirmées
+  identiques avant/après) ; la phase contract (suppression des anciennes
+  colonnes SQL) est restée bloquée par le classificateur de sécurité malgré
+  l'accord utilisateur répété — colonnes laissées en place, mortes mais
+  inoffensives (plus jamais lues/écrites par le nouveau code).
+- **Drag unifié top-level ↔ colonne ↔ colonne** : les blocs imbriqués dans
+  une pile portent désormais `data-sortable-key` au même titre que les blocs
+  top-level (`ColumnStackItem`), donc draguables avec le MÊME `useSortableGrid`.
+  `onDrop` résout la cible (`locateBlock`/`removeAtLoc`/`getBlockAtLoc`,
+  fonctions pures) en 3 cas : dépose sur une pile → ajoutée à la fin ; dépose
+  sur un bloc top-level précis → ressort la colonne à cet endroit ; aucune
+  cible → sort simplement en fin de séquence (comportement de secours).
+- **Bug trouvé en testant, invisible à la revue** : le `onPointerDown` d'un
+  bloc imbriqué remontait (bubbling React) jusqu'au conteneur "2 colonnes"
+  englobant, qui a lui-même un `onPointerDown` de drag (pour se réordonner
+  parmi les blocs top-level) — le second handler ÉCRASAIT l'armement du
+  premier (`armedRef` est une ref unique, pas une pile), si bien que
+  glisser un bloc imbriqué déplaçait en réalité TOUTE la colonne. Fix :
+  `e.stopPropagation()` dans le `onPointerDown` de `ColumnStackItem` avant
+  d'appeler le handler du hook.
+- **↑/↓ + ✕ Retirer + Supprimer** par bloc imbriqué (menu "⋯" propre à
+  `ColumnStackItem`, même vocabulaire que le menu top-level) — chemin fiable
+  pour réordonner/sortir un bloc sans dépendre de la précision du drag.
+- **"⇄ Échanger gauche/droite"** dans le menu du bloc colonnes — swap
+  intégral des deux piles en un clic.
+- Vérifié en navigateur réel (compte de test jetable) : empilement
+  Titre+Texte+Audio dans une même colonne, ↑/↓ au sein de la pile, switch
+  gauche/droite, sortie via ✕, sortie via drag vers une position top-level
+  précise (après le fix stopPropagation), et régression du drag top-level →
+  colonne — tout persisté et revérifié après rechargement complet.
+
 ### Phase 3 — Refonte UI/UX de l'existant
 - Hiérarchie typographique de la grille d'archives (/visites) ; menus
   lourds → icônes au survol ; **bottom sheets** pour le détail visite

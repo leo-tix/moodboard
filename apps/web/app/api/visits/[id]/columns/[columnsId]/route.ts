@@ -5,17 +5,23 @@ import { z } from "zod";
 
 interface Params { params: Promise<{ id: string; columnsId: string }> }
 
-const slotSchema = z.object({
-  slot: z.enum(["left", "right"]),
-  type: z.enum(["IMAGE", "TEXT", "TITLE", "QUOTE", "AUDIO"]).nullable(),
-  id: z.string().nullable(),
-}).refine((v) => (v.type === null) === (v.id === null), {
-  message: "type et id doivent être fournis ensemble (ou tous deux null)",
+const blockRefSchema = z.object({
+  type: z.enum(["IMAGE", "TEXT", "TITLE", "QUOTE", "AUDIO"]),
+  id: z.string(),
+});
+export type BlockRef = z.infer<typeof blockRefSchema>;
+
+// Un côté est une PILE ordonnée de blocs (ex. Titre puis Texte puis Audio
+// dans une même colonne) — remplacement complet à chaque PATCH, le client
+// envoie l'état final voulu pour le(s) côté(s) modifié(s).
+const bodySchema = z.object({
+  left: z.array(blockRefSchema).max(20).optional(),
+  right: z.array(blockRefSchema).max(20).optional(),
 });
 
 // Vérifie que le bloc référencé appartient bien à cette visite avant de le
 // laisser être réclamé par une colonne.
-async function blockBelongsToVisit(visitId: string, type: "IMAGE" | "TEXT" | "TITLE" | "QUOTE" | "AUDIO", blockId: string) {
+async function blockBelongsToVisit(visitId: string, type: BlockRef["type"], blockId: string) {
   switch (type) {
     case "IMAGE":
       return Boolean(await db.inspiration.findFirst({ where: { id: blockId, visitId }, select: { id: true } }));
@@ -30,18 +36,22 @@ async function blockBelongsToVisit(visitId: string, type: "IMAGE" | "TEXT" | "TI
   }
 }
 
-// PATCH /api/visits/[id]/columns/[columnsId] — assigne ou vide un slot
-// (gauche/droite). Vider un slot "déréclame" le bloc : il redevient un bloc
-// autonome de la séquence plate, il n'est jamais supprimé par cette route.
+// PATCH /api/visits/[id]/columns/[columnsId] — remplace la pile gauche et/ou
+// droite. Retirer un bloc d'une pile (en l'omettant du tableau envoyé) le
+// "déréclame" : il redevient un bloc autonome de la séquence plate, jamais
+// supprimé par cette route.
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id, columnsId } = await params;
   const body = await req.json().catch(() => ({}));
-  const parsed = slotSchema.safeParse(body);
+  const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+  if (parsed.data.left === undefined && parsed.data.right === undefined) {
+    return NextResponse.json({ error: "left ou right requis" }, { status: 400 });
   }
 
   const owned = await db.visit.findFirst({ where: { id, userId: session.user.id }, select: { id: true } });
@@ -50,26 +60,27 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const columns = await db.visitColumns.findUnique({ where: { id: columnsId } });
   if (!columns || columns.visitId !== id) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  const { slot, type, id: blockId } = parsed.data;
+  const { left, right } = parsed.data;
+  const combined = [...(left ?? []), ...(right ?? [])];
 
-  if (type && blockId) {
-    if (!(await blockBelongsToVisit(id, type, blockId))) {
-      return NextResponse.json({ error: "Bloc introuvable dans cette visite" }, { status: 400 });
-    }
-    // Un même bloc ne peut pas occuper les deux slots d'une même colonne.
-    const otherType = slot === "left" ? columns.rightType : columns.leftType;
-    const otherId = slot === "left" ? columns.rightId : columns.leftId;
-    if (otherType === type && otherId === blockId) {
-      return NextResponse.json({ error: "Ce bloc occupe déjà l'autre colonne" }, { status: 400 });
+  // Pas de doublon (même bloc deux fois, même côté ou entre les deux côtés).
+  const keys = combined.map((b) => `${b.type}:${b.id}`);
+  if (new Set(keys).size !== keys.length) {
+    return NextResponse.json({ error: "Un même bloc ne peut pas apparaître deux fois" }, { status: 400 });
+  }
+
+  for (const block of combined) {
+    if (!(await blockBelongsToVisit(id, block.type, block.id))) {
+      return NextResponse.json({ error: `Bloc ${block.type}:${block.id} introuvable dans cette visite` }, { status: 400 });
     }
   }
 
   const updated = await db.visitColumns.update({
     where: { id: columnsId },
-    data:
-      slot === "left"
-        ? { leftType: type, leftId: blockId }
-        : { rightType: type, rightId: blockId },
+    data: {
+      ...(left !== undefined && { left }),
+      ...(right !== undefined && { right }),
+    },
   });
 
   return NextResponse.json(updated);

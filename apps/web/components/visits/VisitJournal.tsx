@@ -16,7 +16,7 @@ import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 // Carnet façon Notion : chaque bloc est PUR (un seul type). Le bloc "2
-// colonnes" est le seul bloc composite — il compose deux blocs purs
+// colonnes" est le seul bloc composite — il compose deux PILES de blocs purs
 // existants côte à côte (voir schema.prisma pour le détail du modèle).
 
 export interface JournalImage {
@@ -57,14 +57,15 @@ export interface JournalAudio {
   transcript: string | null;
 }
 
-/** Bloc pur, seul type admissible dans un slot de colonnes. */
+/** Bloc pur, seul type admissible dans une pile de colonnes. */
 export type JournalBlock = JournalImage | JournalNote | JournalTitle | JournalQuote | JournalAudio;
 
 export interface JournalColumns {
   type: "columns";
   id: string; // visitColumnsId
-  left: JournalBlock | null;
-  right: JournalBlock | null;
+  /** Piles ordonnées — plusieurs blocs à la suite dans un même côté (ex. Titre puis Texte puis Audio). */
+  left: JournalBlock[];
+  right: JournalBlock[];
 }
 
 export type JournalItem = JournalBlock | JournalColumns;
@@ -75,15 +76,16 @@ interface VisitJournalProps {
 }
 
 // ── Composant ─────────────────────────────────────────────────────────────────
-// Carnet de visite : séquence ordonnée de blocs purs (image/texte/citation/
-// audio/2 colonnes — voir types ci-dessus).
-// - Grille responsive ; seule l'image reste une cellule de grille, les 4
-//   autres types occupent toute la largeur (col-span-full)
+// Carnet de visite : séquence ordonnée de blocs purs (image/texte/titre/
+// citation/audio/2 colonnes — voir types ci-dessus).
+// - Grille responsive ; seule l'image reste une cellule de grille, les autres
+//   types occupent toute la largeur (col-span-full)
 // - Réordonnancement : overlay flottant + fantôme (souris n'importe où sur le
 //   bloc, tactile via poignée dédiée — voir useSortableGrid) + ↑/↓ dans le
-//   menu ⋯ de chaque bloc en alternative
-// - Texte/citation : édition inline (sauvegarde au blur), insertion après
-//   n'importe quel bloc via son menu ⋯, ou en fin via le bouton "+ Bloc"
+//   menu ⋯ de chaque bloc en alternative. Les blocs imbriqués dans une
+//   colonne sont draguables au même titre que les blocs top-level : les
+//   déposer sur une pile de colonne les y ajoute, sur un bloc top-level les
+//   en fait ressortir à cet endroit précis.
 
 const REF_TYPE: Record<JournalBlock["type"], "IMAGE" | "TEXT" | "TITLE" | "QUOTE" | "AUDIO"> = {
   image: "IMAGE",
@@ -93,8 +95,53 @@ const REF_TYPE: Record<JournalBlock["type"], "IMAGE" | "TEXT" | "TITLE" | "QUOTE
   audio: "AUDIO",
 };
 
-// Patch le contenu d'un bloc "réclamable" (note/citation/audio), qu'il soit
-// au top-level de la séquence ou imbriqué dans un slot de colonnes.
+const keyOf = (item: { type: string; id: string }) => `${item.type}-${item.id}`;
+
+// ── Localisation d'un bloc dans l'arbre (top-level ou imbriqué) ──────────────
+// Fonctions pures, réutilisées par toutes les opérations de déplacement
+// (drag, boutons ↑/↓, sortir/réclamer) pour ne jamais dupliquer la logique de
+// recherche/retrait/insertion.
+
+type Loc = { kind: "top"; index: number } | { kind: "column"; columnsId: string; side: "left" | "right"; index: number };
+
+function locateBlock(items: JournalItem[], key: string): Loc | null {
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (keyOf(it) === key) return { kind: "top", index: i };
+    if (it.type === "columns") {
+      const li = it.left.findIndex((b) => keyOf(b) === key);
+      if (li !== -1) return { kind: "column", columnsId: it.id, side: "left", index: li };
+      const ri = it.right.findIndex((b) => keyOf(b) === key);
+      if (ri !== -1) return { kind: "column", columnsId: it.id, side: "right", index: ri };
+    }
+  }
+  return null;
+}
+
+function getBlockAtLoc(items: JournalItem[], loc: Loc): JournalItem | undefined {
+  if (loc.kind === "top") return items[loc.index];
+  const col = items.find((it) => it.type === "columns" && it.id === loc.columnsId) as JournalColumns | undefined;
+  return col?.[loc.side][loc.index];
+}
+
+function removeAtLoc(items: JournalItem[], loc: Loc): JournalItem[] {
+  if (loc.kind === "top") {
+    const next = [...items];
+    next.splice(loc.index, 1);
+    return next;
+  }
+  return items.map((it) => {
+    if (it.type === "columns" && it.id === loc.columnsId) {
+      const arr = [...it[loc.side]];
+      arr.splice(loc.index, 1);
+      return { ...it, [loc.side]: arr };
+    }
+    return it;
+  });
+}
+
+// Patch le contenu d'un bloc "réclamable" (note/titre/citation/audio/image),
+// qu'il soit au top-level de la séquence ou imbriqué dans une pile de colonnes.
 function patchClaimable<T extends JournalBlock>(
   items: JournalItem[],
   type: T["type"],
@@ -103,9 +150,18 @@ function patchClaimable<T extends JournalBlock>(
 ): JournalItem[] {
   return items.map((it) => {
     if (it.type === "columns") {
-      const left = it.left && it.left.type === type && it.left.id === id ? ({ ...it.left, ...patch } as JournalBlock) : it.left;
-      const right = it.right && it.right.type === type && it.right.id === id ? ({ ...it.right, ...patch } as JournalBlock) : it.right;
-      return left === it.left && right === it.right ? it : { ...it, left, right };
+      let changed = false;
+      const patchSide = (side: JournalBlock[]) =>
+        side.map((b) => {
+          if (b.type === type && b.id === id) {
+            changed = true;
+            return { ...b, ...patch } as JournalBlock;
+          }
+          return b;
+        });
+      const left = patchSide(it.left);
+      const right = patchSide(it.right);
+      return changed ? { ...it, left, right } : it;
     }
     if (it.type === type && it.id === id) return { ...it, ...patch } as JournalItem;
     return it;
@@ -135,8 +191,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     }
   }, [initialItems]);
 
-  const keyOf = (item: JournalItem) => `${item.type}-${item.id}`;
-
   useEffect(() => {
     if (menuIdx === null && insertMenu === null) return;
     const activeRef = insertMenu !== null ? insertMenuRef : menuRef;
@@ -154,13 +208,29 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     };
   }, [menuIdx, insertMenu]);
 
-  // ── Persistance de l'ordre ──
+  // ── Persistance de l'ordre top-level ──
   const persistOrder = (list: JournalItem[]) => {
     fetch(`/api/visits/${visitId}/reorder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         items: list.map((item, i) => ({ type: item.type, id: item.id, order: i })),
+      }),
+    }).catch(() => {});
+  };
+
+  // Remplace intégralement les deux piles d'UNE colonne (l'API fait un
+  // remplacement complet, pas un patch incrémental — plus simple et sans
+  // risque de désync entre client/serveur sur des tableaux ordonnés).
+  const persistColumnsSides = (columnsId: string, list: JournalItem[]) => {
+    const col = list.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
+    if (!col) return;
+    fetch(`/api/visits/${visitId}/columns/${columnsId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        left: col.left.map((b) => ({ type: REF_TYPE[b.type], id: b.id })),
+        right: col.right.map((b) => ({ type: REF_TYPE[b.type], id: b.id })),
       }),
     }).catch(() => {});
   };
@@ -174,7 +244,52 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     persistOrder(next);
   };
 
-  // Survol d'un slot de colonnes pendant un drag — juste un indice visuel
+  // Réordonne un bloc À L'INTÉRIEUR d'une même pile de colonne (boutons
+  // ↑/↓ du menu d'un bloc imbriqué — "switcher de position").
+  const moveWithinColumn = (columnsId: string, side: "left" | "right", from: number, to: number) => {
+    const col = itemsRef.current.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
+    if (!col || to < 0 || to >= col[side].length || from === to) return;
+    const arr = [...col[side]];
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    const next = itemsRef.current.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: arr } : it));
+    setItems(next);
+    persistColumnsSides(columnsId, next);
+  };
+
+  // Échange intégralement les deux piles d'une colonne (bouton "⇄").
+  const switchColumnSides = (columnsId: string) => {
+    const next = itemsRef.current.map((it) =>
+      it.type === "columns" && it.id === columnsId ? { ...it, left: it.right, right: it.left } : it,
+    );
+    setItems(next);
+    persistColumnsSides(columnsId, next);
+  };
+
+  // Déplace un bloc (top-level ou imbriqué) dans la pile d'une colonne — à
+  // la fin de la pile ciblée. Utilisé par le drag (drop sur une pile) et par
+  // la réclamation directe (image/nouveau bloc/audio créés dans un slot).
+  const moveBlockToColumn = (fromLoc: Loc, block: JournalBlock, columnsId: string, side: "left" | "right") => {
+    const withoutBlock = removeAtLoc(itemsRef.current, fromLoc);
+    const next = withoutBlock.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: [...it[side], block] } : it));
+    setItems(next);
+    if (fromLoc.kind === "top") persistOrder(next);
+    persistColumnsSides(columnsId, next);
+    if (fromLoc.kind === "column" && fromLoc.columnsId !== columnsId) persistColumnsSides(fromLoc.columnsId, next);
+  };
+
+  // Sort un bloc imbriqué vers la séquence plate, à une position précise
+  // (drag sur un bloc top-level cible) — "redéplacer" un bloc de colonne.
+  const moveBlockToTop = (fromLoc: Loc & { kind: "column" }, block: JournalBlock, targetIndex: number) => {
+    const withoutBlock = removeAtLoc(itemsRef.current, fromLoc);
+    const next = [...withoutBlock];
+    next.splice(Math.min(targetIndex, next.length), 0, block);
+    setItems(next);
+    persistOrder(next);
+    persistColumnsSides(fromLoc.columnsId, next);
+  };
+
+  // Survol d'une pile de colonne pendant un drag — juste un indice visuel
   // (anneau de surbrillance), mis à jour seulement quand la cible change
   // réellement (pas à chaque pixel, voir la leçon "Maximum update depth
   // exceeded" du drag & drop bibliothèque — ne jamais lever la position brute
@@ -183,15 +298,19 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const dropHoverRef = useRef<string | null>(null);
 
   // ── Réordonnancement (overlay + fantôme, voir useSortableGrid) ──
-  // Le bloc draguée est cloné dans un overlay flottant qui suit le pointeur ;
+  // Le bloc dragué est cloné dans un overlay flottant qui suit le pointeur ;
   // le fantôme et ses voisins se réorganisent proprement via `layout` de
-  // Framer. `data-sortable-key` = clé (type+id) du bloc. En parallèle, tout
-  // slot de colonnes vide expose `data-drop-key="columns:<id>:<slot>"` —
-  // déposer un bloc top-level dessus le réclame au lieu de simplement le
-  // réordonner ("juste une façon de changer la disposition", pas de
-  // duplication de contenu).
+  // Framer. `data-sortable-key` = clé (type+id) du bloc — posée aussi bien
+  // sur les blocs top-level que sur les blocs imbriqués dans une colonne,
+  // qui participent donc au MÊME système de drag. Chaque pile de colonne
+  // expose `data-drop-key="columns:<id>:<slot>"` — déposer un bloc dessus
+  // l'y ajoute (à la fin de la pile) au lieu de le réordonner.
   const sortable = useSortableGrid({
     onReorder: (draggedKey, targetKey) => {
+      // Réordonnancement EN DIRECT limité au niveau top-level (un drag
+      // impliquant un bloc imbriqué ne bouge rien tant qu'on n'a pas relâché
+      // — voir onDrop pour la résolution finale, y compris entre/vers des
+      // colonnes).
       setItems((prev) => {
         const from = prev.findIndex((it) => keyOf(it) === draggedKey);
         const to = prev.findIndex((it) => keyOf(it) === targetKey);
@@ -212,33 +331,67 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     onDrop: (hitEl, _x, _y, draggedKey) => {
       dropHoverRef.current = null;
       setDropHoverKey(null);
-      const dropKey = hitEl?.closest<HTMLElement>("[data-drop-key]")?.getAttribute("data-drop-key");
-      const [, columnsId, slot] = dropKey?.split(":") ?? [];
-      if (columnsId && (slot === "left" || slot === "right")) {
-        const draggedItem = itemsRef.current.find((it) => keyOf(it) === draggedKey);
-        const col = itemsRef.current.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
-        const slotOccupied = col ? Boolean(slot === "left" ? col.left : col.right) : true;
-        if (draggedItem && draggedItem.type !== "columns" && !slotOccupied) {
-          claimExistingBlock(columnsId, slot, draggedItem);
+
+      const loc = locateBlock(itemsRef.current, draggedKey);
+      if (!loc) {
+        persistOrder(itemsRef.current);
+        return;
+      }
+      const draggedBlock = getBlockAtLoc(itemsRef.current, loc);
+      if (!draggedBlock || draggedBlock.type === "columns") {
+        persistOrder(itemsRef.current); // les colonnes ne s'imbriquent jamais
+        return;
+      }
+
+      // 1) Cible = une pile de colonne (vide ou non) → on y ajoute le bloc.
+      const zoneEl = hitEl?.closest<HTMLElement>("[data-drop-key]");
+      const [, zoneColumnsId, zoneSide] = (zoneEl?.getAttribute("data-drop-key") ?? "").split(":");
+      if (zoneColumnsId && (zoneSide === "left" || zoneSide === "right")) {
+        if (loc.kind === "column" && loc.columnsId === zoneColumnsId && loc.side === zoneSide) {
+          persistOrder(itemsRef.current); // déjà dans cette pile
+          return;
+        }
+        moveBlockToColumn(loc, draggedBlock, zoneColumnsId, zoneSide);
+        return;
+      }
+
+      // 2) Cible = un bloc top-level précis → on ressort juste après lui
+      //    (utile pour "redéplacer" un bloc de colonne à un endroit choisi).
+      const blockEl = hitEl?.closest<HTMLElement>("[data-sortable-key]");
+      const targetKey = blockEl?.getAttribute("data-sortable-key");
+      if (targetKey && targetKey !== draggedKey) {
+        const targetLoc = locateBlock(itemsRef.current, targetKey);
+        if (targetLoc?.kind === "top") {
+          if (loc.kind === "top") {
+            persistOrder(itemsRef.current); // déjà géré en direct par onReorder
+            return;
+          }
+          moveBlockToTop(loc, draggedBlock, targetLoc.index);
           return;
         }
       }
-      // Le réordonnancement a déjà été appliqué en direct — persister l'ordre final.
+
+      // 3) Aucune cible reconnue : un bloc issu d'une colonne "sort"
+      //    simplement en fin de séquence plate (comportement de secours).
+      if (loc.kind === "column") {
+        moveBlockToTop(loc, draggedBlock, itemsRef.current.length);
+        return;
+      }
       persistOrder(itemsRef.current);
     },
   });
 
   const draggedItem = sortable.draggingKey
-    ? items.find((it) => keyOf(it) === sortable.draggingKey) ?? null
+    ? (getBlockAtLoc(items, locateBlock(items, sortable.draggingKey) ?? { kind: "top", index: -1 }) ?? null)
     : null;
 
-  // Proposées pour remplir un slot "Image" de colonnes — seules les images
+  // Proposées pour remplir une pile "Image" de colonnes — seules les images
   // encore au top-level (non déjà réclamées) sont candidates.
   const visitImages: JournalImage[] = items.filter((it): it is JournalImage => it.type === "image");
 
   // Chaque type "simple" (créé vide, réclamable) a son propre endpoint REST
-  // mais la même forme { content } — un seul mapping pour les 3 fonctions qui
-  // en ont besoin (createBlock, fillSlotWithNew, deleteBlock).
+  // mais la même forme { content } — un seul mapping pour les fonctions qui
+  // en ont besoin.
   const ENDPOINT_BY_TYPE = { note: "notes", title: "titles", quote: "quotes", audio: "audio" } as const;
 
   // ── Création de bloc (titre / texte / citation / colonnes) ──
@@ -256,7 +409,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     if (!res.ok) return;
     const created = await res.json();
     const newItem: JournalItem =
-      type === "columns" ? { type: "columns", id: created.id, left: null, right: null } : { type, id: created.id, content: "" };
+      type === "columns" ? { type: "columns", id: created.id, left: [], right: [] } : { type, id: created.id, content: "" };
     const next = [...items];
     next.splice(insertAt, 0, newItem);
     setItems(next);
@@ -354,71 +507,62 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     if (!res?.ok) throw new Error("save failed");
   };
 
-  // Supprime un bloc pur (texte/titre/citation/audio) qu'il soit au top-level
-  // ou imbriqué dans un slot de colonnes (le slot repasse à vide).
+  // Supprime un bloc pur (texte/titre/citation/audio), où qu'il soit (le
+  // serveur nettoie lui-même toute colonne qui le réclamait).
   const deleteBlock = async (type: "note" | "title" | "quote" | "audio", id: string) => {
     setMenuIdx(null);
-    setItems((prev) =>
-      prev
-        .filter((it) => !(it.type === type && it.id === id))
-        .map((it) =>
-          it.type === "columns"
-            ? {
-                ...it,
-                left: it.left?.type === type && it.left.id === id ? null : it.left,
-                right: it.right?.type === type && it.right.id === id ? null : it.right,
-              }
-            : it,
-        ),
-    );
+    const loc = locateBlock(itemsRef.current, `${type}-${id}`);
+    const next = loc ? removeAtLoc(itemsRef.current, loc) : itemsRef.current.filter((it) => !(it.type === type && it.id === id));
+    setItems(next);
     await fetch(`/api/visits/${visitId}/${ENDPOINT_BY_TYPE[type]}/${id}`, { method: "DELETE" }).catch(() => {});
   };
 
   // ── Colonnes CRUD ──
-  // Supprime le conteneur "2 colonnes" — les blocs qu'il réclamait
-  // redeviennent autonomes dans la séquence plate (pas de perte de contenu).
+  // Supprime le conteneur "2 colonnes" — tous les blocs qu'il réclamait (des
+  // deux piles) redeviennent autonomes en fin de séquence plate (pas de
+  // perte de contenu).
   const deleteColumns = async (columnsId: string) => {
     setMenuIdx(null);
-    const col = items.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
-    setItems((prev) => {
-      const withoutColumns = prev.filter((it) => !(it.type === "columns" && it.id === columnsId));
-      const restored = [col?.left, col?.right].filter((b): b is JournalBlock => Boolean(b));
-      return [...withoutColumns, ...restored];
-    });
+    const col = itemsRef.current.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
+    const next = [
+      ...itemsRef.current.filter((it) => !(it.type === "columns" && it.id === columnsId)),
+      ...(col ? [...col.left, ...col.right] : []),
+    ];
+    setItems(next);
+    persistOrder(next);
     await fetch(`/api/visits/${visitId}/columns/${columnsId}`, { method: "DELETE" }).catch(() => {});
   };
 
-  const patchSlot = (columnsId: string, slot: "left" | "right", type: string | null, id: string | null) =>
-    fetch(`/api/visits/${visitId}/columns/${columnsId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slot, type, id }),
-    }).catch(() => {});
-
-  // Retire un bloc d'un slot sans le supprimer : il redevient un bloc
-  // autonome de la séquence plate.
-  const unclaimSlot = async (columnsId: string, slot: "left" | "right") => {
-    const col = items.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
-    const block = col ? (slot === "left" ? col.left : col.right) : null;
-    setItems((prev) => {
-      const cleared = prev.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [slot]: null } : it));
-      return block ? [...cleared, block] : cleared;
-    });
-    await patchSlot(columnsId, slot, null, null);
+  // Ajoute un bloc DÉJÀ EXISTANT (créé côté API) à la fin d'une pile.
+  const appendToColumn = (columnsId: string, side: "left" | "right", block: JournalBlock) => {
+    const next = itemsRef.current.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: [...it[side], block] } : it));
+    setItems(next);
+    persistColumnsSides(columnsId, next);
   };
 
-  // Remplit un slot vide avec une image déjà attachée à la visite.
-  const fillSlotWithImage = async (columnsId: string, slot: "left" | "right", image: JournalImage) => {
-    setItems((prev) => {
-      const withoutImg = prev.filter((it) => !(it.type === "image" && it.id === image.id));
-      return withoutImg.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [slot]: image } : it));
-    });
-    await patchSlot(columnsId, slot, "IMAGE", image.id);
+  // Retire un bloc précis d'une pile sans le supprimer : il redevient un
+  // bloc autonome en fin de séquence plate ("sortir").
+  const unclaimBlock = (columnsId: string, side: "left" | "right", block: JournalBlock) => {
+    const loc = locateBlock(itemsRef.current, keyOf(block));
+    if (!loc || loc.kind !== "column") return;
+    const withoutBlock = removeAtLoc(itemsRef.current, loc);
+    const next = [...withoutBlock, block];
+    setItems(next);
+    persistOrder(next);
+    persistColumnsSides(columnsId, next);
   };
 
-  // Remplit un slot vide avec un nouveau bloc titre/texte/citation (créé côté
-  // API puis immédiatement réclamé par la colonne).
-  const fillSlotWithNew = async (columnsId: string, slot: "left" | "right", type: "note" | "title" | "quote") => {
+  // Ajoute une image déjà attachée à la visite à la fin d'une pile.
+  const fillWithImage = (columnsId: string, side: "left" | "right", image: JournalImage) => {
+    const withoutImg = itemsRef.current.filter((it) => !(it.type === "image" && it.id === image.id));
+    const next = withoutImg.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: [...it[side], image] } : it));
+    setItems(next);
+    persistColumnsSides(columnsId, next);
+  };
+
+  // Crée un nouveau bloc titre/texte/citation côté API puis l'ajoute à la
+  // fin d'une pile.
+  const fillWithNew = async (columnsId: string, side: "left" | "right", type: "note" | "title" | "quote") => {
     const res = await fetch(`/api/visits/${visitId}/${ENDPOINT_BY_TYPE[type]}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -427,29 +571,15 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     if (!res.ok) return;
     const created = await res.json();
     const block = { type, id: created.id, content: "" } as JournalBlock;
-    setItems((prev) => prev.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [slot]: block } : it)));
-    await patchSlot(columnsId, slot, REF_TYPE[type], created.id);
+    appendToColumn(columnsId, side, block);
     setEditingKey(`${type}-${created.id}`);
   };
 
-  // Remplit un slot vide avec un clip audio tout juste enregistré (déjà créé
-  // côté API par AudioRecorderInline).
-  const fillSlotWithAudio = async (columnsId: string, slot: "left" | "right", created: CreatedAudioBlock) => {
+  // Ajoute un clip audio tout juste enregistré (déjà créé côté API par
+  // AudioRecorderInline) à la fin d'une pile.
+  const fillWithAudio = (columnsId: string, side: "left" | "right", created: CreatedAudioBlock) => {
     const block: JournalAudio = { type: "audio", id: created.id, storageKey: created.storageKey, durationSec: created.durationSec, transcript: created.transcript };
-    setItems((prev) => prev.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [slot]: block } : it)));
-    await patchSlot(columnsId, slot, "AUDIO", created.id);
-  };
-
-  // Réclame un bloc top-level DÉJÀ EXISTANT (glissé depuis la séquence
-  // plate) dans un slot vide — "juste une façon de changer la disposition",
-  // aucune création de contenu. Retire le bloc de la séquence plate et
-  // renumérote le reste en une seule fois (cohérent avec un drag normal).
-  const claimExistingBlock = async (columnsId: string, slot: "left" | "right", block: JournalBlock) => {
-    const withoutBlock = itemsRef.current.filter((it) => !(it.type === block.type && it.id === block.id));
-    const next = withoutBlock.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [slot]: block } : it));
-    setItems(next);
-    persistOrder(next);
-    await patchSlot(columnsId, slot, REF_TYPE[block.type], block.id);
+    appendToColumn(columnsId, side, block);
   };
 
   // ── Titre d'image (cartel) ── édition inline au clic, PATCH direct sur
@@ -512,10 +642,12 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onSaveImageTitle={saveImageTitle}
             onCreateBlock={(type) => createBlock(idx, type)}
             onCreateAudio={(created) => insertAudioBlock(idx, created)}
-            onUnclaimSlot={unclaimSlot}
-            onFillSlotWithImage={fillSlotWithImage}
-            onFillSlotWithNew={fillSlotWithNew}
-            onFillSlotWithAudio={fillSlotWithAudio}
+            onMoveWithinColumn={moveWithinColumn}
+            onSwitchColumnSides={switchColumnSides}
+            onUnclaimBlock={unclaimBlock}
+            onFillWithImage={fillWithImage}
+            onFillWithNew={fillWithNew}
+            onFillWithAudio={fillWithAudio}
             sortable={sortable}
             isDragging={sortable.draggingKey === keyOf(item)}
             dropHoverKey={dropHoverKey}
@@ -569,8 +701,8 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
 }
 
 // ── Menu de choix de type de bloc ────────────────────────────────────────────
-// Partagé par le bouton "+ Bloc" (fin de carnet), le "⋯ Insérer un bloc
-// après" de chaque item, et les slots vides d'un bloc colonnes.
+// Partagé par la zone "+ Bloc" (fin de carnet), le "⋯ Insérer un bloc après"
+// de chaque item, et les piles de colonnes.
 
 function InsertTypeMenu({
   visitId,
@@ -640,10 +772,12 @@ function JournalItemBlock({
   onSaveImageTitle,
   onCreateBlock,
   onCreateAudio,
-  onUnclaimSlot,
-  onFillSlotWithImage,
-  onFillSlotWithNew,
-  onFillSlotWithAudio,
+  onMoveWithinColumn,
+  onSwitchColumnSides,
+  onUnclaimBlock,
+  onFillWithImage,
+  onFillWithNew,
+  onFillWithAudio,
   sortable,
   isDragging,
   dropHoverKey,
@@ -675,17 +809,19 @@ function JournalItemBlock({
   onSaveImageTitle: (id: string, title: string) => void;
   onCreateBlock: (type: "note" | "title" | "quote" | "columns") => void;
   onCreateAudio: (created: CreatedAudioBlock) => void;
-  onUnclaimSlot: (columnsId: string, slot: "left" | "right") => void;
-  onFillSlotWithImage: (columnsId: string, slot: "left" | "right", image: JournalImage) => void;
-  onFillSlotWithNew: (columnsId: string, slot: "left" | "right", type: "note" | "title" | "quote") => void;
-  onFillSlotWithAudio: (columnsId: string, slot: "left" | "right", created: CreatedAudioBlock) => void;
+  onMoveWithinColumn: (columnsId: string, side: "left" | "right", from: number, to: number) => void;
+  onSwitchColumnSides: (columnsId: string) => void;
+  onUnclaimBlock: (columnsId: string, side: "left" | "right", block: JournalBlock) => void;
+  onFillWithImage: (columnsId: string, side: "left" | "right", image: JournalImage) => void;
+  onFillWithNew: (columnsId: string, side: "left" | "right", type: "note" | "title" | "quote") => void;
+  onFillWithAudio: (columnsId: string, side: "left" | "right", created: CreatedAudioBlock) => void;
   sortable: SortableGrid;
   isDragging: boolean;
   dropHoverKey: string | null;
   visitImages: JournalImage[];
   visitId: string;
 }) {
-  const sortableKey = `${item.type}-${item.id}`;
+  const sortableKey = keyOf(item);
   const isVisualBlock = item.type === "image" || item.type === "audio" || item.type === "columns";
 
   const itemMenu = (
@@ -736,12 +872,20 @@ function JournalItemBlock({
             </button>
           )}
           {item.type === "columns" && (
-            <button
-              onClick={() => onDeleteColumns(item.id)}
-              className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-            >
-              Supprimer les colonnes
-            </button>
+            <>
+              <button
+                onClick={() => onSwitchColumnSides(item.id)}
+                className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+              >
+                ⇄ Échanger gauche/droite
+              </button>
+              <button
+                onClick={() => onDeleteColumns(item.id)}
+                className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+              >
+                Supprimer les colonnes
+              </button>
+            </>
           )}
         </div>
       )}
@@ -764,7 +908,7 @@ function JournalItemBlock({
   );
 
   if (item.type === "note" || item.type === "title" || item.type === "quote") {
-    const key = `${item.type}-${item.id}`;
+    const key = keyOf(item);
     const isEditing = editingKey === key;
     const dragBindings = isEditing ? {} : { ...sortable.getContainerProps(sortableKey) };
     if (isDragging) return ghostBar;
@@ -833,19 +977,19 @@ function JournalItemBlock({
   }
 
   if (item.type === "columns") {
-    const isAnySlotEditing = [item.left, item.right].some(
-      (b) => b && (b.type === "note" || b.type === "title" || b.type === "quote") && editingKey === `${b.type}-${b.id}`,
+    const isAnyNestedEditing = [...item.left, ...item.right].some(
+      (b) => (b.type === "note" || b.type === "title" || b.type === "quote") && editingKey === keyOf(b),
     );
-    const dragBindings = isAnySlotEditing ? {} : { ...sortable.getContainerProps(sortableKey) };
+    const dragBindings = isAnyNestedEditing ? {} : { ...sortable.getContainerProps(sortableKey) };
     if (isDragging) return ghostBar;
     return (
       <motion.div layout {...dragBindings} className="col-span-full relative group py-1">
         <div className="grid grid-cols-2 gap-3">
-          <ColumnSlot
+          <ColumnStack
             visitId={visitId}
             columnsId={item.id}
-            slot="left"
-            block={item.left}
+            side="left"
+            blocks={item.left}
             visitImages={visitImages}
             editingKey={editingKey}
             setEditingKey={setEditingKey}
@@ -856,17 +1000,20 @@ function JournalItemBlock({
             onSaveQuote={onSaveQuote}
             onPersistQuote={onPersistQuote}
             onPersistAudioTranscript={onPersistAudioTranscript}
-            onUnclaim={() => onUnclaimSlot(item.id, "left")}
-            onFillWithImage={(img) => onFillSlotWithImage(item.id, "left", img)}
-            onFillWithNew={(type) => onFillSlotWithNew(item.id, "left", type)}
-            onFillWithAudio={(a) => onFillSlotWithAudio(item.id, "left", a)}
+            onDeleteBlock={onDeleteBlock}
+            onMoveWithin={(from, to) => onMoveWithinColumn(item.id, "left", from, to)}
+            onUnclaim={(block) => onUnclaimBlock(item.id, "left", block)}
+            onFillWithImage={(img) => onFillWithImage(item.id, "left", img)}
+            onFillWithNew={(type) => onFillWithNew(item.id, "left", type)}
+            onFillWithAudio={(a) => onFillWithAudio(item.id, "left", a)}
             dropHoverKey={dropHoverKey}
+            sortable={sortable}
           />
-          <ColumnSlot
+          <ColumnStack
             visitId={visitId}
             columnsId={item.id}
-            slot="right"
-            block={item.right}
+            side="right"
+            blocks={item.right}
             visitImages={visitImages}
             editingKey={editingKey}
             setEditingKey={setEditingKey}
@@ -877,11 +1024,14 @@ function JournalItemBlock({
             onSaveQuote={onSaveQuote}
             onPersistQuote={onPersistQuote}
             onPersistAudioTranscript={onPersistAudioTranscript}
-            onUnclaim={() => onUnclaimSlot(item.id, "right")}
-            onFillWithImage={(img) => onFillSlotWithImage(item.id, "right", img)}
-            onFillWithNew={(type) => onFillSlotWithNew(item.id, "right", type)}
-            onFillWithAudio={(a) => onFillSlotWithAudio(item.id, "right", a)}
+            onDeleteBlock={onDeleteBlock}
+            onMoveWithin={(from, to) => onMoveWithinColumn(item.id, "right", from, to)}
+            onUnclaim={(block) => onUnclaimBlock(item.id, "right", block)}
+            onFillWithImage={(img) => onFillWithImage(item.id, "right", img)}
+            onFillWithNew={(type) => onFillWithNew(item.id, "right", type)}
+            onFillWithAudio={(a) => onFillWithAudio(item.id, "right", a)}
             dropHoverKey={dropHoverKey}
+            sortable={sortable}
           />
         </div>
         <div className="absolute -top-1 right-1.5 z-10">{itemMenu}</div>
@@ -1018,7 +1168,7 @@ function EditableImageTitle({
 }
 
 // ── Bloc audio (waveform + transcription éditable) ──────────────────────────
-// Partagé par le rendu top-level et par un slot de colonnes.
+// Partagé par le rendu top-level et par une pile de colonne.
 
 function AudioBlockContent({
   audio,
@@ -1067,14 +1217,17 @@ function AudioBlockContent({
   );
 }
 
-// ── Slot d'un bloc colonnes ──────────────────────────────────────────────────
-// Rend le bloc pur qui occupe ce slot (vide = sélecteur de type compact).
+// ── Pile d'un côté de colonne ─────────────────────────────────────────────────
+// Rend la liste ordonnée des blocs purs qui occupent ce côté ("titre puis
+// texte puis audio" par exemple), plus une affordance "+" en bas pour en
+// ajouter d'autres. Toute la pile expose `data-drop-key` (y compris non
+// vide) pour rester une cible de drag valide.
 
-function ColumnSlot({
+function ColumnStack({
   visitId,
   columnsId,
-  slot,
-  block,
+  side,
+  blocks,
   visitImages,
   editingKey,
   setEditingKey,
@@ -1085,16 +1238,19 @@ function ColumnSlot({
   onSaveQuote,
   onPersistQuote,
   onPersistAudioTranscript,
+  onDeleteBlock,
+  onMoveWithin,
   onUnclaim,
   onFillWithImage,
   onFillWithNew,
   onFillWithAudio,
   dropHoverKey,
+  sortable,
 }: {
   visitId: string;
   columnsId: string;
-  slot: "left" | "right";
-  block: JournalBlock | null;
+  side: "left" | "right";
+  blocks: JournalBlock[];
   visitImages: JournalImage[];
   editingKey: string | null;
   setEditingKey: (key: string | null) => void;
@@ -1105,106 +1261,246 @@ function ColumnSlot({
   onSaveQuote: (id: string, content: string) => void;
   onPersistQuote: (id: string, content: string) => Promise<void>;
   onPersistAudioTranscript: (id: string, transcript: string) => Promise<void>;
-  onUnclaim: () => void;
+  onDeleteBlock: (type: "note" | "title" | "quote" | "audio", id: string) => void;
+  onMoveWithin: (from: number, to: number) => void;
+  onUnclaim: (block: JournalBlock) => void;
   onFillWithImage: (image: JournalImage) => void;
   onFillWithNew: (type: "note" | "title" | "quote") => void;
   onFillWithAudio: (created: CreatedAudioBlock) => void;
   dropHoverKey: string | null;
+  sortable: SortableGrid;
 }) {
   const [picker, setPicker] = useState<"closed" | "menu" | "image" | "audio">("closed");
-  const dropKey = `columns:${columnsId}:${slot}`;
+  const dropKey = `columns:${columnsId}:${side}`;
   const isDropHover = dropHoverKey === dropKey;
 
-  if (!block) {
-    return (
-      <div
-        data-drop-key={dropKey}
-        className={cn(
-          "relative min-h-[6rem] rounded-lg border border-dashed flex items-center justify-center transition-colors",
-          isDropHover ? "border-[var(--text-primary)] bg-white/[0.04]" : "border-[var(--border-default)]"
-        )}
-      >
-        {picker === "closed" && (
-          <button
-            type="button"
-            onClick={() => setPicker("menu")}
-            className="w-8 h-8 rounded-full text-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors"
-          >
-            +
-          </button>
-        )}
-        {picker === "menu" && (
-          <div className="absolute inset-0 z-20 flex flex-col items-stretch justify-center gap-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] p-2">
-            <button onClick={() => { onFillWithNew("title"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">T Titre</button>
-            <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">¶ Texte</button>
-            <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">❝ Citation</button>
-            <button onClick={() => setPicker("image")} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">🖼 Image</button>
-            <button onClick={() => setPicker("audio")} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">🎙 Audio</button>
-            <button onClick={() => setPicker("closed")} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] mt-0.5">Annuler</button>
+  const adder = (
+    <div className="relative">
+      {picker === "closed" && (
+        <button
+          type="button"
+          onClick={() => setPicker("menu")}
+          className={cn(
+            "flex items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors",
+            blocks.length === 0 ? "w-8 h-8 rounded-full text-lg" : "w-full py-2 text-xs border border-dashed border-[var(--border-default)]"
+          )}
+        >
+          {blocks.length === 0 ? "+" : "+ Ajouter"}
+        </button>
+      )}
+      {picker === "menu" && (
+        <div className="absolute inset-x-0 top-0 z-20 flex flex-col items-stretch gap-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] p-2">
+          <button onClick={() => { onFillWithNew("title"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">T Titre</button>
+          <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">¶ Texte</button>
+          <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">❝ Citation</button>
+          <button onClick={() => setPicker("image")} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">🖼 Image</button>
+          <button onClick={() => setPicker("audio")} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">🎙 Audio</button>
+          <button onClick={() => setPicker("closed")} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] mt-0.5">Annuler</button>
+        </div>
+      )}
+      {picker === "image" && (
+        <div className="absolute inset-x-0 top-0 z-20 p-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] max-h-48 overflow-y-auto">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Images de la visite</p>
+            <button onClick={() => setPicker("closed")} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-xs">✕</button>
           </div>
-        )}
-        {picker === "image" && (
-          <div className="absolute inset-0 z-20 p-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] overflow-y-auto">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Images de la visite</p>
-              <button onClick={() => setPicker("closed")} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-xs">✕</button>
+          {visitImages.length === 0 ? (
+            <p className="text-[11px] text-[var(--text-tertiary)]">Aucune image disponible.</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-1">
+              {visitImages.map((img) => (
+                <button
+                  key={img.id}
+                  type="button"
+                  onClick={() => { onFillWithImage(img); setPicker("closed"); }}
+                  className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
+                >
+                  {img.thumbnailKey && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={getThumbnailUrl(img.thumbnailKey)} alt="" className="w-full h-full object-cover" />
+                  )}
+                </button>
+              ))}
             </div>
-            {visitImages.length === 0 ? (
-              <p className="text-[11px] text-[var(--text-tertiary)]">Aucune image disponible.</p>
-            ) : (
-              <div className="grid grid-cols-3 gap-1">
-                {visitImages.map((img) => (
-                  <button
-                    key={img.id}
-                    type="button"
-                    onClick={() => { onFillWithImage(img); setPicker("closed"); }}
-                    className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
-                  >
-                    {img.thumbnailKey && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={getThumbnailUrl(img.thumbnailKey)} alt="" className="w-full h-full object-cover" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {picker === "audio" && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center">
-            <AudioRecorderInline
-              visitId={visitId}
-              onClose={() => setPicker("closed")}
-              onCreated={(a) => { onFillWithAudio(a); setPicker("closed"); }}
-            />
-          </div>
-        )}
-        {isDropHover && picker === "closed" && (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] text-[var(--text-primary)]">
-            Déposer ici
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  const editingThis = editingKey === `${block.type}-${block.id}`;
+          )}
+        </div>
+      )}
+      {picker === "audio" && (
+        <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center">
+          <AudioRecorderInline
+            visitId={visitId}
+            onClose={() => setPicker("closed")}
+            onCreated={(a) => { onFillWithAudio(a); setPicker("closed"); }}
+          />
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="relative group/slot rounded-lg overflow-hidden">
+    <div data-drop-key={dropKey} className={cn("space-y-1.5 rounded-lg transition-colors", isDropHover && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-base)]")}>
+      {blocks.length === 0 && (
+        <div className="relative min-h-[6rem] rounded-lg border border-dashed border-[var(--border-default)] flex items-center justify-center">
+          {adder}
+          {isDropHover && picker === "closed" && (
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] text-[var(--text-primary)]">
+              Déposer ici
+            </span>
+          )}
+        </div>
+      )}
+      {blocks.map((block, i) => (
+        <ColumnStackItem
+          key={keyOf(block)}
+          block={block}
+          idx={i}
+          total={blocks.length}
+          editingKey={editingKey}
+          setEditingKey={setEditingKey}
+          onSaveNote={onSaveNote}
+          onPersistNote={onPersistNote}
+          onSaveTitle={onSaveTitle}
+          onPersistTitle={onPersistTitle}
+          onSaveQuote={onSaveQuote}
+          onPersistQuote={onPersistQuote}
+          onPersistAudioTranscript={onPersistAudioTranscript}
+          onDeleteBlock={onDeleteBlock}
+          onMoveUp={() => onMoveWithin(i, i - 1)}
+          onMoveDown={() => onMoveWithin(i, i + 1)}
+          onUnclaim={() => onUnclaim(block)}
+          sortable={sortable}
+          isDragging={sortable.draggingKey === keyOf(block)}
+        />
+      ))}
+      {blocks.length > 0 && adder}
+    </div>
+  );
+}
+
+// ── Bloc imbriqué dans une pile de colonne ───────────────────────────────────
+// Wrapper autour du contenu (même rendu que top-level pour chaque type),
+// avec son propre petit menu ↑/↓/✕/Supprimer et sa propre poignée de drag —
+// participe au même système de drag que les blocs top-level (voir
+// useSortableGrid dans VisitJournal).
+
+function ColumnStackItem({
+  block,
+  idx,
+  total,
+  editingKey,
+  setEditingKey,
+  onSaveNote,
+  onPersistNote,
+  onSaveTitle,
+  onPersistTitle,
+  onSaveQuote,
+  onPersistQuote,
+  onPersistAudioTranscript,
+  onDeleteBlock,
+  onMoveUp,
+  onMoveDown,
+  onUnclaim,
+  sortable,
+  isDragging,
+}: {
+  block: JournalBlock;
+  idx: number;
+  total: number;
+  editingKey: string | null;
+  setEditingKey: (key: string | null) => void;
+  onSaveNote: (id: string, content: string) => void;
+  onPersistNote: (id: string, content: string) => Promise<void>;
+  onSaveTitle: (id: string, content: string) => void;
+  onPersistTitle: (id: string, content: string) => Promise<void>;
+  onSaveQuote: (id: string, content: string) => void;
+  onPersistQuote: (id: string, content: string) => Promise<void>;
+  onPersistAudioTranscript: (id: string, transcript: string) => Promise<void>;
+  onDeleteBlock: (type: "note" | "title" | "quote" | "audio", id: string) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onUnclaim: () => void;
+  sortable: SortableGrid;
+  isDragging: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const sortableKey = keyOf(block);
+  const editingThis = editingKey === sortableKey;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [menuOpen]);
+
+  if (isDragging) {
+    return <div className="h-8 rounded-md bg-[var(--text-primary)]/10 border border-dashed border-[var(--text-primary)]/30" />;
+  }
+
+  // `stopPropagation` sur le pointerdown : sans ça, l'événement remonte
+  // jusqu'au conteneur "2 colonnes" englobant (qui a lui aussi un
+  // onPointerDown de drag, pour se réordonner lui-même parmi les blocs
+  // top-level) et ÉCRASE l'armement du drag de CE bloc imbriqué — le drag
+  // démarré finit par déplacer la colonne entière au lieu du bloc visé.
+  const containerProps = sortable.getContainerProps(sortableKey);
+  const dragBindings = editingThis
+    ? {}
+    : {
+        ...containerProps,
+        onPointerDown: (e: React.PointerEvent) => {
+          e.stopPropagation();
+          containerProps.onPointerDown(e);
+        },
+      };
+
+  const menu = (
+    <div className="relative" ref={menuRef}>
       <button
         type="button"
-        onClick={onUnclaim}
-        className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full bg-black/50 text-white/90 text-[11px] flex items-center justify-center opacity-0 group-hover/slot:opacity-100 transition-opacity"
-        title="Retirer de la colonne"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
+        className="w-6 h-6 rounded-full bg-black/50 text-white/90 text-[11px] flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity"
+        title="Options"
       >
-        ✕
+        ⋯
       </button>
+      {menuOpen && (
+        <div
+          className="absolute right-0 top-full mt-1 z-30 w-40 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button onClick={() => { setMenuOpen(false); onMoveUp(); }} disabled={idx === 0} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
+            ↑ Monter
+          </button>
+          <button onClick={() => { setMenuOpen(false); onMoveDown(); }} disabled={idx === total - 1} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
+            ↓ Descendre
+          </button>
+          <button onClick={() => { setMenuOpen(false); onUnclaim(); }} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
+            ✕ Retirer de la colonne
+          </button>
+          {block.type !== "image" && (
+            <button onClick={() => { setMenuOpen(false); onDeleteBlock(block.type, block.id); }} className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
+              Supprimer
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <motion.div layout {...dragBindings} className="relative group/item rounded-lg overflow-hidden">
       {block.type === "image" && (
         <div
           // Plafond de hauteur : sans lui, une image portrait (aspect-ratio
           // très petit) s'étire sur toute la largeur de la colonne et peut
-          // devenir bien plus haute que le contenu de l'autre slot (texte,
+          // devenir bien plus haute que le contenu de l'autre côté (texte,
           // citation…) — object-cover recadre proprement au-delà.
           className="rounded-lg overflow-hidden bg-[var(--bg-surface)] max-h-80"
           style={{ aspectRatio: block.width && block.height ? block.width / block.height : 1 }}
@@ -1251,6 +1547,8 @@ function ColumnSlot({
       {block.type === "audio" && (
         <AudioBlockContent audio={block} onPersistTranscript={(t) => onPersistAudioTranscript(block.id, t)} />
       )}
-    </div>
+      <div className="absolute top-1 right-1 z-10">{menu}</div>
+      <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1 right-1 z-10 opacity-0 group-hover/item:opacity-100" title="Glisser" />
+    </motion.div>
   );
 }

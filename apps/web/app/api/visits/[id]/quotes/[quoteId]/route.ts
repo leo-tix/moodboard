@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
+import { unclaimBlockFromAllColumns } from "@/lib/visits/columnsUtil";
 
 interface Params { params: Promise<{ id: string; quoteId: string }> }
 
@@ -42,13 +43,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   await db.visitQuote.delete({ where: { id: quoteId } });
   // Retire aussi la citation d'une colonne qui la réclamait, sinon la
   // colonne pointe vers un bloc supprimé.
-  await db.visitColumns.updateMany({
-    where: { visitId: id, leftType: "QUOTE", leftId: quoteId },
-    data: { leftType: null, leftId: null },
-  });
-  await db.visitColumns.updateMany({
-    where: { visitId: id, rightType: "QUOTE", rightId: quoteId },
-    data: { rightType: null, rightId: null },
-  });
+  await unclaimBlockFromAllColumns(id, "QUOTE", quoteId);
   return NextResponse.json({ ok: true });
 }

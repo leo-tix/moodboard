@@ -61,8 +61,8 @@ export default async function VisiteDetailPage({ params }: Props) {
 
   // Fusion des 6 tables de blocs dans une seule séquence de carnet façon
   // Notion (voir schema.prisma) : chaque bloc "réclamé" par une colonne
-  // (referencé en leftId/rightId) est retiré de la séquence plate — il ne
-  // s'affiche qu'imbriqué dans son bloc colonnes.
+  // (référencé dans la pile left/right d'un VisitColumns) est retiré de la
+  // séquence plate — il ne s'affiche qu'imbriqué dans son bloc colonnes.
   type BlockLookupKey = `${"image" | "note" | "title" | "quote" | "audio"}-${string}`;
   const blocks = new Map<BlockLookupKey, JournalBlock>();
   visit.inspirations.forEach((i) => {
@@ -85,10 +85,22 @@ export default async function VisiteDetailPage({ params }: Props) {
   );
 
   const REF_TO_KEY: Record<string, "image" | "note" | "title" | "quote" | "audio"> = { IMAGE: "image", TEXT: "note", TITLE: "title", QUOTE: "quote", AUDIO: "audio" };
+  // Chaque pile (left/right) est un tableau JSON [{type,id}, ...] — ordre
+  // conservé, résolu en blocs purs via le lookup map ci-dessus (une entrée
+  // orpheline, ex. bloc supprimé sans passer par l'API, est silencieusement
+  // ignorée plutôt que de planter le rendu).
+  const resolveStack = (stack: unknown): JournalBlock[] =>
+    (Array.isArray(stack) ? stack : [])
+      .map((ref) => {
+        const r = ref as { type?: string; id?: string };
+        return r?.type && r?.id ? blocks.get(`${REF_TO_KEY[r.type]}-${r.id}`) : undefined;
+      })
+      .filter((b): b is JournalBlock => Boolean(b));
+
   const claimed = new Set<BlockLookupKey>();
   visit.columnBlocks.forEach((c) => {
-    if (c.leftType && c.leftId) claimed.add(`${REF_TO_KEY[c.leftType]}-${c.leftId}`);
-    if (c.rightType && c.rightId) claimed.add(`${REF_TO_KEY[c.rightType]}-${c.rightId}`);
+    resolveStack(c.left).forEach((b) => claimed.add(`${b.type}-${b.id}`));
+    resolveStack(c.right).forEach((b) => claimed.add(`${b.type}-${b.id}`));
   });
 
   const merged: { item: JournalItem; order: number; createdAt: Date }[] = [];
@@ -108,9 +120,11 @@ export default async function VisiteDetailPage({ params }: Props) {
     if (!claimed.has(`audio-${a.id}`)) merged.push({ item: blocks.get(`audio-${a.id}`)!, order: a.order, createdAt: a.createdAt });
   });
   visit.columnBlocks.forEach((c) => {
-    const left = c.leftType && c.leftId ? blocks.get(`${REF_TO_KEY[c.leftType]}-${c.leftId}`) ?? null : null;
-    const right = c.rightType && c.rightId ? blocks.get(`${REF_TO_KEY[c.rightType]}-${c.rightId}`) ?? null : null;
-    merged.push({ item: { type: "columns", id: c.id, left, right }, order: c.order, createdAt: c.createdAt });
+    merged.push({
+      item: { type: "columns", id: c.id, left: resolveStack(c.left), right: resolveStack(c.right) },
+      order: c.order,
+      createdAt: c.createdAt,
+    });
   });
 
   // Tri : ordre explicite, puis createdAt pour départager (blocs ajoutés en
