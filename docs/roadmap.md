@@ -150,19 +150,31 @@ assistant de visite pour directeur artistique. Deux paradigmes stricts :
 **mobile = captation friction zéro (Apple Journal)**, **desktop = table de
 montage modulaire (Notion)**. Statut de chaque item vs l'existant :
 
-### Phase 1 — Mobile "friction zéro"
-- **FAB `+` persistant** (safe-area-inset-bottom) — nouveau.
-- **Scan & Snap** : `<input type="file" accept="image/*"
-  capture="environment">` → appareil photo natif instantané — recoupe
-  le "+ Photo temps réel" déjà en roadmap, pas commencé.
-- **Mémos vocaux + transcription** (appui long FAB → audio → texte en
-  arrière-plan, ex. Whisper) — ⚠️ l'enregistrement existe ; la
-  transcription = réintroduire une API IA externe payante alors que
-  Gemini a été retiré volontairement (2026-07-09). **Décision produit
-  explicite requise avant d'implémenter.**
-- **Enrichissement auto** GPS/date/heure → tag lieu sans formulaire — nouveau.
-- **Onboarding contextuel des permissions** (micro/GPS à la première
-  utilisation, modale explicative) — nouveau.
+### Phase 1 — Mobile "friction zéro" (✅ 2026-07-13, commit `aac0821` + 4 tours de retours terrain)
+- **✅ FAB `+` persistant** (safe-area-inset-bottom) — `VisitCaptureFab.tsx`,
+  redessiné ensuite en Phase 2F (menu galerie/mémo/caméra).
+- **✅ Scan & Snap** : capture caméra native + compression client
+  (`lib/image/clientResize.ts`, downscale 2400px + JPEG 0.86 — nécessaire
+  après un signalement terrain, une photo smartphone dépasse couramment la
+  limite serveur de 10 Mo).
+- **✅ Mémos vocaux + transcription** — transcription live via Web Speech API
+  (`fr-FR`, gratuite, cohérent avec le retrait de Gemini), **+ Whisper WASM
+  local** (`@huggingface/transformers`, on-device, ~40 Mo au premier usage)
+  en secours pour iOS PWA où Web Speech n'existe pas. Décision produit
+  actée : pas d'API IA externe payante.
+- **✅ Enrichissement auto GPS** : `CreateVisitModal` — "utiliser ma
+  position" via `navigator.geolocation` + reverse geocoding Photon.
+- **✅ Onboarding contextuel des permissions** : modale explicative avant la
+  première demande micro (`localStorage["mb-mic-onboarded"]`), jamais à
+  l'ouverture de la page.
+- **4 tours de retours terrain réels (iPhone/PWA)** ont suivi la livraison
+  initiale et corrigé des bugs invisibles en dev : `Permissions-Policy`
+  bloquant micro/geoloc sitewide, upload photo cassé (mauvais champ de
+  réponse API), waveforms invisibles sur Safari (webm non décodable +
+  pourcentages CSS qui s'effondrent + placeholder invisible sur fond sombre),
+  resync du journal après capture sans reload manuel, error boundary autour
+  du lecteur audio (un crash pouvait effacer définitivement un mémo).
+  Détails complets → mémoire agent, sessions "retour terrain" 1 à 4.
 
 ### Phase 2 — Desktop "table de montage" (✅ 2026-07-13, sauf bloc Moodboard)
 - Éditeur par blocs D&D — ✅ (overlay+fantôme + Tiptap, lots précédents).
@@ -316,10 +328,43 @@ reste identique au comportement actuel.
   le DOM réel sans problème — se fier à l'état DOM (JS) plutôt qu'au
   screenshot dans ce cas.
 
-### Phase 3 — Refonte UI/UX de l'existant
-- Hiérarchie typographique de la grille d'archives (/visites) ; menus
-  lourds → icônes au survol ; **bottom sheets** pour le détail visite
-  sur la carte mobile (pattern FilterDrawer/AddToCollectionModal réutilisable).
+### Phase 3 — Refonte UI/UX de l'existant (✅ 2026-07-13)
+- **Hiérarchie typographique de la grille `/visites`** : l'en-tête d'année
+  (`VisitsClient.tsx`) était identique à l'eyebrow "Archive" (même
+  `text-xs uppercase tracking-widest`) — passé en `font-serif text-2xl
+  md:text-3xl font-semibold` (Fraunces, déjà utilisée pour les blocs Titre
+  du carnet). Carte de visite : la hiérarchie lieu > exposition contredisait
+  la page de détail (où l'exposition est l'info principale) — inversée :
+  exposition en `font-serif` primaire, lieu en secondaire, repli sur le
+  lieu seul si pas d'exposition.
+- **Menus lourds → icônes** : le trigger "⋯" des blocs texte (note/titre/
+  citation) dans `VisitJournal.tsx` était toujours visible (pas de
+  `opacity-0`), contrairement à son équivalent sur les blocs visuels —
+  cause : le wrapper texte utilise un groupe Tailwind **nommé** `group/note`
+  (pas le `group` générique), donc `group-hover:opacity-100` ne matchait
+  jamais ; fix = `group-hover/note:opacity-100`. Le pill texte "N visites
+  non localisées" (`VisitsGlobalMap.tsx`) devient une icône "⌖" + badge
+  count (avec `title` pour l'accessibilité), même comportement au clic.
+- **Bottom sheet détail visite sur la carte mobile** : nouveau
+  `VisitDetailSheet.tsx` (pattern `AddToCollectionModal.tsx` — portal,
+  framer-motion, backdrop + drag handle + ✕), déclenché au tap d'un pin
+  dans `VisitsGlobalMap.tsx` **uniquement sur tactile**
+  (`matchMedia("(pointer: coarse)")` au moment du clic) — le comportement
+  desktop existant (fly + surbrillance carrousel) reste inchangé, la
+  feuille s'ajoute en plus plutôt que de le remplacer. Contenu : cover,
+  titre hiérarchisé (même logique exposition/lieu que la grille), date,
+  nombre d'images, lien "Voir le carnet →".
+- **Piège de vérification découvert cette session** : dans ce navigateur
+  d'automatisation, `computer{action:"hover"}` fait bien matcher `:hover`
+  côté CSSOM (`element.matches(':hover')` → `true`, confirmé y compris sur
+  l'ancêtre `.group/note`) mais **`getComputedStyle` ne reflète jamais le
+  style résultant** — vérifié avec un cas de contrôle simple et déjà en
+  prod (`hover:opacity-70` sur le bouton "+ Bloc" du carnet, sans aucun
+  `group`) qui échoue exactement pareil. Conclusion : limitation de l'outil
+  de test pour le survol pur, pas un bug produit — se fier à l'inspection
+  statique du CSS généré (`document.styleSheets`, cascade/spécificité) pour
+  les styles hover-only, et réserver la vérification interactive aux
+  interactions **clic/tap**, qui fonctionnent normalement.
 
 ### Phase 4 — PWA & perfs
 - **Offline-first** : IndexedDB pour photos/notes + sync Service Worker au

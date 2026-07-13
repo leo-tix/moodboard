@@ -832,7 +832,7 @@ function JournalItemBlock({
           "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-full text-sm md:text-xs transition-all",
           isVisualBlock
             ? "bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
-            : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] opacity-0 group-hover/note:opacity-100 pointer-coarse:opacity-100"
         )}
         title="Options"
       >

@@ -57,7 +57,7 @@ export function VisitsClient({ initialVisits }: { initialVisits: VisitCard[] }) 
     <div className="space-y-10">
       {groups.map(([year, yearVisits]) => (
         <section key={year}>
-          <h2 className="text-xs text-[var(--text-tertiary)] tracking-widest uppercase mb-4">
+          <h2 className="font-serif text-2xl md:text-3xl font-semibold text-[var(--text-primary)] tracking-tight mb-4">
             {year}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -110,13 +110,19 @@ function VisitCardView({
       {/* Info */}
       <div className="px-3 py-2.5 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm text-[var(--text-primary)] truncate">{visit.place}</p>
-          {visit.exhibition && (
-            <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5 italic">
-              {visit.exhibition}
+          {visit.exhibition ? (
+            <>
+              <p className="font-serif text-base text-[var(--text-primary)] truncate leading-tight">
+                {visit.exhibition}
+              </p>
+              <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">{visit.place}</p>
+            </>
+          ) : (
+            <p className="font-serif text-base text-[var(--text-primary)] truncate leading-tight">
+              {visit.place}
             </p>
           )}
-          <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+          <p className="text-[10px] text-[var(--text-tertiary)] mt-1">
             {date} · {visit.count} image{visit.count !== 1 ? "s" : ""}
           </p>
         </div>

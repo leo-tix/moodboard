@@ -7,6 +7,7 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+import { VisitDetailSheet } from "./VisitDetailSheet";
 
 export interface GlobalMapVisit {
   id: string;
@@ -36,6 +37,7 @@ export function VisitsGlobalMap({ visits }: { visits: GlobalMapVisit[] }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showUngeo, setShowUngeo] = useState(false);
+  const [sheetVisit, setSheetVisit] = useState<GlobalMapVisit | null>(null);
   // Le scroll programmatique (déclenché par un clic sur un pin) ne doit pas
   // re-déclencher l'IntersectionObserver qui recentre la carte — sinon les
   // deux mécanismes s'auto-alimentent en boucle.
@@ -107,7 +109,10 @@ export function VisitsGlobalMap({ visits }: { visits: GlobalMapVisit[] }) {
           iconAnchor: [22, 22],
         });
         const marker = L.marker([v.latitude, v.longitude], { icon });
-        marker.on("click", () => focusVisit(v.id, true));
+        marker.on("click", () => {
+          focusVisit(v.id, true);
+          if (window.matchMedia("(pointer: coarse)").matches) setSheetVisit(v);
+        });
         clusterGroup.addLayer(marker);
       }
       map.addLayer(clusterGroup);
@@ -157,9 +162,13 @@ export function VisitsGlobalMap({ visits }: { visits: GlobalMapVisit[] }) {
         <div className="absolute top-3 left-3 z-[500]">
           <button
             onClick={() => setShowUngeo((v) => !v)}
-            className="px-2.5 py-1.5 text-xs rounded-full bg-[var(--bg-elevated)]/90 backdrop-blur-sm border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            title={`${ungeo.length} visite${ungeo.length !== 1 ? "s" : ""} non localisée${ungeo.length !== 1 ? "s" : ""}`}
+            className="relative w-8 h-8 flex items-center justify-center rounded-full bg-[var(--bg-elevated)]/90 backdrop-blur-sm border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm"
           >
-            {ungeo.length} visite{ungeo.length !== 1 ? "s" : ""} non localisée{ungeo.length !== 1 ? "s" : ""}
+            ⌖
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--bg-base)] border border-[var(--border-default)] text-[9px] leading-none flex items-center justify-center text-[var(--text-tertiary)]">
+              {ungeo.length}
+            </span>
           </button>
           {showUngeo && (
             <div className="mt-1.5 w-56 max-h-64 overflow-y-auto rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl">
@@ -221,6 +230,8 @@ export function VisitsGlobalMap({ visits }: { visits: GlobalMapVisit[] }) {
           ))}
         </div>
       )}
+
+      <VisitDetailSheet visit={sheetVisit} onClose={() => setSheetVisit(null)} />
     </div>
   );
 }
