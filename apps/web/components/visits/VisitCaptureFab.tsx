@@ -16,12 +16,6 @@ import { compressImageForUpload } from "@/lib/image/clientResize";
 const LONG_PRESS_MS = 450;
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
 
-// Transcription live désactivée sur tactile (voir beginRecording) — la
-// concurrence MediaRecorder/SpeechRecognition sur le même micro y est
-// instable en conditions réelles.
-const isTouchDevice = () =>
-  typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
-
 type MemoPhase =
   | { step: "idle" }
   | { step: "onboarding" }
@@ -46,6 +40,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // null = pas encore déterminé (reconnaissance lancée avec un léger délai)
+  const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
@@ -99,7 +95,10 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         fd.append("file", uploadFile);
         const res = await fetch("/api/upload/image", { method: "POST", body: fd });
         const data = await res.json().catch(() => ({}));
-        if (res.ok && data.id) ids.push(data.id);
+        // ⚠ l'API renvoie `inspirationId`, pas `id` — lire le mauvais champ
+        // affichait "Échec de l'upload" alors que l'image était bien créée
+        // (retrouvée en triage), et le rattachement ne partait jamais.
+        if (res.ok && data.inspirationId) ids.push(data.inspirationId);
         else setError(data.error ?? "Échec de l'upload");
       }
       if (ids.length > 0) {
@@ -203,23 +202,22 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
     setElapsed(0);
     recorder.start();
     setMemo({ step: "recording", startedAt: startedAtRef.current });
-    // Reconnaissance vocale en direct — DESKTOP UNIQUEMENT. Faire tourner
-    // MediaRecorder et SpeechRecognition en même temps sur le même micro
-    // s'est révélé cassant sur mobile réel (retour terrain) : l'OS/le
-    // navigateur peut réattribuer le flux micro à la reconnaissance vocale,
-    // ce qui coupe MediaRecorder en plein enregistrement — l'utilisateur
-    // valide le mémo mais rien n'est jamais capté. Décaler le démarrage
-    // (200ms) ne suffisait pas à fiabiliser ça sur les appareils testés. On
-    // sacrifie donc la transcription live sur tactile pour garantir que le
-    // clip audio, lui, arrive bien dans le carnet — c'est la fonctionnalité
-    // principale.
-    if (!isTouchDevice()) {
-      window.setTimeout(() => {
-        if (recorderRef.current === recorder && recorder.state === "recording") {
-          transcriberRef.current = startLiveTranscription(setTranscript);
-        }
-      }, 200);
-    }
+    // Reconnaissance vocale en direct, partout où le navigateur la fournit
+    // (décision produit : la transcription locale est conservée, y compris
+    // mobile). Démarrée APRÈS l'enregistrement (léger décalage) pour limiter
+    // la contention d'acquisition micro entre MediaRecorder et
+    // SpeechRecognition ; si l'OS coupe quand même la piste, les filets
+    // (track.onended / onerror / chunks vides) préviennent au lieu de
+    // laisser l'UI pendue. Sur iOS PWA la Web Speech API est généralement
+    // indisponible → indicateur honnête dans la feuille plutôt qu'un
+    // placeholder qui attend pour rien.
+    setSpeechAvailable(null);
+    window.setTimeout(() => {
+      if (recorderRef.current === recorder && recorder.state === "recording") {
+        transcriberRef.current = startLiveTranscription(setTranscript);
+        setSpeechAvailable(transcriberRef.current !== null);
+      }
+    }, 200);
   };
 
   const stopMemo = () => {
@@ -390,15 +388,15 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
                   <p className="text-sm font-medium text-[var(--text-primary)]">Enregistrement…</p>
                   <span className="ml-auto text-sm text-[var(--text-tertiary)] tabular-nums">{fmt(elapsed)}</span>
                 </div>
-                {isTouchDevice() ? (
-                  <p className="text-xs text-[var(--text-tertiary)] italic">
-                    Transcription en direct disponible sur desktop — ce mémo sera enregistré tel quel.
-                  </p>
-                ) : (
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
-                    {transcript || <span className="text-[var(--text-tertiary)] italic">La transcription apparaît ici…</span>}
-                  </p>
-                )}
+                <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
+                  {transcript || (
+                    <span className="text-[var(--text-tertiary)] italic">
+                      {speechAvailable === false
+                        ? "Transcription non disponible sur ce navigateur — le mémo sera enregistré tel quel."
+                        : "La transcription apparaît ici…"}
+                    </span>
+                  )}
+                </p>
                 <button
                   onClick={stopMemo}
                   className="w-full py-3 rounded-lg text-sm font-medium bg-red-500/15 text-red-400 border border-red-500/30"
@@ -462,6 +460,10 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         onPointerDown={onFabPointerDown}
         onPointerUp={onFabPointerUp}
         onPointerLeave={onFabPointerLeave}
+        // iOS peut interrompre la séquence pointer (gesture système) — sans
+        // ça le timer d'appui long resterait armé et déclencherait un mémo
+        // fantôme après coup.
+        onPointerCancel={onFabPointerLeave}
         onContextMenu={(e) => e.preventDefault()}
         title="Photo (appui long : mémo vocal)"
         className={cn(

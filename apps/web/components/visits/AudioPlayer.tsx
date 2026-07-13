@@ -16,16 +16,44 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
   const [duration, setDuration] = useState(durationSec ?? 0);
   const [peaks, setPeaks] = useState<number[] | null>(null);
 
-  // Décode le fichier une fois pour en extraire la forme d'onde. Best-effort :
-  // si le décodage échoue (format exotique, CORS…) on retombe sur des barres
-  // plates plutôt que de casser le lecteur.
+  // Décode le fichier une fois pour en extraire la forme d'onde. Best-effort
+  // sur plusieurs fronts, tous rencontrés en conditions réelles :
+  // - Safari/iOS ne sait pas décoder le webm/opus enregistré sur Chrome ;
+  // - le fetch cross-origin vers R2 peut échouer (CORS) ou traîner ;
+  // - iOS limite le nombre d'AudioContext simultanés (d'où le close()
+  //   systématique en finally — un carnet peut afficher plusieurs lecteurs).
+  // Dans TOUS les cas d'échec ou de lenteur (>5s), on affiche un motif de
+  // barres déterministe (pseudo-aléatoire seedé sur l'URL) — visuellement une
+  // waveform, jamais une zone vide.
   useEffect(() => {
     let cancelled = false;
+
+    // Motif de secours stable pour cette source (même rendu à chaque visite).
+    const fallbackBars = () => {
+      let seed = 0;
+      for (let i = 0; i < src.length; i++) seed = (seed * 31 + src.charCodeAt(i)) >>> 0;
+      return Array.from({ length: BAR_COUNT }, (_, i) => {
+        seed = (seed * 1103515245 + 12345) >>> 0;
+        const r = (seed / 4294967295);
+        // Enveloppe douce (plus haut au centre) + variation — façon waveform
+        const envelope = 0.35 + 0.5 * Math.sin((i / BAR_COUNT) * Math.PI);
+        return Math.max(0.12, Math.min(1, envelope * (0.5 + r * 0.9)));
+      });
+    };
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) setPeaks((p) => p ?? fallbackBars());
+    }, 5000);
+
+    let ctx: AudioContext | null = null;
     (async () => {
       try {
         const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        const ctx = new AC();
-        const buf = await fetch(src).then((r) => r.arrayBuffer());
+        ctx = new AC();
+        const buf = await fetch(src).then((r) => {
+          if (!r.ok) throw new Error(String(r.status));
+          return r.arrayBuffer();
+        });
         const decoded = await ctx.decodeAudioData(buf);
         if (cancelled) return;
         const channel = decoded.getChannelData(0);
@@ -42,12 +70,16 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
         }
         const peak = Math.max(...bars, 0.01);
         setPeaks(bars.map((b) => Math.max(0.08, b / peak)));
-        ctx.close();
       } catch {
-        if (!cancelled) setPeaks(Array.from({ length: BAR_COUNT }, () => 0.3));
+        if (!cancelled) setPeaks(fallbackBars());
+      } finally {
+        try { await ctx?.close(); } catch { /* déjà fermé */ }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallbackTimer);
+    };
   }, [src]);
 
   useEffect(() => {
@@ -133,7 +165,10 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
               key={i}
               className={cn(
                 "flex-1 rounded-full transition-colors",
-                peaks ? (played ? "bg-[var(--text-primary)]" : "bg-[var(--border-strong)]") : "bg-[var(--border-subtle)] animate-pulse"
+                // border-strong même en placeholder : border-subtle (6% alpha)
+                // était invisible sur fond sombre — la zone waveform semblait
+                // vide pendant/après un décodage lent ou échoué.
+                peaks ? (played ? "bg-[var(--text-primary)]" : "bg-[var(--border-strong)]") : "bg-[var(--border-strong)] animate-pulse"
               )}
               style={{ height: `${Math.round(h * 100)}%`, minHeight: 2 }}
             />
