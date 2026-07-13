@@ -407,13 +407,48 @@ reste identique au comportement actuel.
 - Blocage pull-to-refresh / sélection texte UI ; manifest `standalone` — ✅
   manifest déjà standalone, le reste = petite passe CSS.
 
-### Phase 5 — Social & export
-- **Carnet public read-only** (article éditorial) — pattern
-  `shareToken`/`shareExpiry` des planches réutilisable, déjà en roadmap §6.
-- **Export 9:16** (story/reel) sur blocs Œuvre/Moodboard — nouveau,
-  le pipeline canvas de l'export PNG moodboard est réutilisable.
-- **Tags transversaux** (#Typographie, #Scénographie) — les tags existent
-  sur Inspiration ; le filtrage transversal niveau visites est nouveau.
+### Phase 5 — Social & export (✅ 2026-07-14)
+- **✅ Carnet public read-only** (`app/carnet/[token]/page.tsx`) : bouton
+  Partager sur une visite (`VisitShareButton`) → lien `/carnet/[token]`
+  public (7j / 30j / sans expiration, révocable) via
+  `POST /api/visits/[id]/share`, même pattern que le partage des planches.
+  `Visit.shareToken`/`shareExpiry` ajoutés (SQL additif, pas de push
+  destructif). Rendu lecture seule `VisitJournalReadOnly` (réutilise la CSS
+  `.note-prose`, la police serif du titre, le lecteur audio + son error
+  boundary — pas de composant d'édition). Logique de fusion des blocs
+  extraite en helper partagé `lib/visits/journalItems.ts`. Route ajoutée à
+  l'allowlist publique de `proxy.ts` (comme `/share`).
+- **✅ Module de partage "folder lab"** (`FolderLab.tsx`,
+  `app/(app)/visites/[id]/dossier`) : clone fidèle de folderlab.javii.tools —
+  dossier macOS d'où débordent des cartes photos, nuancier de teinte,
+  styles Tucked/Peek/Open/Spill, orientation, Frame, Glass, shake, export.
+  Rendu **canvas** (pas html2canvas) : le dossier + cartes redessinés à la
+  main → PNG transparent, images chargées via `lib/image/loadForCanvas.ts`
+  (R2 CORS + repli proxy, même stratégie que l'export planches). Pré-rempli
+  avec les images de la visite, sélecteur pour ajuster (max 6). **Premium de
+  l'original (Glass, vidéo) laissé libre** — app perso mono-tenant, décision
+  actée.
+- **✅ Export 9:16 (story/reel)** : intégré au folder lab — bouton « ↓ 9:16 »
+  qui compose la scène du dossier centrée sur un canvas 1080×1920 fond
+  sombre (Instagram/TikTok). (L'export vidéo animé de l'original reste une
+  suite possible : `MediaRecorder` sur canvas.)
+- **✅ Tags transversaux** : filtre par tags sur `/visites` (`VisitsClient`) —
+  pills des tags présents sur les images des visites ; sélection = filtre les
+  visites portant au moins un des tags (OU). Un tag relie plusieurs visites
+  (ex. #Typographie sur deux expos). `page.tsx` calcule `tagsByVisit` +
+  `allTags` via une requête `tag → inspirations → visitId`.
+- Vérifié en navigateur réel (compte de test jetable, supprimé + R2 purgé) :
+  génération/révocation du lien public + accès `/carnet/[token]` SANS cookies
+  (200, pas de redirection login) ; folder lab (teinte, styles, export PNG
+  1680×1410 et 9:16 1080×1920 pixel-corrects avec les 4 cartes en éventail) ;
+  filtrage transversal (#Scénographie → 1 visite, #Typographie → 2 visites).
+- **Piège de vérification (à retenir)** : mesurer la position d'un élément
+  animé par Framer Motion `layout` via `getBoundingClientRect()` donne des
+  valeurs FAUSSES (le transform d'animation en vol s'ajoute) — lire plutôt le
+  `style.top` inline ; et les lectures `getComputedStyle` juste après un clic
+  peuvent précéder le commit React. Le state réel se lit dans le fiber
+  (`__reactFiber$…`.memoizedState) — c'est ce qui a permis de confirmer que le
+  composant fonctionnait alors que les mesures suggéraient le contraire.
 
 - **Module de partage "folder lab" (demande explicite utilisateur 2026-07-13)** —
   reproduire **exactement le fonctionnement ET le design** de

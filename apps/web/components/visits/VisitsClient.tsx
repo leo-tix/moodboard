@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 
 export interface VisitCard {
@@ -12,6 +13,7 @@ export interface VisitCard {
   notes: string | null;
   count: number;
   thumbnails: string[];
+  tags: string[];
 }
 
 // Groupe les visites par année pour une lecture chronologique type carnet
@@ -25,9 +27,19 @@ function groupByYear(visits: VisitCard[]): [string, VisitCard[]][] {
   return Array.from(map.entries());
 }
 
-export function VisitsClient({ initialVisits }: { initialVisits: VisitCard[] }) {
+export function VisitsClient({ initialVisits, allTags = [] }: { initialVisits: VisitCard[]; allTags?: string[] }) {
   const [visits, setVisits] = useState(initialVisits);
-  const groups = useMemo(() => groupByYear(visits), [visits]);
+  // Filtrage transversal par tags (Phase 5) : une visite passe le filtre si elle
+  // porte au moins un des tags sélectionnés (OU).
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const filtered = useMemo(
+    () => (activeTags.length === 0 ? visits : visits.filter((v) => v.tags.some((t) => activeTags.includes(t)))),
+    [visits, activeTags],
+  );
+  const groups = useMemo(() => groupByYear(filtered), [filtered]);
+
+  const toggleTag = (t: string) =>
+    setActiveTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
 
   const handleDelete = async (id: string) => {
     if (!confirm("Supprimer cette visite ? Les images ne seront pas supprimées, seulement détachées.")) return;
@@ -54,19 +66,57 @@ export function VisitsClient({ initialVisits }: { initialVisits: VisitCard[] }) 
   }
 
   return (
-    <div className="space-y-10">
-      {groups.map(([year, yearVisits]) => (
-        <section key={year}>
-          <h2 className="font-serif text-2xl md:text-3xl font-semibold text-[var(--text-primary)] tracking-tight mb-4">
-            {year}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {yearVisits.map((v) => (
-              <VisitCardView key={v.id} visit={v} onDelete={handleDelete} />
-            ))}
-          </div>
-        </section>
-      ))}
+    <div className="space-y-8">
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {allTags.map((t) => {
+            const active = activeTags.includes(t);
+            return (
+              <button
+                key={t}
+                onClick={() => toggleTag(t)}
+                className={cn(
+                  "px-2.5 py-1 rounded-full text-xs transition-colors border",
+                  active
+                    ? "bg-[var(--text-primary)] text-[var(--bg-base)] border-transparent"
+                    : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-[var(--text-primary)]",
+                )}
+              >
+                #{t}
+              </button>
+            );
+          })}
+          {activeTags.length > 0 && (
+            <button
+              onClick={() => setActiveTags([])}
+              className="px-2.5 py-1 rounded-full text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+            >
+              ✕ tout afficher
+            </button>
+          )}
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <p className="text-sm text-[var(--text-tertiary)] py-12 text-center">
+          Aucune visite ne porte {activeTags.length > 1 ? "ces tags" : "ce tag"}.
+        </p>
+      ) : (
+        <div className="space-y-10">
+          {groups.map(([year, yearVisits]) => (
+            <section key={year}>
+              <h2 className="font-serif text-2xl md:text-3xl font-semibold text-[var(--text-primary)] tracking-tight mb-4">
+                {year}
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {yearVisits.map((v) => (
+                  <VisitCardView key={v.id} visit={v} onDelete={handleDelete} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

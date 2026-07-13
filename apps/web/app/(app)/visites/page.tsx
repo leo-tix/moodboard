@@ -32,6 +32,25 @@ export default async function VisitesPage() {
     },
   });
 
+  // Tags transversaux (Phase 5) : quels tags apparaissent sur les images de
+  // quelle visite. Un tag peut relier plusieurs visites (#Typographie,
+  // #Scénographie…) — base du filtrage transversal côté /visites.
+  const tagRows = await db.tag.findMany({
+    where: { userId: user.id, inspirations: { some: { inspiration: { visitId: { not: null } } } } },
+    select: { name: true, inspirations: { select: { inspiration: { select: { visitId: true } } } } },
+    orderBy: { name: "asc" },
+  });
+  const tagsByVisit = new Map<string, Set<string>>();
+  for (const t of tagRows) {
+    for (const it of t.inspirations) {
+      const vid = it.inspiration.visitId;
+      if (!vid) continue;
+      if (!tagsByVisit.has(vid)) tagsByVisit.set(vid, new Set());
+      tagsByVisit.get(vid)!.add(t.name);
+    }
+  }
+  const allTags = tagRows.map((t) => t.name);
+
   const serialized = visits.map((v) => ({
     id: v.id,
     place: v.place,
@@ -42,6 +61,7 @@ export default async function VisitesPage() {
     thumbnails: v.inspirations
       .map((i) => i.images[0]?.thumbnailKey)
       .filter((k): k is string => Boolean(k)),
+    tags: [...(tagsByVisit.get(v.id) ?? [])],
   }));
 
   return (
@@ -63,7 +83,7 @@ export default async function VisitesPage() {
         <VisitsHeaderActions />
       </header>
 
-      <VisitsClient initialVisits={serialized} />
+      <VisitsClient initialVisits={serialized} allTags={allTags} />
     </div>
   );
 }
