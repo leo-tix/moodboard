@@ -165,20 +165,25 @@ montage modulaire (Notion)**. Statut de chaque item vs l'existant :
 - **Onboarding contextuel des permissions** (micro/GPS à la première
   utilisation, modale explicative) — nouveau.
 
-### Phase 2 — Desktop "table de montage"
-- Éditeur par blocs D&D — ✅ largement en place (overlay+fantôme + Tiptap).
-- **Design "flottant"** : suppression bordures/fonds gris, structuration
-  par marges seules sur fond noir — passe design, nouveau.
-- **Bloc "Œuvre"** (photo + Titre/Artiste/Année typographiés) — les données
-  existent déjà (`Inspiration.title/author/year`), c'est un rendu à créer.
-- **Bloc "Moodboard"** (grille d'images pleine largeur) — nouveau.
-- **Bloc "Citation"** — `blockquote` volontairement désactivé dans
-  StarterKit : réactivation + style, trivial.
-- **Toolbar fantôme** (au surlignage) + **commande `/`** — le "/" était
-  reporté, remis au programme.
-- **Auto-save continu + indicateur de statut** — le save au blur et à
-  l'insertion existent ; manque le save debounced pendant la frappe et
-  l'indicateur ●/✓ (pattern déjà présent dans MetadataPanel).
+### Phase 2 — Desktop "table de montage" (✅ 2026-07-13, sauf bloc Moodboard)
+- Éditeur par blocs D&D — ✅ (overlay+fantôme + Tiptap, lots précédents).
+- **✅ Design "flottant"** : notes sans bordure ni fond gris permanent,
+  structurées par les marges sur fond noir (fond léger au survol/édition).
+- **✅ Bloc "Œuvre"** : cartel typographique automatique sous chaque image
+  du carnet (Titre, puis Artiste · Année en italique) depuis
+  `Inspiration.title/author/year`.
+- **Bloc "Moodboard"** (grille d'images pleine largeur) — SEUL restant de
+  la phase, pas commencé.
+- **✅ Bloc "Citation"** : blockquote réactivé + style (bordure accent,
+  italique), accessible via "/" et bubble menu.
+- **✅ Toolbar fantôme + commande `/`** : la toolbar statique a disparu —
+  bubble menu au surlignage (B/I/H2/❝/listes, `@tiptap/react/menus`) et
+  menu "/" (extension custom `SlashCommand` sur `@tiptap/suggestion`,
+  popup DOM sans dépendance, filtrable, navigation clavier) pour insérer
+  titres/listes/citation/image/audio.
+- **✅ Auto-save continu + indicateur ●/✓** : save debouncé 800ms pendant
+  la frappe via un chemin `persistNote` qui ne ferme pas l'éditeur et ne
+  supprime jamais (le vide→suppression reste au blur).
 
 ### Phase 3 — Refonte UI/UX de l'existant
 - Hiérarchie typographique de la grille d'archives (/visites) ; menus

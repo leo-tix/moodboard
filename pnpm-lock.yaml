@@ -28,6 +28,9 @@ importers:
       '@tiptap/core':
         specifier: ^3.27.3
         version: 3.27.3(@tiptap/pm@3.27.3)
+      '@tiptap/extension-bubble-menu':
+        specifier: ^3.27.4
+        version: 3.27.4(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)
       '@tiptap/pm':
         specifier: ^3.27.3
         version: 3.27.3
@@ -37,6 +40,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.27.3
         version: 3.27.3
+      '@tiptap/suggestion':
+        specifier: ^3.27.4
+        version: 3.27.4(@floating-ui/dom@1.7.6)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -1024,11 +1030,11 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.27.3
 
-  '@tiptap/extension-bubble-menu@3.27.3':
-    resolution: {integrity: sha512-PKSM9g8BXzO0Lxm2gOin7FAFvxO6T0QvlXTXVke/GJn/sR1tEz7w5ybsvweytUPmSliUc601pfIUOHKEhIVC2Q==}
+  '@tiptap/extension-bubble-menu@3.27.4':
+    resolution: {integrity: sha512-Poy7xwcD3POG5ew/TW7mYXv7m++vCchvHxPUqIfnTxBxvvvqDZkPYFWZS1lvPrSBtm1DcfUTQAgVutM5NDZ99Q==}
     peerDependencies:
-      '@tiptap/core': 3.27.3
-      '@tiptap/pm': 3.27.3
+      '@tiptap/core': 3.27.4
+      '@tiptap/pm': 3.27.4
 
   '@tiptap/extension-bullet-list@3.27.3':
     resolution: {integrity: sha512-owQW6mcgnYgQU1z5BqmslcjZFBUm1SGM/Ax++4R6XelIt/7ol6uSTjzjAzum+ASW7UlBbuJHuSgRjl8cA+RGkg==}
@@ -1157,6 +1163,13 @@ packages:
 
   '@tiptap/starter-kit@3.27.3':
     resolution: {integrity: sha512-xX3baFqiC30skntdhxUUvyJo755ON9c1pE83+2Wiq2g+Qnffg9knUuLCZStHoZZ318yB0aBsKAMvHWLtYDo8AA==}
+
+  '@tiptap/suggestion@3.27.4':
+    resolution: {integrity: sha512-cughtzjjRdLu62Ioani4hMcFDQk98v9rGiNINrp8HEK9hKcs1kkygFzDLZjHxabdC97pqQDkjllJ8EwK3RvCRg==}
+    peerDependencies:
+      '@floating-ui/dom': ^1.0.0
+      '@tiptap/core': 3.27.4
+      '@tiptap/pm': 3.27.4
 
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
@@ -3711,16 +3724,13 @@ snapshots:
   '@floating-ui/core@1.7.5':
     dependencies:
       '@floating-ui/utils': 0.2.11
-    optional: true
 
   '@floating-ui/dom@1.7.6':
     dependencies:
       '@floating-ui/core': 1.7.5
       '@floating-ui/utils': 0.2.11
-    optional: true
 
-  '@floating-ui/utils@0.2.11':
-    optional: true
+  '@floating-ui/utils@0.2.11': {}
 
   '@huggingface/jinja@0.5.9': {}
 
@@ -4202,12 +4212,11 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.27.3(@tiptap/pm@3.27.3)
 
-  '@tiptap/extension-bubble-menu@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)':
+  '@tiptap/extension-bubble-menu@3.27.4(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)':
     dependencies:
       '@floating-ui/dom': 1.7.6
       '@tiptap/core': 3.27.3(@tiptap/pm@3.27.3)
       '@tiptap/pm': 3.27.3
-    optional: true
 
   '@tiptap/extension-bullet-list@3.27.3(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))':
     dependencies:
@@ -4330,7 +4339,7 @@ snapshots:
       react-dom: 19.2.4(react@19.2.4)
       use-sync-external-store: 1.6.0(react@19.2.4)
     optionalDependencies:
-      '@tiptap/extension-bubble-menu': 3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)
+      '@tiptap/extension-bubble-menu': 3.27.4(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)
       '@tiptap/extension-floating-menu': 3.27.3(@floating-ui/dom@1.7.6)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)
     transitivePeerDependencies:
       - '@floating-ui/dom'
@@ -4360,6 +4369,12 @@ snapshots:
       '@tiptap/extension-text': 3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))
       '@tiptap/extension-underline': 3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))
       '@tiptap/extensions': 3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)
+      '@tiptap/pm': 3.27.3
+
+  '@tiptap/suggestion@3.27.4(@floating-ui/dom@1.7.6)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)':
+    dependencies:
+      '@floating-ui/dom': 1.7.6
+      '@tiptap/core': 3.27.3(@tiptap/pm@3.27.3)
       '@tiptap/pm': 3.27.3
 
   '@tybys/wasm-util@0.10.2':

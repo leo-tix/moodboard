@@ -2,24 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { InlineImage } from "./tiptap/InlineImage";
 import { AudioBlock } from "./tiptap/AudioBlock";
+import { SlashCommand } from "./tiptap/SlashCommand";
 import { pickSupportedAudioMimeType, requestMicrophone } from "@/lib/audio/recorder";
 
 // ── Bloc de note façon Notion ────────────────────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
 // VisitNote.content — même colonne String qu'avant l'ajout du rich-text, pas
 // de migration de schéma nécessaire (le texte brut historique reste du HTML
-// valide, juste sans balises). StarterKit couvre exactement le périmètre
-// demandé : titres (H2/H3), gras/italique, listes à puces/numérotées.
-// InlineImage (tiptap/InlineImage.ts) permet en plus au texte de contourner
-// une image de la visite (wrap façon magazine/Apple Journal). AudioBlock
-// (tiptap/AudioBlock.ts) insère un lecteur pour un clip enregistré au micro.
+// valide, juste sans balises). StarterKit couvre : titres (H2/H3),
+// gras/italique, listes, citation. InlineImage permet au texte de contourner
+// une image de la visite (wrap façon magazine) ; AudioBlock insère un lecteur
+// pour un clip micro. Phase 2 "table de montage" : la toolbar statique a
+// disparu au profit d'une **toolbar fantôme** (BubbleMenu au surlignage) et
+// de la **commande "/"** (SlashCommand) pour insérer les blocs.
 
-const EXTENSIONS = [
+const BASE_EXTENSIONS = [
   StarterKit.configure({
     heading: { levels: [2, 3] },
     // Pas de bloc de code / règle horizontale : hors périmètre pour une note
@@ -93,8 +96,27 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
     if (savedFadeRef.current) window.clearTimeout(savedFadeRef.current);
   }, []);
 
+  // Popovers d'insertion (image de la visite / enregistreur micro) — ouverts
+  // par la commande "/" (et par personne d'autre depuis la disparition de la
+  // toolbar statique). Portés par NoteEditor pour être partagés.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [recorderOpen, setRecorderOpen] = useState(false);
+
+  // Extensions par instance : SlashCommand ferme sur les setters de CE
+  // composant. useMemo sans deps — les setters React sont stables.
+  const extensions = useMemo(
+    () => [
+      ...BASE_EXTENSIONS,
+      SlashCommand.configure({
+        onInsertImage: () => setPickerOpen(true),
+        onInsertAudio: () => setRecorderOpen(true),
+      }),
+    ],
+    []
+  );
+
   const editor = useEditor({
-    extensions: EXTENSIONS,
+    extensions,
     content,
     editable,
     immediatelyRender: false,
@@ -142,31 +164,31 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
 
   if (!editor) return null;
 
+  // L'insertion d'un bloc image/audio ne déclenche pas de blur (l'éditeur
+  // reste focus) — sans sauvegarde immédiate, un rechargement/navigation
+  // avant le prochain blur perdait le bloc inséré. Persiste SANS fermer
+  // l'édition quand l'auto-save est câblé, sinon retombe sur le blur.
+  const persistAfterInsert = () => {
+    if (onAutoSaveRef.current) {
+      setSaveState("saving");
+      onAutoSaveRef.current(editor.getHTML())
+        .then(() => setSaveState("saved"))
+        .catch(() => setSaveState("error"));
+    } else {
+      onBlurSave(editor.getHTML());
+    }
+  };
+
   return (
-    <div className={cn("flex-1 min-w-0", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
-      {editable && (
-        <NoteToolbar
-          editor={editor}
-          visitImages={visitImages}
-          visitId={visitId}
-          // L'insertion d'un bloc image/audio via la toolbar ne déclenche pas
-          // de blur (l'éditeur reste focus) — sans sauvegarde immédiate, un
-          // rechargement/navigation avant le prochain blur perdait le bloc
-          // inséré (il n'avait jamais été persisté). Persiste SANS fermer
-          // l'édition quand l'auto-save est câblé, sinon retombe sur le blur.
-          onSave={() => {
-            if (onAutoSaveRef.current) {
-              setSaveState("saving");
-              onAutoSaveRef.current(editor.getHTML())
-                .then(() => setSaveState("saved"))
-                .catch(() => setSaveState("error"));
-            } else {
-              onBlurSave(editor.getHTML());
-            }
-          }}
-          saveState={saveState}
-        />
+    <div className={cn("flex-1 min-w-0 relative", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
+      {/* Hint façon Notion sur note vide en édition — remplace la toolbar
+          statique comme point de découverte des blocs. */}
+      {editable && editor.isEmpty && (
+        <span className="pointer-events-none absolute top-0 left-0 text-sm italic text-[var(--text-tertiary)]">
+          Écris, ou tape «&nbsp;/&nbsp;» pour insérer un bloc…
+        </span>
       )}
+
       <EditorContent editor={editor} />
       {/* Après les images flottantes, le texte peut ne plus déborder assez
           bas pour "clear" le float — sans ça la bordure/le padding du bloc
@@ -175,42 +197,65 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
       {!editable && editor.isEmpty && placeholder && (
         <span className="text-[var(--text-tertiary)] italic text-sm">{placeholder}</span>
       )}
+
+      {editable && (
+        <>
+          {/* Toolbar fantôme : n'existe qu'au surlignage d'un passage */}
+          <BubbleMenu
+            editor={editor}
+            className="flex items-center gap-0.5 px-1 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl"
+          >
+            <BubbleButtons editor={editor} />
+          </BubbleMenu>
+
+          {/* Indicateur d'auto-save — même vocabulaire ●/✓ que MetadataPanel */}
+          <span className="absolute -top-1 right-0 text-[10px] select-none" aria-live="polite">
+            {saveState === "dirty" && <span className="text-[var(--text-tertiary)]">●</span>}
+            {saveState === "saving" && <span className="text-[var(--text-tertiary)] animate-pulse">●</span>}
+            {saveState === "saved" && <span className="text-[var(--accent)]">✓</span>}
+            {saveState === "error" && <span className="text-red-400">⚠ non sauvegardé</span>}
+          </span>
+
+          {pickerOpen && (
+            <ImagePickerPopover
+              visitImages={visitImages}
+              onPick={(img) => {
+                editor.chain().focus().insertInlineImage({ inspirationId: img.id, thumbnailKey: img.thumbnailKey ?? "" }).run();
+                setPickerOpen(false);
+                persistAfterInsert();
+              }}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
+          {recorderOpen && visitId && (
+            <AudioRecorderPopover
+              visitId={visitId}
+              editor={editor}
+              onClose={() => setRecorderOpen(false)}
+              onSave={persistAfterInsert}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function NoteToolbar({
-  editor,
-  visitImages,
-  visitId,
-  onSave,
-  saveState,
-}: {
-  editor: ReturnType<typeof useEditor>;
-  visitImages: NoteEditorImage[];
-  visitId?: string;
-  onSave: () => void;
-  saveState: SaveState;
-}) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [recorderOpen, setRecorderOpen] = useState(false);
-
-  if (!editor) return null;
-
+// Boutons de la toolbar fantôme — formatage inline + blocs de texte courants.
+function BubbleButtons({ editor }: { editor: NonNullable<ReturnType<typeof useEditor>> }) {
   const buttons: { label: string; title: string; active: boolean; onClick: () => void }[] = [
     { label: "B", title: "Gras", active: editor.isActive("bold"), onClick: () => editor.chain().focus().toggleBold().run() },
     { label: "I", title: "Italique", active: editor.isActive("italic"), onClick: () => editor.chain().focus().toggleItalic().run() },
     { label: "H2", title: "Titre", active: editor.isActive("heading", { level: 2 }), onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+    { label: "❝", title: "Citation", active: editor.isActive("blockquote"), onClick: () => editor.chain().focus().toggleBlockquote().run() },
     { label: "•", title: "Liste à puces", active: editor.isActive("bulletList"), onClick: () => editor.chain().focus().toggleBulletList().run() },
     { label: "1.", title: "Liste numérotée", active: editor.isActive("orderedList"), onClick: () => editor.chain().focus().toggleOrderedList().run() },
-    { label: "❝", title: "Citation", active: editor.isActive("blockquote"), onClick: () => editor.chain().focus().toggleBlockquote().run() },
   ];
-
   return (
-    <div
-      className="relative flex items-center gap-0.5 mb-1.5 -ml-1"
-      // Empêche le blur de l'éditeur (qui déclenche la sauvegarde) avant que
-      // le clic sur le bouton n'ait eu le temps d'agir sur la sélection.
+    <span
+      className="contents"
+      // Empêche le blur de l'éditeur (qui ferme l'édition) avant que le clic
+      // sur le bouton n'ait agi sur la sélection.
       onMouseDown={(e) => e.preventDefault()}
     >
       {buttons.map((b) => (
@@ -220,85 +265,57 @@ function NoteToolbar({
           title={b.title}
           onClick={b.onClick}
           className={cn(
-            "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
+            "w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
             b.active
               ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
-              : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
           )}
         >
           {b.label}
         </button>
       ))}
+    </span>
+  );
+}
 
-      {visitImages.length > 0 && (
-        <>
-          <span className="w-px h-4 bg-[var(--border-default)] mx-1" />
-          <button
-            type="button"
-            title="Insérer une image de la visite"
-            onClick={() => setPickerOpen((v) => !v)}
-            className={cn(
-              "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
-              pickerOpen
-                ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
-                : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-            )}
-          >
-            🖼
-          </button>
-          {pickerOpen && (
-            <div className="absolute top-full left-0 mt-1 z-50 w-56 max-h-48 overflow-y-auto p-1.5 grid grid-cols-4 gap-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl">
-              {visitImages.map((img) => (
-                <button
-                  key={img.id}
-                  type="button"
-                  onClick={() => {
-                    editor.chain().focus().insertInlineImage({ inspirationId: img.id, thumbnailKey: img.thumbnailKey ?? "" }).run();
-                    setPickerOpen(false);
-                    onSave();
-                  }}
-                  className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
-                >
-                  {img.thumbnailKey && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={getThumbnailUrl(img.thumbnailKey)} alt="" className="w-full h-full object-cover" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
+// Sélecteur d'image de la visite — ouvert par la commande "/".
+function ImagePickerPopover({
+  visitImages,
+  onPick,
+  onClose,
+}: {
+  visitImages: NoteEditorImage[];
+  onPick: (img: NoteEditorImage) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="absolute top-1 left-0 z-50 w-60 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl"
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div className="flex items-center justify-between px-2.5 pt-2">
+        <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Images de la visite</p>
+        <button type="button" onClick={onClose} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-xs">✕</button>
+      </div>
+      {visitImages.length === 0 ? (
+        <p className="px-2.5 py-3 text-[11px] text-[var(--text-tertiary)]">Aucune image attachée à cette visite.</p>
+      ) : (
+        <div className="max-h-48 overflow-y-auto p-1.5 grid grid-cols-4 gap-1">
+          {visitImages.map((img) => (
+            <button
+              key={img.id}
+              type="button"
+              onClick={() => onPick(img)}
+              className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
+            >
+              {img.thumbnailKey && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={getThumbnailUrl(img.thumbnailKey)} alt="" className="w-full h-full object-cover" />
+              )}
+            </button>
+          ))}
+        </div>
       )}
-
-      {visitId && (
-        <>
-          <span className="w-px h-4 bg-[var(--border-default)] mx-1" />
-          <button
-            type="button"
-            title="Enregistrer un clip audio"
-            onClick={() => setRecorderOpen((v) => !v)}
-            className={cn(
-              "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
-              recorderOpen
-                ? "bg-[var(--text-primary)] text-[var(--bg-base)]"
-                : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-            )}
-          >
-            🎙
-          </button>
-          {recorderOpen && (
-            <AudioRecorderPopover visitId={visitId} editor={editor} onClose={() => setRecorderOpen(false)} onSave={onSave} />
-          )}
-        </>
-      )}
-
-      {/* Indicateur d'auto-save — même vocabulaire ●/✓ que MetadataPanel */}
-      <span className="ml-auto pr-1 text-[10px] select-none" aria-live="polite">
-        {saveState === "dirty" && <span className="text-[var(--text-tertiary)]">●</span>}
-        {saveState === "saving" && <span className="text-[var(--text-tertiary)] animate-pulse">●</span>}
-        {saveState === "saved" && <span className="text-[var(--accent)]">✓</span>}
-        {saveState === "error" && <span className="text-red-400">⚠ non sauvegardé</span>}
-      </span>
     </div>
   );
 }
@@ -416,7 +433,13 @@ function AudioRecorderPopover({
   };
 
   return (
-    <div className="absolute top-full left-0 mt-1 z-50 w-56 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl">
+    <div
+      className="absolute top-1 left-0 z-50 w-56 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl"
+      // Sans ce garde (hérité de l'ancienne toolbar statique), cliquer un
+      // bouton du popover blur l'éditeur → l'édition se ferme → le popover
+      // se démonte en plein enregistrement.
+      onMouseDown={(e) => e.preventDefault()}
+    >
       {error && <p className="text-[10px] text-red-400 mb-2">{error}</p>}
       {!blob ? (
         <button
