@@ -215,6 +215,7 @@ model Visit {
   noteBlocks   VisitNote[]
   audioClips   VisitAudio[]
   quoteBlocks  VisitQuote[]
+  titleBlocks  VisitTitle[]
   columnBlocks VisitColumns[]
 
   @@index([visitDate])
@@ -240,6 +241,7 @@ enum VisitBlockRef {
   TEXT
   QUOTE
   AUDIO
+  TITLE
 }
 
 // Enregistrement audio — bloc autonome du carnet (waveform + lecture ±15s +
@@ -263,7 +265,8 @@ model VisitAudio {
   @@map("visit_audio")
 }
 
-// Bloc de texte pur du carnet (titres H2/H3, gras/italique, listes — plus de
+// Bloc de texte pur du carnet (sous-titre H3, gras/italique, listes — le
+// Titre H2 est un bloc à part, VisitTitle ci-dessous ; plus de
 // citation/image/audio intégrés, voir note ci-dessus).
 model VisitNote {
   id        String   @id @default(cuid())
@@ -290,6 +293,22 @@ model VisitQuote {
 
   @@index([visitId])
   @@map("visit_quotes")
+}
+
+// Bloc titre — grand intitulé de section (texte brut, pas de rich text),
+// promu bloc autonome le 2026-07-13 (avant : formatage H2 à l'intérieur d'un
+// bloc texte). Même forme que VisitQuote.
+model VisitTitle {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  content   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_titles")
 }
 
 // Bloc "2 colonnes" — compose deux blocs existants côte à côte (texte/image/

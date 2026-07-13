@@ -208,12 +208,45 @@ type** (Notion-like) — plus de composition à l'intérieur d'un bloc.
   (calculé côté serveur dans `page.tsx`, pas contraint en base). Retirer un
   bloc d'un slot ("✕") le déréclame sans le supprimer — il redevient
   autonome dans le carnet.
-- **H2 du bloc texte** : police serif arrondie dédiée (Fraunces, axe
-  variable `SOFT`, `next/font/google`) à ~2.1em, nettement différenciée du
-  corps de texte (avant : 1.05em, quasi invisible).
+- **Titre du bloc texte** (H2 à l'époque) : police serif arrondie dédiée
+  (Fraunces, axe variable `SOFT`, `next/font/google`) à ~2.1em, nettement
+  différenciée du corps de texte (avant : 1.05em, quasi invisible). **Promu
+  bloc autonome `VisitTitle` le jour même, voir Phase 2D.**
 - Mémo vocal FAB : crée directement un bloc `VisitAudio` autonome (POST
   `/api/visits/[id]/audio` avec `transcript` en champ natif) au lieu de
   construire une note wrapper avec HTML embarqué.
+
+### Phase 2D — Titre autonome, colonnes par drag, retouches carnet (✅ 2026-07-13)
+Retour utilisateur immédiat sur 2C, six demandes ciblées :
+- **Bloc "Titre" autonome** (`VisitTitle`, même forme que `VisitQuote` —
+  texte brut) : le H2 n'est plus une option de formatage à l'intérieur
+  d'un bloc texte, c'est son propre type de bloc top-level (`TitleEditor.tsx`,
+  police Fraunces réutilisée). Le bloc texte ne garde que le Sous-titre H3.
+  Migration one-off a extrait les 2 `<h2>` restés intégrés dans d'anciennes
+  notes réelles vers des `VisitTitle`, en renumérotant toute la séquence des
+  2 visites concernées (dry-run confirmé, puis appliqué avec accord
+  utilisateur).
+- **Glisser un bloc existant dans une colonne** : `useSortableGrid` exposait
+  déjà `onHover`/`onDrop(hitEl,...)` (même pattern que `LibraryDropZone`) —
+  chaque slot vide expose `data-drop-key="columns:<id>:<slot>"`, hit-testé à
+  la fin du drag. Si la cible est un slot vide, le bloc dragué (n'importe
+  quel type sauf colonnes) est réclamé au lieu d'être simplement réordonné —
+  "juste une façon de changer la disposition", pas de duplication.
+- **"+ Bloc" → clic dans le vide** : le bouton pill explicite en fin de
+  carnet est remplacé par une zone pleine largeur quasi invisible au repos
+  (`opacity-0 hover:opacity-70`), texte "Cliquer, ou taper « / »…", qui ouvre
+  le même sélecteur de type au clic ou à la touche "/".
+- **Sous-titre H3** : mise en page revue (1.35em/650, avant quasi identique
+  au corps) pour une hiérarchie claire body < H3 < Titre.
+- **Titre d'image éditable au clic** : le cartel sous chaque image devient
+  un `<input>` inline au clic (PATCH `/api/inspirations/[id]`), sans quitter
+  le carnet — `EditableImageTitle` dans `VisitJournal.tsx`.
+- **Image archivée visible dans le carnet** : `page.tsx` ne filtrait plus
+  que `status:"READY"` — le filtre `isArchived:false` supprimé (l'archivage
+  masque de la bibliothèque de travail, pas du carnet de visite).
+- Vérifié en navigateur réel via compte de test jetable (voir mémoire agent
+  pour la technique) : les 6 points testés de bout en bout, compte supprimé
+  après coup.
 
 ### Phase 3 — Refonte UI/UX de l'existant
 - Hiérarchie typographique de la grille d'archives (/visites) ; menus

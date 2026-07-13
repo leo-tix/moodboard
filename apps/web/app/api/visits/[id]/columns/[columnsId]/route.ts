@@ -7,7 +7,7 @@ interface Params { params: Promise<{ id: string; columnsId: string }> }
 
 const slotSchema = z.object({
   slot: z.enum(["left", "right"]),
-  type: z.enum(["IMAGE", "TEXT", "QUOTE", "AUDIO"]).nullable(),
+  type: z.enum(["IMAGE", "TEXT", "TITLE", "QUOTE", "AUDIO"]).nullable(),
   id: z.string().nullable(),
 }).refine((v) => (v.type === null) === (v.id === null), {
   message: "type et id doivent être fournis ensemble (ou tous deux null)",
@@ -15,12 +15,14 @@ const slotSchema = z.object({
 
 // Vérifie que le bloc référencé appartient bien à cette visite avant de le
 // laisser être réclamé par une colonne.
-async function blockBelongsToVisit(visitId: string, type: "IMAGE" | "TEXT" | "QUOTE" | "AUDIO", blockId: string) {
+async function blockBelongsToVisit(visitId: string, type: "IMAGE" | "TEXT" | "TITLE" | "QUOTE" | "AUDIO", blockId: string) {
   switch (type) {
     case "IMAGE":
       return Boolean(await db.inspiration.findFirst({ where: { id: blockId, visitId }, select: { id: true } }));
     case "TEXT":
       return Boolean(await db.visitNote.findFirst({ where: { id: blockId, visitId }, select: { id: true } }));
+    case "TITLE":
+      return Boolean(await db.visitTitle.findFirst({ where: { id: blockId, visitId }, select: { id: true } }));
     case "QUOTE":
       return Boolean(await db.visitQuote.findFirst({ where: { id: blockId, visitId }, select: { id: true } }));
     case "AUDIO":

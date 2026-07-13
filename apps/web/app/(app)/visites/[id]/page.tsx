@@ -31,7 +31,10 @@ export default async function VisiteDetailPage({ params }: Props) {
     where: { id, userId: user.id },
     include: {
       inspirations: {
-        where: { status: "READY", isArchived: false },
+        // Une image archivée (masquée de la bibliothèque via le triage) reste
+        // visible dans le carnet — l'archivage est une action "bibliothèque
+        // de travail", pas un détachement de la visite.
+        where: { status: "READY" },
         select: {
           id: true,
           title: true,
@@ -47,6 +50,7 @@ export default async function VisiteDetailPage({ params }: Props) {
         },
       },
       noteBlocks: true,
+      titleBlocks: true,
       quoteBlocks: true,
       audioClips: true,
       columnBlocks: true,
@@ -55,11 +59,11 @@ export default async function VisiteDetailPage({ params }: Props) {
 
   if (!visit) notFound();
 
-  // Fusion des 5 tables de blocs dans une seule séquence de carnet façon
+  // Fusion des 6 tables de blocs dans une seule séquence de carnet façon
   // Notion (voir schema.prisma) : chaque bloc "réclamé" par une colonne
   // (referencé en leftId/rightId) est retiré de la séquence plate — il ne
   // s'affiche qu'imbriqué dans son bloc colonnes.
-  type BlockLookupKey = `${"image" | "note" | "quote" | "audio"}-${string}`;
+  type BlockLookupKey = `${"image" | "note" | "title" | "quote" | "audio"}-${string}`;
   const blocks = new Map<BlockLookupKey, JournalBlock>();
   visit.inspirations.forEach((i) => {
     blocks.set(`image-${i.id}`, {
@@ -74,12 +78,13 @@ export default async function VisiteDetailPage({ params }: Props) {
     });
   });
   visit.noteBlocks.forEach((n) => blocks.set(`note-${n.id}`, { type: "note", id: n.id, content: n.content }));
+  visit.titleBlocks.forEach((t) => blocks.set(`title-${t.id}`, { type: "title", id: t.id, content: t.content }));
   visit.quoteBlocks.forEach((q) => blocks.set(`quote-${q.id}`, { type: "quote", id: q.id, content: q.content }));
   visit.audioClips.forEach((a) =>
     blocks.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript }),
   );
 
-  const REF_TO_KEY: Record<string, "image" | "note" | "quote" | "audio"> = { IMAGE: "image", TEXT: "note", QUOTE: "quote", AUDIO: "audio" };
+  const REF_TO_KEY: Record<string, "image" | "note" | "title" | "quote" | "audio"> = { IMAGE: "image", TEXT: "note", TITLE: "title", QUOTE: "quote", AUDIO: "audio" };
   const claimed = new Set<BlockLookupKey>();
   visit.columnBlocks.forEach((c) => {
     if (c.leftType && c.leftId) claimed.add(`${REF_TO_KEY[c.leftType]}-${c.leftId}`);
@@ -92,6 +97,9 @@ export default async function VisiteDetailPage({ params }: Props) {
   });
   visit.noteBlocks.forEach((n) => {
     if (!claimed.has(`note-${n.id}`)) merged.push({ item: blocks.get(`note-${n.id}`)!, order: n.order, createdAt: n.createdAt });
+  });
+  visit.titleBlocks.forEach((t) => {
+    if (!claimed.has(`title-${t.id}`)) merged.push({ item: blocks.get(`title-${t.id}`)!, order: t.order, createdAt: t.createdAt });
   });
   visit.quoteBlocks.forEach((q) => {
     if (!claimed.has(`quote-${q.id}`)) merged.push({ item: blocks.get(`quote-${q.id}`)!, order: q.order, createdAt: q.createdAt });

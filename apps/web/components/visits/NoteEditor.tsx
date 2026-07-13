@@ -9,18 +9,18 @@ import { SlashCommand } from "./tiptap/SlashCommand";
 
 // ── Bloc de texte pur du carnet façon Notion ────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
-// VisitNote.content. StarterKit couvre : titres (H2/H3), gras/italique,
-// listes. Un bloc texte ne contient plus d'image/audio/citation intégrés
-// (2026-07-13, refonte "blocs purs") — ces contenus sont désormais des blocs
-// autonomes du carnet (voir VisitJournal), composables côte à côte via le
-// bloc "2 colonnes". La toolbar fantôme (BubbleMenu au surlignage) et la
-// commande "/" (SlashCommand) couvrent le formatage inline et les blocs de
-// texte (titre/sous-titre/paragraphe/listes) — plus de citation ni
-// d'image/audio dans ce menu, devenus des types de blocs à part entière.
+// VisitNote.content. StarterKit couvre : sous-titre (H3), gras/italique,
+// listes. Le Titre (H2) est un bloc autonome (VisitTitle, voir
+// TitleEditor.tsx) depuis le 2026-07-13 — un bloc texte ne contient plus de
+// titre/image/audio/citation intégrés. La toolbar fantôme (BubbleMenu au
+// surlignage) et la commande "/" (SlashCommand) couvrent le formatage inline
+// et les blocs de texte (sous-titre/paragraphe/listes) — plus de titre, de
+// citation ni d'image/audio dans ce menu, devenus des types de blocs à part
+// entière du carnet (voir VisitJournal).
 
 const BASE_EXTENSIONS = [
   StarterKit.configure({
-    heading: { levels: [2, 3] },
+    heading: { levels: [3] },
     // Hors périmètre d'un bloc texte pur : pas de bloc de code / règle
     // horizontale / citation (la citation est son propre type de bloc,
     // VisitQuote — voir QuoteEditor.tsx).
@@ -177,7 +177,7 @@ function BubbleButtons({ editor }: { editor: NonNullable<ReturnType<typeof useEd
   const buttons: { label: string; title: string; active: boolean; onClick: () => void }[] = [
     { label: "B", title: "Gras", active: editor.isActive("bold"), onClick: () => editor.chain().focus().toggleBold().run() },
     { label: "I", title: "Italique", active: editor.isActive("italic"), onClick: () => editor.chain().focus().toggleItalic().run() },
-    { label: "H2", title: "Titre", active: editor.isActive("heading", { level: 2 }), onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+    { label: "H3", title: "Sous-titre", active: editor.isActive("heading", { level: 3 }), onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },
     { label: "•", title: "Liste à puces", active: editor.isActive("bulletList"), onClick: () => editor.chain().focus().toggleBulletList().run() },
     { label: "1.", title: "Liste numérotée", active: editor.isActive("orderedList"), onClick: () => editor.chain().focus().toggleOrderedList().run() },
   ];

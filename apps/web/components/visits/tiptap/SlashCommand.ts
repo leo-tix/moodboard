@@ -2,12 +2,12 @@ import { Extension, type Editor, type Range } from "@tiptap/core";
 import Suggestion, { type SuggestionProps, type SuggestionKeyDownProps } from "@tiptap/suggestion";
 
 // Commande "/" façon Notion : taper "/" dans un bloc texte ouvre un menu de
-// types de texte (titres, listes) filtrable au clavier. Popup en DOM direct
-// (positionnée sur le caret via `clientRect`), sans dépendance de
+// types de texte (sous-titre, listes) filtrable au clavier. Popup en DOM
+// direct (positionnée sur le caret via `clientRect`), sans dépendance de
 // positionnement — le menu est petit et ancré à un point fixe, pas besoin de
-// floating-ui ici. Depuis la refonte "blocs purs" (2026-07-13), citation,
-// image et audio ne sont plus insérables DANS un bloc texte : ce sont des
-// types de blocs à part entière, ajoutés depuis le menu du carnet
+// floating-ui ici. Depuis la refonte "blocs purs" (2026-07-13), Titre,
+// citation, image et audio ne sont plus insérables DANS un bloc texte : ce
+// sont des types de blocs à part entière, ajoutés depuis le menu du carnet
 // (VisitJournal), jamais depuis ce "/".
 
 export interface SlashItem {
@@ -18,7 +18,6 @@ export interface SlashItem {
 }
 
 const ITEMS: SlashItem[] = [
-  { title: "Titre", hint: "Grand titre de section", icon: "H2", run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 2 }).run() },
   { title: "Sous-titre", hint: "Titre secondaire", icon: "H3", run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 3 }).run() },
   { title: "Texte", hint: "Paragraphe simple", icon: "¶", run: (e, r) => e.chain().focus().deleteRange(r).setParagraph().run() },
   { title: "Liste à puces", hint: "Liste non ordonnée", icon: "•", run: (e, r) => e.chain().focus().deleteRange(r).toggleBulletList().run() },

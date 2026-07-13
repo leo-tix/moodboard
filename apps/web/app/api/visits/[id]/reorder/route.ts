@@ -8,7 +8,7 @@ interface Params { params: Promise<{ id: string }> }
 const reorderSchema = z.object({
   items: z.array(
     z.object({
-      type: z.enum(["image", "note", "quote", "audio", "columns"]),
+      type: z.enum(["image", "note", "title", "quote", "audio", "columns"]),
       id: z.string(),
       order: z.number().int(),
     }),
@@ -16,8 +16,8 @@ const reorderSchema = z.object({
 });
 
 // POST /api/visits/[id]/reorder — persiste l'ordre du carnet en une transaction.
-// Les 5 types de blocs (image/note/citation/audio/colonnes) partagent le même
-// espace de tri séquentiel — seule l'image utilise `visitOrder`, les autres `order`.
+// Les 6 types de blocs (image/note/titre/citation/audio/colonnes) partagent le
+// même espace de tri séquentiel — seule l'image utilise `visitOrder`, les autres `order`.
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -42,6 +42,9 @@ export async function POST(req: NextRequest, { params }: Params) {
       }
       if (item.type === "note") {
         return db.visitNote.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
+      }
+      if (item.type === "title") {
+        return db.visitTitle.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
       }
       if (item.type === "quote") {
         return db.visitQuote.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });

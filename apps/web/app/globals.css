@@ -34,6 +34,7 @@
   --color-foreground: var(--text-primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-serif);
 }
 
 /* ============================================================
@@ -130,29 +131,20 @@ body {
 .note-prose p:last-child {
   margin-bottom: 0;
 }
-.note-prose h2,
+/* Sous-titre — seul niveau de titre restant DANS un bloc texte (le Titre H2
+   est un bloc autonome, voir TitleEditor.tsx) : nettement plus marqué que le
+   corps mais sans rivaliser avec un vrai Titre, esprit intertitre éditorial
+   (sans-serif, dense, resserré). */
 .note-prose h3 {
   color: var(--text-primary);
-  line-height: 1.2;
+  font-size: 1.35em;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
   margin: 0.6em 0 0.3em;
 }
-.note-prose h2:first-child,
 .note-prose h3:first-child {
   margin-top: 0;
-}
-/* Titre — nettement différencié du corps de texte : grand serif arrondi
-   (Fraunces, axe SOFT) plutôt qu'une simple variation de graisse de la
-   sans-serif courante. Esprit cartel de musée / éditorial. */
-.note-prose h2 {
-  font-family: var(--font-serif);
-  font-size: 2.1em;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-}
-.note-prose h3 {
-  font-size: 1.05em;
-  font-weight: 700;
 }
 .note-prose strong {
   color: var(--text-primary);
