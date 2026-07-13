@@ -1202,7 +1202,11 @@ function ColumnSlot({
       </button>
       {block.type === "image" && (
         <div
-          className="rounded-lg overflow-hidden bg-[var(--bg-surface)]"
+          // Plafond de hauteur : sans lui, une image portrait (aspect-ratio
+          // très petit) s'étire sur toute la largeur de la colonne et peut
+          // devenir bien plus haute que le contenu de l'autre slot (texte,
+          // citation…) — object-cover recadre proprement au-delà.
+          className="rounded-lg overflow-hidden bg-[var(--bg-surface)] max-h-80"
           style={{ aspectRatio: block.width && block.height ? block.width / block.height : 1 }}
         >
           {block.thumbnailKey && (
