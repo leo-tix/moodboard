@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -10,6 +10,16 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Serif arrondi pour les titres du carnet (H2 du bloc texte) — Fraunces a des
+// terminaisons douces/arrondies (variable "soft"), très différenciée de la
+// sans-serif du reste de l'UI, esprit éditorial/musée.
+const fraunces = Fraunces({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  axes: ["SOFT"],
+  style: ["normal", "italic"],
 });
 
 export const viewport: Viewport = {
@@ -35,7 +45,7 @@ export default function RootLayout({
   return (
     <html
       lang="fr"
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable}`}
       suppressHydrationWarning
     >
       <head>

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
-import { VisitJournal, type JournalItem } from "@/components/visits/VisitJournal";
+import { VisitJournal, type JournalItem, type JournalBlock } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
@@ -47,35 +47,66 @@ export default async function VisiteDetailPage({ params }: Props) {
         },
       },
       noteBlocks: true,
+      quoteBlocks: true,
+      audioClips: true,
+      columnBlocks: true,
     },
   });
 
   if (!visit) notFound();
 
-  // Fusion images + notes dans une seule séquence de carnet.
-  // Tri : ordre explicite, puis createdAt pour départager (images ajoutées
-  // en lot partagent le même visitOrder → ordre chrono naturel).
-  const merged: { item: JournalItem; order: number; createdAt: Date }[] = [
-    ...visit.inspirations.map((i) => ({
-      item: {
-        type: "image" as const,
-        id: i.id,
-        title: i.title,
-        author: i.author,
-        year: i.year,
-        thumbnailKey: i.images[0]?.thumbnailKey ?? null,
-        width: i.images[0]?.width ?? null,
-        height: i.images[0]?.height ?? null,
-      },
-      order: i.visitOrder,
-      createdAt: i.createdAt,
-    })),
-    ...visit.noteBlocks.map((n) => ({
-      item: { type: "note" as const, id: n.id, content: n.content },
-      order: n.order,
-      createdAt: n.createdAt,
-    })),
-  ];
+  // Fusion des 5 tables de blocs dans une seule séquence de carnet façon
+  // Notion (voir schema.prisma) : chaque bloc "réclamé" par une colonne
+  // (referencé en leftId/rightId) est retiré de la séquence plate — il ne
+  // s'affiche qu'imbriqué dans son bloc colonnes.
+  type BlockLookupKey = `${"image" | "note" | "quote" | "audio"}-${string}`;
+  const blocks = new Map<BlockLookupKey, JournalBlock>();
+  visit.inspirations.forEach((i) => {
+    blocks.set(`image-${i.id}`, {
+      type: "image",
+      id: i.id,
+      title: i.title,
+      author: i.author,
+      year: i.year,
+      thumbnailKey: i.images[0]?.thumbnailKey ?? null,
+      width: i.images[0]?.width ?? null,
+      height: i.images[0]?.height ?? null,
+    });
+  });
+  visit.noteBlocks.forEach((n) => blocks.set(`note-${n.id}`, { type: "note", id: n.id, content: n.content }));
+  visit.quoteBlocks.forEach((q) => blocks.set(`quote-${q.id}`, { type: "quote", id: q.id, content: q.content }));
+  visit.audioClips.forEach((a) =>
+    blocks.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript }),
+  );
+
+  const REF_TO_KEY: Record<string, "image" | "note" | "quote" | "audio"> = { IMAGE: "image", TEXT: "note", QUOTE: "quote", AUDIO: "audio" };
+  const claimed = new Set<BlockLookupKey>();
+  visit.columnBlocks.forEach((c) => {
+    if (c.leftType && c.leftId) claimed.add(`${REF_TO_KEY[c.leftType]}-${c.leftId}`);
+    if (c.rightType && c.rightId) claimed.add(`${REF_TO_KEY[c.rightType]}-${c.rightId}`);
+  });
+
+  const merged: { item: JournalItem; order: number; createdAt: Date }[] = [];
+  visit.inspirations.forEach((i) => {
+    if (!claimed.has(`image-${i.id}`)) merged.push({ item: blocks.get(`image-${i.id}`)!, order: i.visitOrder, createdAt: i.createdAt });
+  });
+  visit.noteBlocks.forEach((n) => {
+    if (!claimed.has(`note-${n.id}`)) merged.push({ item: blocks.get(`note-${n.id}`)!, order: n.order, createdAt: n.createdAt });
+  });
+  visit.quoteBlocks.forEach((q) => {
+    if (!claimed.has(`quote-${q.id}`)) merged.push({ item: blocks.get(`quote-${q.id}`)!, order: q.order, createdAt: q.createdAt });
+  });
+  visit.audioClips.forEach((a) => {
+    if (!claimed.has(`audio-${a.id}`)) merged.push({ item: blocks.get(`audio-${a.id}`)!, order: a.order, createdAt: a.createdAt });
+  });
+  visit.columnBlocks.forEach((c) => {
+    const left = c.leftType && c.leftId ? blocks.get(`${REF_TO_KEY[c.leftType]}-${c.leftId}`) ?? null : null;
+    const right = c.rightType && c.rightId ? blocks.get(`${REF_TO_KEY[c.rightType]}-${c.rightId}`) ?? null : null;
+    merged.push({ item: { type: "columns", id: c.id, left, right }, order: c.order, createdAt: c.createdAt });
+  });
+
+  // Tri : ordre explicite, puis createdAt pour départager (blocs ajoutés en
+  // lot partagent le même order → ordre chrono naturel).
   merged.sort((a, b) => a.order - b.order || a.createdAt.getTime() - b.createdAt.getTime());
   const items = merged.map((m) => m.item);
 

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { deleteAllAudioForVisit } from "@/lib/visits/audioCleanup";
+import { nextBlockOrder } from "@/lib/visits/blockOrder";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -61,11 +62,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (addInspirationIds && addInspirationIds.length > 0) {
     // Append en fin de carnet (même logique que POST /api/visits)
-    const [maxImg, maxNote] = await Promise.all([
-      db.inspiration.aggregate({ where: { visitId: id }, _max: { visitOrder: true } }),
-      db.visitNote.aggregate({ where: { visitId: id }, _max: { order: true } }),
-    ]);
-    const nextOrder = Math.max(maxImg._max.visitOrder ?? -1, maxNote._max.order ?? -1) + 1;
+    const nextOrder = await nextBlockOrder(id);
     await db.inspiration.updateMany({
       where: { id: { in: addInspirationIds }, userId },
       data: { visitId: id, visitOrder: nextOrder },
@@ -75,6 +72,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     await db.inspiration.updateMany({
       where: { id: { in: removeInspirationIds }, visitId: id, userId },
       data: { visitId: null },
+    });
+    // Une image détachée de la visite ne peut plus rester réclamée par une
+    // colonne de son carnet (sans ça la colonne pointerait vers une image
+    // qui n'appartient plus à cette visite).
+    await db.visitColumns.updateMany({
+      where: { visitId: id, leftType: "IMAGE", leftId: { in: removeInspirationIds } },
+      data: { leftType: null, leftId: null },
+    });
+    await db.visitColumns.updateMany({
+      where: { visitId: id, rightType: "IMAGE", rightId: { in: removeInspirationIds } },
+      data: { rightType: null, rightId: null },
     });
   }
 

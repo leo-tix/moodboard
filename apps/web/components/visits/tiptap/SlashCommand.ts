@@ -1,11 +1,14 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
 import Suggestion, { type SuggestionProps, type SuggestionKeyDownProps } from "@tiptap/suggestion";
 
-// Commande "/" façon Notion (Phase 2 du plan "table de montage") : taper "/"
-// dans une note ouvre un menu de blocs (titres, listes, citation, image,
-// audio) filtrable au clavier. Popup en DOM direct (positionnée sur le caret
-// via `clientRect`), sans dépendance de positionnement — le menu est petit et
-// ancré à un point fixe, pas besoin de floating-ui ici.
+// Commande "/" façon Notion : taper "/" dans un bloc texte ouvre un menu de
+// types de texte (titres, listes) filtrable au clavier. Popup en DOM direct
+// (positionnée sur le caret via `clientRect`), sans dépendance de
+// positionnement — le menu est petit et ancré à un point fixe, pas besoin de
+// floating-ui ici. Depuis la refonte "blocs purs" (2026-07-13), citation,
+// image et audio ne sont plus insérables DANS un bloc texte : ce sont des
+// types de blocs à part entière, ajoutés depuis le menu du carnet
+// (VisitJournal), jamais depuis ce "/".
 
 export interface SlashItem {
   title: string;
@@ -14,29 +17,13 @@ export interface SlashItem {
   run: (editor: Editor, range: Range) => void;
 }
 
-export interface SlashCommandOptions {
-  /** Ouvre le sélecteur d'images de la visite (popover de la toolbar). */
-  onInsertImage?: () => void;
-  /** Ouvre l'enregistreur audio (popover de la toolbar). */
-  onInsertAudio?: () => void;
-}
-
-function buildItems(opts: SlashCommandOptions): SlashItem[] {
-  return [
-    { title: "Titre", hint: "Grand titre de section", icon: "H2", run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 2 }).run() },
-    { title: "Sous-titre", hint: "Titre secondaire", icon: "H3", run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 3 }).run() },
-    { title: "Texte", hint: "Paragraphe simple", icon: "¶", run: (e, r) => e.chain().focus().deleteRange(r).setParagraph().run() },
-    { title: "Liste à puces", hint: "Liste non ordonnée", icon: "•", run: (e, r) => e.chain().focus().deleteRange(r).toggleBulletList().run() },
-    { title: "Liste numérotée", hint: "Liste ordonnée", icon: "1.", run: (e, r) => e.chain().focus().deleteRange(r).toggleOrderedList().run() },
-    { title: "Citation", hint: "Mise en avant typographique", icon: "❝", run: (e, r) => e.chain().focus().deleteRange(r).toggleBlockquote().run() },
-    ...(opts.onInsertImage
-      ? [{ title: "Image", hint: "Image de la visite, texte autour", icon: "🖼", run: (e: Editor, r: Range) => { e.chain().focus().deleteRange(r).run(); opts.onInsertImage?.(); } }]
-      : []),
-    ...(opts.onInsertAudio
-      ? [{ title: "Audio", hint: "Enregistrer un clip au micro", icon: "🎙", run: (e: Editor, r: Range) => { e.chain().focus().deleteRange(r).run(); opts.onInsertAudio?.(); } }]
-      : []),
-  ];
-}
+const ITEMS: SlashItem[] = [
+  { title: "Titre", hint: "Grand titre de section", icon: "H2", run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 2 }).run() },
+  { title: "Sous-titre", hint: "Titre secondaire", icon: "H3", run: (e, r) => e.chain().focus().deleteRange(r).setHeading({ level: 3 }).run() },
+  { title: "Texte", hint: "Paragraphe simple", icon: "¶", run: (e, r) => e.chain().focus().deleteRange(r).setParagraph().run() },
+  { title: "Liste à puces", hint: "Liste non ordonnée", icon: "•", run: (e, r) => e.chain().focus().deleteRange(r).toggleBulletList().run() },
+  { title: "Liste numérotée", hint: "Liste ordonnée", icon: "1.", run: (e, r) => e.chain().focus().deleteRange(r).toggleOrderedList().run() },
+];
 
 // ── Popup DOM ───────────────────────────────────────────────────────────────
 
@@ -132,24 +119,17 @@ class SlashMenu {
   }
 }
 
-export const SlashCommand = Extension.create<SlashCommandOptions>({
+export const SlashCommand = Extension.create({
   name: "slashCommand",
 
-  addOptions() {
-    return { onInsertImage: undefined, onInsertAudio: undefined };
-  },
-
   addProseMirrorPlugins() {
-    const options = this.options;
     return [
       Suggestion<SlashItem>({
         editor: this.editor,
         char: "/",
         startOfLine: false,
         items: ({ query }) =>
-          buildItems(options).filter((i) =>
-            i.title.toLowerCase().includes(query.toLowerCase())
-          ),
+          ITEMS.filter((i) => i.title.toLowerCase().includes(query.toLowerCase())),
         command: ({ editor, range, props }) => props.run(editor, range),
         render: () => {
           let menu: SlashMenu | null = null;

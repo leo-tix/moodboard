@@ -8,7 +8,7 @@ interface Params { params: Promise<{ id: string }> }
 const reorderSchema = z.object({
   items: z.array(
     z.object({
-      type: z.enum(["image", "note"]),
+      type: z.enum(["image", "note", "quote", "audio", "columns"]),
       id: z.string(),
       order: z.number().int(),
     }),
@@ -16,8 +16,8 @@ const reorderSchema = z.object({
 });
 
 // POST /api/visits/[id]/reorder — persiste l'ordre du carnet en une transaction.
-// Images (Inspiration.visitOrder) et notes (VisitNote.order) partagent le même
-// espace de tri séquentiel.
+// Les 5 types de blocs (image/note/citation/audio/colonnes) partagent le même
+// espace de tri séquentiel — seule l'image utilise `visitOrder`, les autres `order`.
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -36,17 +36,21 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   await db.$transaction(
-    parsed.data.items.map((item) =>
-      item.type === "image"
-        ? db.inspiration.updateMany({
-            where: { id: item.id, visitId: id },
-            data: { visitOrder: item.order },
-          })
-        : db.visitNote.updateMany({
-            where: { id: item.id, visitId: id },
-            data: { order: item.order },
-          }),
-    ),
+    parsed.data.items.map((item) => {
+      if (item.type === "image") {
+        return db.inspiration.updateMany({ where: { id: item.id, visitId: id }, data: { visitOrder: item.order } });
+      }
+      if (item.type === "note") {
+        return db.visitNote.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
+      }
+      if (item.type === "quote") {
+        return db.visitQuote.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
+      }
+      if (item.type === "audio") {
+        return db.visitAudio.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
+      }
+      return db.visitColumns.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
+    }),
   );
 
   return NextResponse.json({ ok: true });

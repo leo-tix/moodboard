@@ -133,19 +133,26 @@ body {
 .note-prose h2,
 .note-prose h3 {
   color: var(--text-primary);
-  font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
   margin: 0.6em 0 0.3em;
 }
 .note-prose h2:first-child,
 .note-prose h3:first-child {
   margin-top: 0;
 }
+/* Titre — nettement différencié du corps de texte : grand serif arrondi
+   (Fraunces, axe SOFT) plutôt qu'une simple variation de graisse de la
+   sans-serif courante. Esprit cartel de musée / éditorial. */
 .note-prose h2 {
-  font-size: 1.05em;
+  font-family: var(--font-serif);
+  font-size: 2.1em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
 }
 .note-prose h3 {
-  font-size: 0.98em;
+  font-size: 1.05em;
+  font-weight: 700;
 }
 .note-prose strong {
   color: var(--text-primary);

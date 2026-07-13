@@ -7,17 +7,11 @@ import { nextBlockOrder } from "@/lib/visits/blockOrder";
 interface Params { params: Promise<{ id: string }> }
 
 const createSchema = z.object({
-  // HTML (sortie de l'éditeur Tiptap) — plafond relevé pour absorber la
-  // verbosité des balises par rapport au texte brut d'origine. Pas de risque
-  // XSS supplémentaire : le rendu passe par le schéma ProseMirror (parser
-  // qui ne reconnaît que les nœuds de StarterKit), jamais par un
-  // dangerouslySetInnerHTML brut.
-  content: z.string().max(20000).default(""),
-  // Position dans le carnet ; si absent → fin de séquence
+  content: z.string().max(4000).default(""),
   order: z.number().int().optional(),
 });
 
-// POST /api/visits/[id]/notes — crée un bloc de note dans le carnet
+// POST /api/visits/[id]/quotes — crée un bloc citation autonome du carnet.
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -29,17 +23,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const visit = await db.visit.findFirst({
-    where: { id, userId: session.user.id },
-    select: { id: true },
-  });
+  const visit = await db.visit.findFirst({ where: { id, userId: session.user.id }, select: { id: true } });
   if (!visit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const order = parsed.data.order ?? (await nextBlockOrder(id));
-
-  const note = await db.visitNote.create({
+  const quote = await db.visitQuote.create({
     data: { visitId: id, content: parsed.data.content, order },
   });
 
-  return NextResponse.json(note, { status: 201 });
+  return NextResponse.json(quote, { status: 201 });
 }

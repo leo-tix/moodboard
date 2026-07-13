@@ -3,12 +3,13 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { checkUploadAllowed, checkAudioMimeType, QUOTA } from "@/lib/storage/quota";
+import { nextBlockOrder } from "@/lib/visits/blockOrder";
 import { randomUUID } from "crypto";
 
 interface Params { params: Promise<{ id: string }> }
 
-// POST /api/visits/[id]/audio — upload d'un clip audio enregistré depuis le
-// carnet (bloc audio Tiptap, voir components/visits/tiptap/AudioBlock.ts).
+// POST /api/visits/[id]/audio — upload d'un clip audio, bloc autonome du
+// carnet (waveform + transcription, voir components/visits/AudioPlayer.tsx).
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const durationSec = Number(formData.get("durationSec") ?? 0) || null;
+  const transcript = (formData.get("transcript") as string | null)?.trim() || null;
   if (!file) return NextResponse.json({ error: "Fichier manquant" }, { status: 400 });
 
   if (!checkAudioMimeType(file.type)) {
@@ -42,8 +44,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     await uploadToR2(storageKey, buffer, file.type.split(";")[0]);
 
+    const order = await nextBlockOrder(id);
     const audio = await db.visitAudio.create({
-      data: { visitId: id, storageKey, size: buffer.length, durationSec },
+      data: { visitId: id, storageKey, size: buffer.length, durationSec, transcript, order },
     });
 
     return NextResponse.json({
@@ -51,6 +54,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       storageKey: audio.storageKey,
       size: audio.size,
       durationSec: audio.durationSec,
+      transcript: audio.transcript,
     });
   } catch (error) {
     console.error("[VISIT AUDIO UPLOAD ERROR]", error);

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { cleanupRemovedAudio } from "@/lib/visits/audioCleanup";
 
 interface Params { params: Promise<{ id: string; noteId: string }> }
 
@@ -33,7 +32,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     where: { id: noteId },
     data: { content: parsed.data.content },
   });
-  await cleanupRemovedAudio(note.content, parsed.data.content).catch(() => {});
   return NextResponse.json(updated);
 }
 
@@ -55,6 +53,13 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   }
 
   await db.visitNote.delete({ where: { id: noteId } });
-  await cleanupRemovedAudio(note.content, "").catch(() => {});
+  await db.visitColumns.updateMany({
+    where: { visitId: id, leftType: "TEXT", leftId: noteId },
+    data: { leftType: null, leftId: null },
+  });
+  await db.visitColumns.updateMany({
+    where: { visitId: id, rightType: "TEXT", rightId: noteId },
+    data: { rightType: null, rightId: null },
+  });
   return NextResponse.json({ ok: true });
 }

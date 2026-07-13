@@ -110,13 +110,12 @@ albums partagés** (collaboratif, export/partage public), **Notion**
   stylisé ajouté via Tiptap/ProseMirror (choix tranché par l'utilisateur
   face à l'alternative "blocs custom") — titres H2/H3, gras, italique,
   listes à puces/numérotées.
-- **✅ Blocs modulaires supplémentaires dans les notes (2026-07-10)** :
+- **Blocs modulaires supplémentaires dans les notes (2026-07-10)** :
   **image inline** avec wrap texte façon magazine (node Tiptap
-  `InlineImage`, pioche parmi les images déjà attachées à la visite) et
-  **bloc audio** (enregistrement micro `MediaRecorder` → upload R2 → lecteur
-  inline, nouveau modèle `VisitAudio` compté dans le quota de stockage par
-  profil). Dessin à main levée inline toujours reporté (regroupé avec une
-  future itération). Détails → mémoire agent.
+  `InlineImage`) et **bloc audio** intégré au texte. **Remplacé par la
+  refonte "blocs purs" du 2026-07-13 ci-dessous** (image/audio ne
+  s'intègrent plus DANS un bloc texte, ce sont des blocs autonomes).
+  Dessin à main levée inline toujours reporté.
 - **✅ Couverture de visite personnalisable (2026-07-10)** : bandeau
   carrousel plein-large en tête de `/visites/[id]` (`VisitCoverCarousel.tsx`),
   façon Apple Journal — remplace le header statique, scroll-snap + points de
@@ -174,16 +173,47 @@ montage modulaire (Notion)**. Statut de chaque item vs l'existant :
   `Inspiration.title/author/year`.
 - **Bloc "Moodboard"** (grille d'images pleine largeur) — SEUL restant de
   la phase, pas commencé.
-- **✅ Bloc "Citation"** : blockquote réactivé + style (bordure accent,
-  italique), accessible via "/" et bubble menu.
+- **✅ Bloc "Citation"** : d'abord un blockquote intégré au texte (2026-07-13
+  matin), **promu bloc autonome `VisitQuote`** l'après-midi même (voir
+  refonte "blocs purs" ci-dessous).
 - **✅ Toolbar fantôme + commande `/`** : la toolbar statique a disparu —
-  bubble menu au surlignage (B/I/H2/❝/listes, `@tiptap/react/menus`) et
+  bubble menu au surlignage (B/I/H2/listes, `@tiptap/react/menus`) et
   menu "/" (extension custom `SlashCommand` sur `@tiptap/suggestion`,
   popup DOM sans dépendance, filtrable, navigation clavier) pour insérer
-  titres/listes/citation/image/audio.
+  titres/listes dans un bloc texte.
 - **✅ Auto-save continu + indicateur ●/✓** : save debouncé 800ms pendant
   la frappe via un chemin `persistNote` qui ne ferme pas l'éditeur et ne
   supprime jamais (le vide→suppression reste au blur).
+
+### Phase 2C — Refonte "blocs purs" façon Notion (✅ 2026-07-13)
+Retour utilisateur sur Phase 2 : les images/audio intégrés DANS un bloc
+texte "ne servent à rien car on ne peut pas les déplacer" (hors du système
+de réordonnancement `useSortableGrid`, qui n'opère qu'au niveau des blocs
+top-level). Parti pris tranché : **chaque bloc du carnet est pur, un seul
+type** (Notion-like) — plus de composition à l'intérieur d'un bloc.
+- **Schéma additif** : nouvelles tables `VisitQuote`, `VisitColumns`
+  (`leftType/leftId`, `rightType/rightId` — référence polymorphe non
+  typable en Prisma, résolue au niveau applicatif) ; `VisitAudio` promu
+  bloc top-level (+`transcript`, `+order`, avant : uniquement référencé
+  depuis le HTML d'une note). Migration one-off (dry-run puis `--write`)
+  extrait les clips audio + transcripts déjà embarqués dans d'anciennes
+  notes vers des lignes `VisitAudio` autonomes, et nettoie le HTML.
+- **`InlineImage` et `AudioBlock`** (nodes Tiptap) supprimés — l'image et
+  l'audio ne sont plus insérables dans un bloc texte, uniquement comme
+  blocs autonomes depuis le menu "+ Bloc" du carnet. `blockquote` retiré
+  du schéma Tiptap (StarterKit `blockquote: false`).
+- **Bloc "2 colonnes"** (`VisitColumns`) : place deux blocs purs côte à
+  côte (texte/citation/image/audio, pas de colonnes imbriquées). Un bloc
+  "réclamé" par une colonne est exclu de la séquence plate du carnet
+  (calculé côté serveur dans `page.tsx`, pas contraint en base). Retirer un
+  bloc d'un slot ("✕") le déréclame sans le supprimer — il redevient
+  autonome dans le carnet.
+- **H2 du bloc texte** : police serif arrondie dédiée (Fraunces, axe
+  variable `SOFT`, `next/font/google`) à ~2.1em, nettement différenciée du
+  corps de texte (avant : 1.05em, quasi invisible).
+- Mémo vocal FAB : crée directement un bloc `VisitAudio` autonome (POST
+  `/api/visits/[id]/audio` avec `transcript` en champ natif) au lieu de
+  construire une note wrapper avec HTML embarqué.
 
 ### Phase 3 — Refonte UI/UX de l'existant
 - Hiérarchie typographique de la grille d'archives (/visites) ; menus

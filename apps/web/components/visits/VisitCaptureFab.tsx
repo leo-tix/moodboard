@@ -291,27 +291,14 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
       const fd = new FormData();
       fd.append("file", blob, `memo.${ext}`);
       fd.append("durationSec", String(durationSec));
+      if (transcript.trim()) fd.append("transcript", transcript.trim());
+      // Le mémo devient directement un bloc Audio autonome du carnet (refonte
+      // "blocs purs" 2026-07-13) — plus de note wrapper, la transcription est
+      // un champ natif de VisitAudio.
       const res = await fetch(`/api/visits/${visitId}/audio`, { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Échec de l'envoi du mémo");
-        setMemo({ step: "preview", blob, durationSec });
-        return;
-      }
-      // Le mémo devient une note du carnet : bloc audio + transcript en
-      // paragraphe (même sérialisation que le node Tiptap AudioBlock).
-      const esc = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-      const html =
-        `<div data-type="audio-block" audioid="${esc(data.id)}" storagekey="${esc(data.storageKey)}" durationsec="${data.durationSec ?? durationSec}"></div>` +
-        (transcript.trim() ? `<p>${esc(transcript.trim())}</p>` : "");
-      const noteRes = await fetch(`/api/visits/${visitId}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: html }),
-      });
-      if (!noteRes.ok) {
-        setError("Mémo envoyé mais la note n'a pas pu être créée.");
         setMemo({ step: "preview", blob, durationSec });
         return;
       }

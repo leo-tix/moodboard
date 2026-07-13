@@ -214,14 +214,36 @@ model Visit {
   inspirations Inspiration[]
   noteBlocks   VisitNote[]
   audioClips   VisitAudio[]
+  quoteBlocks  VisitQuote[]
+  columnBlocks VisitColumns[]
 
   @@index([visitDate])
   @@index([userId])
   @@map("visits")
 }
 
-// Enregistrement audio inséré dans une note du carnet (bloc Tiptap `audio`).
-// Modèle dédié (plutôt qu'une clé R2 brute dans le HTML) pour pouvoir compter
+// ── Carnet façon Notion (2026-07-13) ────────────────────────────────────────
+// Chaque type de bloc reste dans sa propre table (image = Inspiration, texte
+// = VisitNote, citation = VisitQuote, audio = VisitAudio) — PAS de table
+// polymorphique unique. `order` partage le même espace de tri sur les 4
+// tables au sein d'une visite (place dans la séquence du carnet).
+// Chaque bloc est PUR : un bloc texte ne contient plus d'image/audio/citation
+// intégrés (contrainte produit explicite — "on prend le parti pris de
+// Notion"). `VisitColumns` compose deux blocs existants côte à côte en
+// référençant leur (type, id) — un bloc "réclamé" par une colonne (son id
+// apparaît en leftId/rightId) est exclu de la séquence plate au niveau
+// applicatif, pas contraint en base (pas de FK typée possible sur un id
+// polymorphique en Prisma).
+
+enum VisitBlockRef {
+  IMAGE
+  TEXT
+  QUOTE
+  AUDIO
+}
+
+// Enregistrement audio — bloc autonome du carnet (waveform + lecture ±15s +
+// transcription). Modèle dédié (plutôt qu'une clé R2 brute) pour compter
 // l'audio dans le quota de stockage par profil et nettoyer R2 proprement.
 model VisitAudio {
   id          String   @id @default(cuid())
@@ -230,14 +252,19 @@ model VisitAudio {
   storageKey  String
   size        Int
   durationSec Int?
+  // Transcription (live Web Speech ou Whisper local à la demande) — éditable,
+  // vide si non transcrit. Bloc autonome depuis le 2026-07-13 (avant : notes
+  // avec bloc audio + paragraphe transcript intégrés).
+  transcript  String?
+  order       Int      @default(0)
   createdAt   DateTime @default(now())
 
   @@index([visitId])
   @@map("visit_audio")
 }
 
-// Bloc de note inséré dans le flux d'images d'une visite (carnet).
-// `order` partage le même espace de tri que Inspiration.visitOrder.
+// Bloc de texte pur du carnet (titres H2/H3, gras/italique, listes — plus de
+// citation/image/audio intégrés, voir note ci-dessus).
 model VisitNote {
   id        String   @id @default(cuid())
   visitId   String
@@ -249,6 +276,38 @@ model VisitNote {
 
   @@index([visitId])
   @@map("visit_notes")
+}
+
+// Bloc citation — mise en avant typographique, séparé du texte courant.
+model VisitQuote {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  content   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_quotes")
+}
+
+// Bloc "2 colonnes" — compose deux blocs existants côte à côte (texte/image/
+// citation/audio, pas de colonnes imbriquées). Slot vide = null.
+model VisitColumns {
+  id        String         @id @default(cuid())
+  visitId   String
+  visit     Visit          @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  leftType  VisitBlockRef?
+  leftId    String?
+  rightType VisitBlockRef?
+  rightId   String?
+  order     Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([visitId])
+  @@map("visit_columns")
 }
 
 enum MediaType {
