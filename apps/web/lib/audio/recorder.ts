@@ -19,6 +19,34 @@ export function pickSupportedAudioMimeType(): string | undefined {
   return MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t));
 }
 
+// Débit cible du MediaRecorder — voix, pas musique, mais sans ce réglage
+// EXPLICITE certains navigateurs (Chrome/Android en tête) retombent sur un
+// débit Opus par défaut très bas (profil VOIP basse bande passante), d'où
+// un rendu nettement moins bon que sur Safari/iOS où l'encodeur AAC par
+// défaut est déjà généreux. 128 kbps mono est large pour de la voix et reste
+// très en dessous du plafond serveur (15 Mo/clip, voir QUOTA.MAX_AUDIO_SIZE_BYTES).
+export const AUDIO_BITRATE = 128_000;
+
+// Contraintes micro explicites — sans elles, certains Android/Chrome
+// capturent à un sample rate bas (optimisé télécom, pas qualité d'enregistrement).
+// On VISE 48 kHz (le natif d'Opus) tout en gardant l'annulation d'écho/bruit
+// (utile en contexte musée/extérieur, pas juste pour la clarté vocale).
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: { ideal: 1 },
+  sampleRate: { ideal: 48000 },
+};
+
+/** Crée un MediaRecorder avec un débit explicite (voir AUDIO_BITRATE) — évite
+ *  le double réglage dupliqué entre les différents points d'enregistrement. */
+export function createAudioRecorder(stream: MediaStream, mimeType?: string): MediaRecorder {
+  const options: MediaRecorderOptions = { audioBitsPerSecond: AUDIO_BITRATE };
+  if (mimeType) options.mimeType = mimeType;
+  return new MediaRecorder(stream, options);
+}
+
 /**
  * Demande l'accès micro avec des messages d'erreur exploitables en UI.
  * Retourne soit le stream, soit un message d'erreur français prêt à afficher.
@@ -30,7 +58,7 @@ export async function requestMicrophone(): Promise<
     return { ok: false, error: "Micro non disponible — HTTPS (ou localhost) requis pour enregistrer." };
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
     return { ok: true, stream };
   } catch (err) {
     const name = err instanceof DOMException ? err.name : "";

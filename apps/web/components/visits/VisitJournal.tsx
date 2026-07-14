@@ -13,7 +13,7 @@ import { NoteEditor } from "@/components/visits/NoteEditor";
 import { AudioPlayer } from "@/components/visits/AudioPlayer";
 import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { TitleEditor } from "@/components/visits/TitleEditor";
-import { AudioRecorderInline, type CreatedAudioBlock } from "@/components/visits/AudioRecorderInline";
+import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -192,6 +192,18 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [insertMenu, setInsertMenu] = useState<{ afterIdx: number | null } | null>(null);
+  // Popup UNIQUE de prise de note audio (waveform + transcription en direct),
+  // partagée par tous les points d'entrée du carnet (menu "+", "⋯ Insérer
+  // après", pile de colonne) — demande utilisateur 2026-07-14 : plus de
+  // popover basique séparé selon d'où on ajoute l'audio. `onCreated` est
+  // lié dynamiquement à l'appelant courant (insertion top-level à un index
+  // donné, ou remplissage d'une pile de colonne précise).
+  const [voiceMemoTarget, setVoiceMemoTarget] = useState<{ onCreated: (a: CreatedAudioBlock) => void } | null>(null);
+  const requestVoiceMemo = (onCreated: (a: CreatedAudioBlock) => void) => {
+    setMenuIdx(null);
+    setInsertMenu(null);
+    setVoiceMemoTarget({ onCreated });
+  };
   const menuRef = useRef<HTMLDivElement>(null);
   const insertMenuRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef(items);
@@ -708,6 +720,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onSaveImageTitle={saveImageTitle}
             onCreateBlock={(type) => createBlock(idx, type)}
             onCreateAudio={(created) => insertAudioBlock(idx, created)}
+            onRequestAudio={requestVoiceMemo}
             onMoveWithinColumn={moveWithinColumn}
             onSwitchColumnSides={switchColumnSides}
             onUnclaimBlock={unclaimBlock}
@@ -718,7 +731,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             isDragging={sortable.draggingKey === keyOf(item)}
             dropHoverKey={dropHoverKey}
             visitImages={visitImages}
-            visitId={visitId}
           />
         ))}
       </div>
@@ -773,10 +785,26 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           // tombait sous le FAB / hors écran et le choix du type était
           // inatteignable. Desktop : vers le bas comme avant.
           <div ref={insertMenuRef} className="absolute left-4 z-50 bottom-full mb-1 md:bottom-auto md:top-full md:mt-1">
-            <InsertTypeMenu visitId={visitId} onCreateBlock={(type) => createBlock(null, type)} onCreateAudio={(a) => insertAudioBlock(null, a)} onCreateEmbed={(kind, url) => createEmbed(null, kind, url)} />
+            <InsertTypeMenu
+              onCreateBlock={(type) => createBlock(null, type)}
+              onCreateAudio={(a) => insertAudioBlock(null, a)}
+              onCreateEmbed={(kind, url) => createEmbed(null, kind, url)}
+              onRequestAudio={requestVoiceMemo}
+            />
           </div>
         )}
       </div>
+
+      {/* Popup UNIQUE de prise de note audio — voir requestVoiceMemo ci-dessus */}
+      <VoiceMemoRecorder
+        visitId={visitId}
+        open={voiceMemoTarget !== null}
+        onClose={() => setVoiceMemoTarget(null)}
+        onCreated={(audio) => {
+          voiceMemoTarget?.onCreated(audio);
+          setVoiceMemoTarget(null);
+        }}
+      />
     </div>
   );
 }
@@ -786,21 +814,18 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
 // de chaque item, et les piles de colonnes.
 
 function InsertTypeMenu({
-  visitId,
   onCreateBlock,
   onCreateAudio,
   onCreateEmbed,
+  onRequestAudio,
 }: {
-  visitId: string;
   onCreateBlock: (type: "note" | "title" | "quote" | "columns") => void;
   onCreateAudio: (created: CreatedAudioBlock) => void;
   onCreateEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
+  /** Ouvre LA popup audio partagée (waveform), liée à `onCreateAudio`. */
+  onRequestAudio: (onCreated: (a: CreatedAudioBlock) => void) => void;
 }) {
-  const [mode, setMode] = useState<"menu" | "recording" | "LINK" | "YOUTUBE">("menu");
-
-  if (mode === "recording") {
-    return <AudioRecorderInline visitId={visitId} onClose={() => setMode("menu")} onCreated={onCreateAudio} />;
-  }
+  const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE">("menu");
 
   if (mode === "LINK" || mode === "YOUTUBE") {
     return <EmbedUrlInput kind={mode} onCancel={() => setMode("menu")} onSubmit={(url) => onCreateEmbed(mode, url)} />;
@@ -820,7 +845,7 @@ function InsertTypeMenu({
       <button onClick={() => onCreateBlock("quote")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
         <Quote size={14} strokeWidth={1.75} /> Citation
       </button>
-      <button onClick={() => setMode("recording")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+      <button onClick={() => onRequestAudio(onCreateAudio)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
         <Mic size={14} strokeWidth={1.75} /> Audio
       </button>
       <button onClick={() => setMode("LINK")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
@@ -955,6 +980,7 @@ function JournalItemBlock({
   onSaveImageTitle,
   onCreateBlock,
   onCreateAudio,
+  onRequestAudio,
   onMoveWithinColumn,
   onSwitchColumnSides,
   onUnclaimBlock,
@@ -965,7 +991,6 @@ function JournalItemBlock({
   isDragging,
   dropHoverKey,
   visitImages,
-  visitId,
 }: {
   item: JournalItem;
   idx: number;
@@ -994,6 +1019,7 @@ function JournalItemBlock({
   onSaveImageTitle: (id: string, title: string) => void;
   onCreateBlock: (type: "note" | "title" | "quote" | "columns") => void;
   onCreateAudio: (created: CreatedAudioBlock) => void;
+  onRequestAudio: (onCreated: (a: CreatedAudioBlock) => void) => void;
   onMoveWithinColumn: (columnsId: string, side: "left" | "right", from: number, to: number) => void;
   onSwitchColumnSides: (columnsId: string) => void;
   onUnclaimBlock: (columnsId: string, side: "left" | "right", block: JournalBlock) => void;
@@ -1004,7 +1030,6 @@ function JournalItemBlock({
   isDragging: boolean;
   dropHoverKey: string | null;
   visitImages: JournalImage[];
-  visitId: string;
 }) {
   const sortableKey = keyOf(item);
   const isVisualBlock = item.type === "image" || item.type === "audio" || item.type === "columns" || item.type === "embed";
@@ -1086,7 +1111,7 @@ function JournalItemBlock({
       )}
       {insertMenuOpen && (
         <div className="absolute right-0 top-full mt-1 z-50" onClick={(e) => e.stopPropagation()}>
-          <InsertTypeMenu visitId={visitId} onCreateBlock={onCreateBlock} onCreateAudio={onCreateAudio} onCreateEmbed={onCreateEmbed} />
+          <InsertTypeMenu onCreateBlock={onCreateBlock} onCreateAudio={onCreateAudio} onCreateEmbed={onCreateEmbed} onRequestAudio={onRequestAudio} />
         </div>
       )}
     </div>
@@ -1181,7 +1206,6 @@ function JournalItemBlock({
       <motion.div layout {...dragBindings} className="col-span-full relative group py-1">
         <div className="grid grid-cols-2 gap-3">
           <ColumnStack
-            visitId={visitId}
             columnsId={item.id}
             side="left"
             blocks={item.left}
@@ -1201,11 +1225,11 @@ function JournalItemBlock({
             onFillWithImage={(img) => onFillWithImage(item.id, "left", img)}
             onFillWithNew={(type) => onFillWithNew(item.id, "left", type)}
             onFillWithAudio={(a) => onFillWithAudio(item.id, "left", a)}
+            onRequestAudio={onRequestAudio}
             dropHoverKey={dropHoverKey}
             sortable={sortable}
           />
           <ColumnStack
-            visitId={visitId}
             columnsId={item.id}
             side="right"
             blocks={item.right}
@@ -1225,6 +1249,7 @@ function JournalItemBlock({
             onFillWithImage={(img) => onFillWithImage(item.id, "right", img)}
             onFillWithNew={(type) => onFillWithNew(item.id, "right", type)}
             onFillWithAudio={(a) => onFillWithAudio(item.id, "right", a)}
+            onRequestAudio={onRequestAudio}
             dropHoverKey={dropHoverKey}
             sortable={sortable}
           />
@@ -1470,7 +1495,6 @@ function AudioBlockContent({
 // vide) pour rester une cible de drag valide.
 
 function ColumnStack({
-  visitId,
   columnsId,
   side,
   blocks,
@@ -1490,10 +1514,10 @@ function ColumnStack({
   onFillWithImage,
   onFillWithNew,
   onFillWithAudio,
+  onRequestAudio,
   dropHoverKey,
   sortable,
 }: {
-  visitId: string;
   columnsId: string;
   side: "left" | "right";
   blocks: JournalBlock[];
@@ -1513,10 +1537,11 @@ function ColumnStack({
   onFillWithImage: (image: JournalImage) => void;
   onFillWithNew: (type: "note" | "title" | "quote") => void;
   onFillWithAudio: (created: CreatedAudioBlock) => void;
+  onRequestAudio: (onCreated: (a: CreatedAudioBlock) => void) => void;
   dropHoverKey: string | null;
   sortable: SortableGrid;
 }) {
-  const [picker, setPicker] = useState<"closed" | "menu" | "image" | "audio">("closed");
+  const [picker, setPicker] = useState<"closed" | "menu" | "image">("closed");
   const dropKey = `columns:${columnsId}:${side}`;
   const isDropHover = dropHoverKey === dropKey;
 
@@ -1545,7 +1570,7 @@ function ColumnStack({
           <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Pilcrow size={13} strokeWidth={1.75} /> Texte</button>
           <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Quote size={13} strokeWidth={1.75} /> Citation</button>
           <button onClick={() => setPicker("image")} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><ImageIcon size={13} strokeWidth={1.75} /> Image</button>
-          <button onClick={() => setPicker("audio")} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Mic size={13} strokeWidth={1.75} /> Audio</button>
+          <button onClick={() => { onRequestAudio(onFillWithAudio); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Mic size={13} strokeWidth={1.75} /> Audio</button>
           <button onClick={() => setPicker("closed")} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] mt-0.5">Annuler</button>
         </div>
       )}
@@ -1578,15 +1603,6 @@ function ColumnStack({
               ))}
             </div>
           )}
-        </div>
-      )}
-      {picker === "audio" && (
-        <div className="absolute left-1/2 -translate-x-1/2 top-0 z-20">
-          <AudioRecorderInline
-            visitId={visitId}
-            onClose={() => setPicker("closed")}
-            onCreated={(a) => { onFillWithAudio(a); setPicker("closed"); }}
-          />
         </div>
       )}
     </div>
