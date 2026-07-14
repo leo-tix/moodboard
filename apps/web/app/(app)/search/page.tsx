@@ -211,7 +211,13 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         />
         )
       ) : (
-        <div className="flex gap-8">
+        // flex-col sur mobile : sans ce breakpoint, "flex gap-8" restait une
+        // rangée à toutes les tailles d'écran — sur mobile, le bouton
+        // "Filtres" (seul rendu du FilterDrawer hors desktop) devenait un
+        // item de rangée à côté de la grille de résultats au lieu de
+        // s'empiler au-dessus, lui volant une bonne partie de la largeur
+        // (bug remonté 2026-07-14).
+        <div className="flex flex-col md:flex-row gap-4 md:gap-8">
           {/* Mobile: drawer toggle + panel; Desktop: inline sidebar */}
           <Suspense>
             <FilterDrawer hasActiveFilters={!!(categoryId || tags.length || yearFrom || yearTo || colorHex)}>

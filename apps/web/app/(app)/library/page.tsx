@@ -28,7 +28,12 @@ export default async function LibraryPage() {
       tags: { include: { tag: { select: { name: true } } }, take: 5 },
     },
     orderBy: { createdAt: "desc" },
-    take: 200,
+    // Pas de `take` : un plafond artificiel (200 avant) tronquait
+    // silencieusement la bibliothèque au-delà — le compteur restait figé à
+    // 200 ET les images plus anciennes que la 200e devenaient invisibles
+    // dans la grille (bug remonté 2026-07-14 ; le profil réel en a 286).
+    // L'infinite scroll de LibraryClient pagine déjà côté client sur ce
+    // tableau complet (PAGE_SIZE=48) — usage personnel, volumétrie modeste.
   });
 
   return (
