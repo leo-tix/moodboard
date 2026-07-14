@@ -903,6 +903,27 @@ function EmbedUrlInput({
   );
 }
 
+// Vignette d'une carte de lien : se masque si l'image ne charge pas (404,
+// anti-hotlink…) pour éviter l'icône d'image brisée. `no-referrer` contourne
+// les protections anti-hotlink basées sur le Referer.
+function LinkCardThumb({ src }: { src: string }) {
+  const [ok, setOk] = useState(true);
+  if (!ok) return null;
+  return (
+    <div className="w-28 sm:w-40 flex-shrink-0 bg-[var(--bg-surface)]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setOk(false)}
+        className="w-full h-full object-cover"
+      />
+    </div>
+  );
+}
+
 // ── Bloc individuel ───────────────────────────────────────────────────────────
 // Composant séparé du parent, dispatche sur les 5 types de blocs purs.
 
@@ -1256,12 +1277,7 @@ function JournalItemBlock({
                 <ExternalLink size={11} strokeWidth={1.75} /> {item.siteName || domain}
               </p>
             </div>
-            {item.image && (
-              <div className="w-28 sm:w-40 flex-shrink-0 bg-[var(--bg-surface)]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.image} alt="" className="w-full h-full object-cover" loading="lazy" />
-              </div>
-            )}
+            {item.image && <LinkCardThumb src={item.image} />}
           </a>
         )}
         <div className="absolute top-2 right-2 z-10">{itemMenu}</div>

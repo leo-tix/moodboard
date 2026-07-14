@@ -126,7 +126,7 @@ function ReadOnlyEmbed({ embed }: { embed: JournalEmbed }) {
       {embed.image && (
         <div className="w-28 sm:w-40 flex-shrink-0 bg-[var(--bg-surface)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={embed.image} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <img src={embed.image} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
         </div>
       )}
     </a>

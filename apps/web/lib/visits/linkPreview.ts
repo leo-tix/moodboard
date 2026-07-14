@@ -68,6 +68,55 @@ function metaContent(html: string, keys: string[]): string | null {
   return null;
 }
 
+// UA de navigateur réaliste : "MoodboardBot" se faisait bloquer/servir une
+// page pauvre par beaucoup de sites (news notamment). Un UA Chrome récent
+// récupère la vraie page (et donc les balises OG).
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+// Titres de pages "mur anti-bot" (Cloudflare, Datadome, etc.) — quand le site
+// nous sert une interstitielle au lieu de l'article, son <title> est inutile
+// (ex. Le Monde → "Client Challenge"). On le jette au profit du domaine.
+const BOT_WALL_TITLE_RES = [
+  /^client challenge$/i,
+  /^just a moment/i,
+  /^attention required/i,
+  /cloudflare/i,
+  /^access denied$/i,
+  /verify(ing)? you are (a )?human/i,
+  /^are you a (human|robot)/i,
+  /bot verification/i,
+  /pardon our interruption/i,
+  /^security check$/i,
+  /^one moment, please/i,
+  /^please wait/i,
+];
+
+function looksLikeBotWall(title: string): boolean {
+  return BOT_WALL_TITLE_RES.some((re) => re.test(title.trim()));
+}
+
+// Vérifie qu'une og:image se charge réellement (content-type image/*) — écarte
+// les 404, les protections anti-hotlink côté serveur, les URLs cassées, pour ne
+// pas afficher une vignette brisée dans la carte. On ne lit pas le corps.
+async function imageLoads(url: string): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4500);
+  try {
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: { "User-Agent": BROWSER_UA, Accept: "image/*", Range: "bytes=0-0" },
+    });
+    const ct = r.headers.get("content-type") ?? "";
+    return (r.ok || r.status === 206) && ct.startsWith("image/");
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchLinkPreview(rawUrl: string): Promise<LinkMeta> {
   const empty: LinkMeta = { title: null, description: null, image: null, siteName: null };
   if (!isSafePublicUrl(rawUrl)) return empty;
@@ -79,9 +128,9 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkMeta> {
       signal: ctrl.signal,
       redirect: "follow",
       headers: {
-        // Certains sites renvoient une page pauvre sans UA de navigateur.
-        "User-Agent": "Mozilla/5.0 (compatible; MoodboardBot/1.0; +https://moodboard.leotix.fr)",
-        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": BROWSER_UA,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
       },
     });
     const ct = res.headers.get("content-type") ?? "";
@@ -93,19 +142,24 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkMeta> {
     const html = new TextDecoder("utf-8").decode(buf.slice(0, MAX_HTML_BYTES));
 
     const titleTag = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-    const title =
+    let title =
       metaContent(html, ["og:title", "twitter:title"]) ?? (titleTag ? decodeEntities(titleTag[1]) : null);
+    // Mur anti-bot → titre inutile : on retombe sur le domaine (côté UI).
+    if (title && looksLikeBotWall(title)) title = null;
+
     const description = metaContent(html, ["og:description", "twitter:description", "description"]);
     let image = metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]);
     const siteName = metaContent(html, ["og:site_name"]) ?? new URL(res.url || rawUrl).hostname;
 
-    // Résout une og:image relative contre l'URL finale.
+    // Résout une og:image relative contre l'URL finale, puis vérifie qu'elle
+    // se charge vraiment (sinon vignette brisée dans la carte).
     if (image) {
       try {
         image = new URL(image, res.url || rawUrl).toString();
       } catch {
         image = null;
       }
+      if (image && !(await imageLoads(image))) image = null;
     }
     return { title, description, image, siteName };
   } catch {
