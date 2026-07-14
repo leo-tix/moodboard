@@ -158,13 +158,17 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
 
       {editable && (
         <>
-          {/* Toolbar fantôme : n'existe qu'au surlignage d'un passage */}
-          <BubbleMenu
-            editor={editor}
-            className="flex items-center gap-0.5 px-1 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl"
-          >
-            <BubbleButtons editor={editor} />
-          </BubbleMenu>
+          {/* Desktop : toolbar fantôme au surlignage. Sur tactile on la masque
+              (surlignage peu fiable) au profit de la barre ancrée au clavier —
+              sinon les deux barres font DOUBLON. */}
+          {!isTouch && (
+            <BubbleMenu
+              editor={editor}
+              className="flex items-center gap-0.5 px-1 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl"
+            >
+              <BubbleButtons editor={editor} />
+            </BubbleMenu>
+          )}
 
           {/* Mobile : barre de formatage ancrée au-dessus du clavier (le
               surlignage-pour-formater est peu fiable au tactile). */}

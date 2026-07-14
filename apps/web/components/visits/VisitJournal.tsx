@@ -682,7 +682,9 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           révèle au survol/focus (ou "/" au clavier). Sur TACTILE (pas de
           survol), un vrai bouton visible "+ Ajouter un bloc" — sinon
           impossible d'ajouter du texte au doigt. */}
-      <div className="mt-2 relative">
+      {/* Marge basse importante sur tactile : le FAB de capture (fixe, centré
+          en bas) recouvrait sinon ce bouton une fois défilé tout en bas. */}
+      <div className="mt-2 relative pointer-coarse:mb-32">
         <button
           type="button"
           onClick={() => setInsertMenu(insertMenu?.afterIdx === null ? null : { afterIdx: null })}
@@ -696,7 +698,10 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           <span className="hidden pointer-coarse:inline">Ajouter un bloc</span>
         </button>
         {insertMenu?.afterIdx === null && (
-          <div ref={insertMenuRef} className="absolute top-full left-4 mt-1 z-50">
+          // Sur tactile le menu s'ouvre VERS LE HAUT (bottom-full) — sinon il
+          // tombait sous le FAB / hors écran et le choix du type était
+          // inatteignable. Desktop : vers le bas comme avant.
+          <div ref={insertMenuRef} className="absolute left-4 z-50 bottom-full mb-1 md:bottom-auto md:top-full md:mt-1">
             <InsertTypeMenu visitId={visitId} onCreateBlock={(type) => createBlock(null, type)} onCreateAudio={(a) => insertAudioBlock(null, a)} />
           </div>
         )}
