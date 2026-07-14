@@ -107,11 +107,18 @@ export function VisitCoverCarousel({
     // d'origine (voir ancien commit) : hauteur réduite d'1/4 (h-[38/46vh] →
     // h-[29/35vh]), marge haute au lieu du tuck sous la barre sticky.
     <div className={cn("relative mt-2 md:mt-3 mb-5 h-[29vh] md:h-[35vh]", className)}>
-      {/* Halo lumineux : version floutée/agrandie de l'image active, posée
-          DERRIÈRE la carte et débordant largement au-delà (façon "ambient
-          light" Apple TV) — un calque par image, crossfade par opacité au
-          changement d'`activeIndex` pour "réagir" au défilement du carrousel. */}
-      <div className="pointer-events-none absolute -inset-6 md:-inset-10 -z-10 overflow-hidden rounded-[2rem]">
+      {/* Halo lumineux : version floutée de l'image active posée DERRIÈRE la
+          carte, débordant largement au-delà de ses bords (façon "ambient
+          light" Apple TV/Google AI Studio) — un calque par image, crossfade
+          en opacité sur `activeIndex` pour "réagir" au défilement. Premier
+          essai invisible : la zone de débordement (-inset-6/-10) était bien
+          trop petite ET clippée par overflow-hidden, donc le flou n'avait
+          jamais la place de retomber à zéro avant d'être tronché — corrigé en
+          élargissant la zone (surtout sur desktop, où la marge de page le
+          permet) et en la laissant "respirer" (pas de clip dur), un masque
+          radial fait retomber la lumière en douceur vers l'extérieur plutôt
+          que de s'arrêter net. */}
+      <div className="pointer-events-none absolute -inset-8 md:-inset-24 -z-10">
         {images.map((img, i) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -120,9 +127,13 @@ export function VisitCoverCarousel({
             alt=""
             aria-hidden
             className={cn(
-              "absolute inset-0 h-full w-full object-cover scale-110 blur-3xl saturate-150 transition-opacity duration-700",
-              i === activeIndex ? "opacity-70" : "opacity-0"
+              "absolute inset-0 h-full w-full object-cover blur-2xl md:blur-[64px] saturate-[1.8] brightness-110 transition-opacity duration-700",
+              i === activeIndex ? "opacity-90" : "opacity-0"
             )}
+            style={{
+              maskImage: "radial-gradient(closest-side, black 55%, transparent 100%)",
+              WebkitMaskImage: "radial-gradient(closest-side, black 55%, transparent 100%)",
+            }}
           />
         ))}
       </div>
