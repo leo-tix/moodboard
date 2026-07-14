@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { X, Check, ArrowUp, CircleSlash, RotateCcw, Copy, Maximize2, PartyPopper } from "lucide-react";
 import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
@@ -8,6 +8,7 @@ import { CategoryMultiSelect, type CategorySelection } from "@/components/inspir
 import { TagInput } from "@/components/inspiration/TagInput";
 import { AutocompleteInput } from "@/components/inspiration/AutocompleteInput";
 import type { Category } from "@/components/inspiration/CategorySelect";
+import { notifyTriageCountChanged } from "@/lib/triage/events";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,12 +79,23 @@ function BottomSheet({
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  // Reset position au moment de l'ouverture
-  useEffect(() => {
+  // Efface une transform/transition inline résiduelle d'un drag précédent
+  // (glissement relâché en "snap back", ou fermeture par glissement) à
+  // l'ouverture — sinon elle prime sur la classe Tailwind translate-y-0/
+  // full et empêche l'animation de glissement d'apparaître (bug remonté :
+  // "la popup ne slide pas"). Avant : on FORÇAIT `transform: translateY(0)`
+  // + `transition: none`, ce qui figeait la feuille en place instantanément
+  // même au tout premier affichage, sans jamais laisser la transition CSS
+  // s'exécuter. useLayoutEffect (avant peinture) pour éviter tout flash de
+  // l'ancienne position.
+  useLayoutEffect(() => {
     if (open && sheetRef.current) {
-      sheetRef.current.style.transition = "none";
-      sheetRef.current.style.transform = "translateY(0)";
+      sheetRef.current.style.transition = "";
+      sheetRef.current.style.transform = "";
       currentY.current = 0;
+    }
+    if (open && backdropRef.current) {
+      backdropRef.current.style.opacity = "";
     }
   }, [open]);
 
@@ -337,6 +349,10 @@ export function TriageClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
+    // accept/archive change le compte d'images en attente de triage — prévient
+    // la pastille (BottomNav/Sidebar) pour qu'elle se mette à jour tout de
+    // suite, sans attendre un remount ou un focus d'onglet.
+    notifyTriageCountChanged();
 
     setQueue((q) => q.slice(1));
     setIsExiting(false);
@@ -356,6 +372,7 @@ export function TriageClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "undo" }),
       });
+      notifyTriageCountChanged();
       setQueue((q) => [lastAction.item, ...q]);
       setFields(lastAction.fields);
       setLastAction(null);
