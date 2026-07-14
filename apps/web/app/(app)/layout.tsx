@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlobalUploadProvider } from "@/components/upload/GlobalUploadProvider";
+import { PageTransition } from "@/components/layout/PageTransition";
 
 export default async function AppLayout({
   children,
@@ -36,7 +37,7 @@ export default async function AppLayout({
       {/* Main content — bottom padding on mobile to clear the bottom nav */}
       <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
         <GlobalUploadProvider>
-          {children}
+          <PageTransition>{children}</PageTransition>
         </GlobalUploadProvider>
       </main>
 

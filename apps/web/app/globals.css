@@ -182,3 +182,60 @@ body {
 .note-prose blockquote p {
   margin: 0;
 }
+
+/* ============================================================
+   SKELETONS — chargement premium (voir components/ui/Skeleton.tsx)
+   Balayage lumineux qui traverse une surface neutre — plus vivant
+   qu'un simple pulse d'opacité, cohérent avec le thème sombre.
+   ============================================================ */
+@keyframes skeleton-shimmer {
+  0% { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+}
+.skeleton {
+  background-color: var(--bg-surface);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.045) 50%,
+    transparent 100%
+  );
+  background-size: 180% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+/* ============================================================
+   TRANSITION DE PAGE — fondu d'entrée à chaque navigation
+   (voir components/layout/PageTransition.tsx). En CSS pur, PAS en JS :
+   une animation CSS ne dépend pas de requestAnimationFrame, donc ne peut
+   jamais laisser la page bloquée invisible si le rAF est throttlé (onglet
+   en arrière-plan, appareil lent) — l'état AVANT/APRÈS animation est
+   opacity:1 (visible), y compris au chargement à froid avant même que le
+   JS n'ait hydraté. Opacité seule : n'affecte pas le positionnement des
+   éléments `fixed` descendants (contrairement à une transform).
+   ============================================================ */
+@keyframes page-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.page-fade-in-anim {
+  animation: page-fade-in 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ============================================================
+   ACCESSIBILITÉ — respect de prefers-reduced-motion
+   Neutralise animations/transitions (skeletons, crossfade de page,
+   framer-motion via useReducedMotion côté JS) pour les utilisateurs
+   qui préfèrent moins de mouvement.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
