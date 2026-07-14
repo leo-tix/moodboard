@@ -15,6 +15,7 @@ import {
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
 import { enqueueCapture, OUTBOX_SYNCED_EVENT } from "@/lib/offline/outbox";
+import { VoiceWaveform } from "@/components/visits/VoiceWaveform";
 
 const LONG_PRESS_MS = 450;
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
@@ -49,6 +50,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const fabButtonRef = useRef<HTMLButtonElement>(null);
   const [memo, setMemo] = useState<MemoPhase>({ step: "idle" });
+  // Flux micro exposé à la waveform réactive pendant l'enregistrement.
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Message neutre (capture mise en file hors ligne) — distinct de `error`.
@@ -233,6 +236,7 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
       return;
     }
     streamRef.current = mic.stream;
+    setMicStream(mic.stream);
     const mimeType = pickSupportedAudioMimeType();
     let recorder: MediaRecorder;
     try {
@@ -497,6 +501,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
                   <p className="text-sm font-medium text-[var(--text-primary)]">Enregistrement…</p>
                   <span className="ml-auto text-sm text-[var(--text-tertiary)] tabular-nums">{fmt(elapsed)}</span>
                 </div>
+                {/* Waveform réactive (Siri/Gemini) branchée sur le micro en direct */}
+                <VoiceWaveform stream={micStream} className="w-full h-16" />
                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
                   {transcript || (
                     <span className="text-[var(--text-tertiary)] italic">
