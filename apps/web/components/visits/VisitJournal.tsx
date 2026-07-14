@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Heading, Pilcrow, Quote, Mic, Columns2, Image as ImageIcon, MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus, Link2, Video, ExternalLink, ImageOff } from "lucide-react";
+import { MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus, ExternalLink, ImageOff } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
@@ -15,6 +15,7 @@ import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { TitleEditor } from "@/components/visits/TitleEditor";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
+import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 // Carnet façon Notion : chaque bloc est PUR (un seul type). Le bloc "2
@@ -187,11 +188,23 @@ function patchClaimable<T extends JournalBlock>(
   });
 }
 
+// Cible de la pop-up de choix de type de bloc — soit une insertion top-level
+// (fin de carnet ou "⋯ Insérer un bloc après" un item précis), soit le
+// remplissage d'un slot vide d'une pile de colonnes. Un seul état pilote la
+// pop-up UNIQUE (BlockTypeModal), quel que soit le point d'entrée.
+type BlockPickerTarget =
+  | { kind: "sequence"; afterIdx: number | null }
+  | { kind: "column"; columnsId: string; side: "left" | "right" };
+
 export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [items, setItems] = useState<JournalItem[]>(initialItems);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [insertMenu, setInsertMenu] = useState<{ afterIdx: number | null } | null>(null);
+  const [blockPicker, setBlockPicker] = useState<BlockPickerTarget | null>(null);
+  const openBlockPicker = (target: BlockPickerTarget) => {
+    setMenuIdx(null);
+    setBlockPicker(target);
+  };
   // Popup UNIQUE de prise de note audio (waveform + transcription en direct),
   // partagée par tous les points d'entrée du carnet (menu "+", "⋯ Insérer
   // après", pile de colonne) — demande utilisateur 2026-07-14 : plus de
@@ -201,11 +214,10 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   const [voiceMemoTarget, setVoiceMemoTarget] = useState<{ onCreated: (a: CreatedAudioBlock) => void } | null>(null);
   const requestVoiceMemo = (onCreated: (a: CreatedAudioBlock) => void) => {
     setMenuIdx(null);
-    setInsertMenu(null);
+    setBlockPicker(null);
     setVoiceMemoTarget({ onCreated });
   };
   const menuRef = useRef<HTMLDivElement>(null);
-  const insertMenuRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -223,12 +235,10 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   }, [initialItems]);
 
   useEffect(() => {
-    if (menuIdx === null && insertMenu === null) return;
-    const activeRef = insertMenu !== null ? insertMenuRef : menuRef;
+    if (menuIdx === null) return;
     const handler = (e: MouseEvent | TouchEvent) => {
-      if (activeRef.current && !activeRef.current.contains(e.target as Node)) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuIdx(null);
-        setInsertMenu(null);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -237,7 +247,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
       document.removeEventListener("mousedown", handler);
       document.removeEventListener("touchstart", handler);
     };
-  }, [menuIdx, insertMenu]);
+  }, [menuIdx]);
 
   // ── Persistance de l'ordre top-level ──
   const persistOrder = (list: JournalItem[]) => {
@@ -431,7 +441,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   // ── Création de bloc (titre / texte / citation / colonnes) ──
   const createBlock = async (afterIdx: number | null, type: "note" | "title" | "quote" | "columns") => {
     setMenuIdx(null);
-    setInsertMenu(null);
     const insertAt = afterIdx === null ? items.length : afterIdx + 1;
     const endpoint = type === "columns" ? "columns" : ENDPOINT_BY_TYPE[type];
     const body = type === "columns" ? {} : { content: "" };
@@ -453,7 +462,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
 
   const insertAudioBlock = (afterIdx: number | null, created: CreatedAudioBlock) => {
     setMenuIdx(null);
-    setInsertMenu(null);
     const insertAt = afterIdx === null ? items.length : afterIdx + 1;
     const next = [...items];
     next.splice(insertAt, 0, {
@@ -568,7 +576,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   // récupère les métadonnées (Open Graph / oEmbed) et renvoie le bloc complet.
   const createEmbed = async (afterIdx: number | null, kind: "LINK" | "YOUTUBE", url: string) => {
     setMenuIdx(null);
-    setInsertMenu(null);
     const insertAt = afterIdx === null ? items.length : afterIdx + 1;
     const res = await fetch(`/api/visits/${visitId}/embeds`, {
       method: "POST",
@@ -658,6 +665,36 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     appendToColumn(columnsId, side, block);
   };
 
+  // ── Dispatch de la pop-up BlockTypeModal (voir `blockPicker` ci-dessus) ──
+  // Un seul appelant (la pop-up) pour les deux cibles possibles (séquence
+  // top-level ou slot de colonne) — évite de dupliquer 5 fois la branche
+  // if/else "sequence vs column" à chaque type de bloc.
+  const handleBlockTypeSelect = (type: "title" | "note" | "quote") => {
+    if (!blockPicker) return;
+    if (blockPicker.kind === "sequence") createBlock(blockPicker.afterIdx, type);
+    else fillWithNew(blockPicker.columnsId, blockPicker.side, type);
+    setBlockPicker(null);
+  };
+  const handleAudioPick = () => {
+    if (!blockPicker) return;
+    const target = blockPicker;
+    setBlockPicker(null);
+    if (target.kind === "sequence") requestVoiceMemo((a) => insertAudioBlock(target.afterIdx, a));
+    else requestVoiceMemo((a) => fillWithAudio(target.columnsId, target.side, a));
+  };
+  const handleEmbedSelect = (kind: "LINK" | "YOUTUBE", url: string) => {
+    if (blockPicker?.kind === "sequence") createEmbed(blockPicker.afterIdx, kind, url);
+    setBlockPicker(null);
+  };
+  const handleColumnsSelect = () => {
+    if (blockPicker?.kind === "sequence") createBlock(blockPicker.afterIdx, "columns");
+    setBlockPicker(null);
+  };
+  const handleImageSelect = (image: JournalImage) => {
+    if (blockPicker?.kind === "column") fillWithImage(blockPicker.columnsId, blockPicker.side, image);
+    setBlockPicker(null);
+  };
+
   // ── Titre d'image (cartel) ── édition inline au clic, PATCH direct sur
   // l'Inspiration (pas un bloc du carnet — le titre appartient à l'image
   // elle-même, partagé avec la bibliothèque).
@@ -700,16 +737,13 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             setEditingKey={setEditingKey}
             menuOpen={menuIdx === idx}
             menuRef={menuIdx === idx ? menuRef : undefined}
-            insertMenuOpen={insertMenu?.afterIdx === idx}
-            insertMenuRef={insertMenu?.afterIdx === idx ? insertMenuRef : undefined}
             onToggleMenu={() => setMenuIdx(menuIdx === idx ? null : idx)}
             onMoveUp={() => { setMenuIdx(null); moveItem(idx, idx - 1); }}
             onMoveDown={() => { setMenuIdx(null); moveItem(idx, idx + 1); }}
-            onOpenInsertMenu={() => { setMenuIdx(null); setInsertMenu({ afterIdx: idx }); }}
+            onOpenInsertMenu={() => openBlockPicker({ kind: "sequence", afterIdx: idx })}
             onDeleteBlock={deleteBlock}
             onDeleteColumns={deleteColumns}
             onDetachImage={detachImage}
-            onCreateEmbed={(kind, url) => createEmbed(idx, kind, url)}
             onSaveNote={saveNote}
             onPersistNote={persistNote}
             onSaveTitle={saveTitle}
@@ -718,15 +752,10 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onPersistQuote={persistQuote}
             onPersistAudioTranscript={persistAudioTranscript}
             onSaveImageTitle={saveImageTitle}
-            onCreateBlock={(type) => createBlock(idx, type)}
-            onCreateAudio={(created) => insertAudioBlock(idx, created)}
-            onRequestAudio={requestVoiceMemo}
             onMoveWithinColumn={moveWithinColumn}
             onSwitchColumnSides={switchColumnSides}
             onUnclaimBlock={unclaimBlock}
-            onFillWithImage={fillWithImage}
-            onFillWithNew={fillWithNew}
-            onFillWithAudio={fillWithAudio}
+            onOpenColumnPicker={(columnsId, side) => openBlockPicker({ kind: "column", columnsId, side })}
             sortable={sortable}
             isDragging={sortable.draggingKey === keyOf(item)}
             dropHoverKey={dropHoverKey}
@@ -762,9 +791,12 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
       )}
 
       {/* Fin de carnet : sur DESKTOP, zone quasi invisible façon Notion qui se
-          révèle au survol/focus (ou "/" au clavier). Sur TACTILE (pas de
-          survol), un vrai bouton visible "+ Ajouter un bloc" — sinon
-          impossible d'ajouter du texte au doigt. */}
+          révèle au survol/focus. Sur TACTILE (pas de survol), un vrai bouton
+          visible "+ Ajouter un bloc" — sinon impossible d'ajouter du texte au
+          doigt. Le raccourci clavier "/" a été retiré (retour utilisateur
+          2026-07-14) : redondant maintenant que la pop-up de choix
+          (BlockTypeModal) est centrale et systématiquement au même endroit,
+          quel que soit le point d'entrée. */}
       {/* Marge basse : le FAB de capture (VisitCaptureFab, fixe, centré en
           bas) est affiché sur TOUS les viewports, pas seulement tactile
           (`bottom-6` desktop, `bottom-[4.5rem+safe-area]` mobile) — la marge
@@ -776,30 +808,32 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
       <div className="mt-2 relative mb-32 md:mb-24">
         <button
           type="button"
-          onClick={() => setInsertMenu(insertMenu?.afterIdx === null ? null : { afterIdx: null })}
-          onKeyDown={(e) => { if (e.key === "/") { e.preventDefault(); setInsertMenu({ afterIdx: null }); } }}
+          onClick={() => openBlockPicker({ kind: "sequence", afterIdx: null })}
           className="w-full min-h-[3rem] rounded-lg px-4 text-sm text-[var(--text-tertiary)] transition-opacity cursor-text flex items-center gap-2
                      opacity-0 hover:opacity-70 focus-visible:opacity-70
                      pointer-coarse:opacity-100 pointer-coarse:border pointer-coarse:border-dashed pointer-coarse:border-[var(--border-default)] pointer-coarse:justify-center"
         >
           <Plus size={16} strokeWidth={1.75} />
-          <span className="pointer-coarse:hidden">Cliquer, ou taper «&nbsp;/&nbsp;» pour ajouter un bloc…</span>
+          <span className="pointer-coarse:hidden">Cliquer pour ajouter un bloc…</span>
           <span className="hidden pointer-coarse:inline">Ajouter un bloc</span>
         </button>
-        {insertMenu?.afterIdx === null && (
-          // Sur tactile le menu s'ouvre VERS LE HAUT (bottom-full) — sinon il
-          // tombait sous le FAB / hors écran et le choix du type était
-          // inatteignable. Desktop : vers le bas comme avant.
-          <div ref={insertMenuRef} className="absolute left-4 z-50 bottom-full mb-1 md:bottom-auto md:top-full md:mt-1">
-            <InsertTypeMenu
-              onCreateBlock={(type) => createBlock(null, type)}
-              onCreateAudio={(a) => insertAudioBlock(null, a)}
-              onCreateEmbed={(kind, url) => createEmbed(null, kind, url)}
-              onRequestAudio={requestVoiceMemo}
-            />
-          </div>
-        )}
       </div>
+
+      {/* Pop-up UNIQUE de choix de type de bloc — centrée + voile flouté,
+          identique mobile/desktop, pour tous les points d'entrée (bouton
+          "+" ci-dessus, "⋯ Insérer un bloc après", "+" d'un slot de colonne
+          vide) — voir `blockPicker` et BlockTypeModal.tsx. */}
+      {blockPicker && (
+        <BlockTypeModal
+          onClose={() => setBlockPicker(null)}
+          onSelectSimple={handleBlockTypeSelect}
+          onSelectAudio={handleAudioPick}
+          onSelectEmbed={blockPicker.kind === "sequence" ? handleEmbedSelect : undefined}
+          onSelectColumns={blockPicker.kind === "sequence" ? handleColumnsSelect : undefined}
+          onSelectImage={blockPicker.kind === "column" ? handleImageSelect : undefined}
+          visitImages={visitImages}
+        />
+      )}
 
       {/* Popup UNIQUE de prise de note audio — voir requestVoiceMemo ci-dessus */}
       <VoiceMemoRecorder
@@ -811,125 +845,6 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           setVoiceMemoTarget(null);
         }}
       />
-    </div>
-  );
-}
-
-// ── Menu de choix de type de bloc ────────────────────────────────────────────
-// Partagé par la zone "+ Bloc" (fin de carnet), le "⋯ Insérer un bloc après"
-// de chaque item, et les piles de colonnes.
-
-function InsertTypeMenu({
-  onCreateBlock,
-  onCreateAudio,
-  onCreateEmbed,
-  onRequestAudio,
-}: {
-  onCreateBlock: (type: "note" | "title" | "quote" | "columns") => void;
-  onCreateAudio: (created: CreatedAudioBlock) => void;
-  onCreateEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
-  /** Ouvre LA popup audio partagée (waveform), liée à `onCreateAudio`. */
-  onRequestAudio: (onCreated: (a: CreatedAudioBlock) => void) => void;
-}) {
-  const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE">("menu");
-
-  if (mode === "LINK" || mode === "YOUTUBE") {
-    return <EmbedUrlInput kind={mode} onCancel={() => setMode("menu")} onSubmit={(url) => onCreateEmbed(mode, url)} />;
-  }
-
-  return (
-    <div
-      className="w-48 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <button onClick={() => onCreateBlock("title")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Heading size={14} strokeWidth={1.75} /> Titre
-      </button>
-      <button onClick={() => onCreateBlock("note")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Pilcrow size={14} strokeWidth={1.75} /> Texte
-      </button>
-      <button onClick={() => onCreateBlock("quote")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Quote size={14} strokeWidth={1.75} /> Citation
-      </button>
-      <button onClick={() => onRequestAudio(onCreateAudio)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Mic size={14} strokeWidth={1.75} /> Audio
-      </button>
-      <button onClick={() => setMode("LINK")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Link2 size={14} strokeWidth={1.75} /> Lien externe
-      </button>
-      <button onClick={() => setMode("YOUTUBE")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Video size={14} strokeWidth={1.75} /> YouTube
-      </button>
-      <button onClick={() => onCreateBlock("columns")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        <Columns2 size={14} strokeWidth={1.75} /> 2 colonnes
-      </button>
-    </div>
-  );
-}
-
-// Saisie d'URL pour créer un bloc lien/embed. Validation légère côté client
-// (le serveur revérifie) : YouTube exige une URL youtube reconnaissable.
-function EmbedUrlInput({
-  kind,
-  onCancel,
-  onSubmit,
-}: {
-  kind: "LINK" | "YOUTUBE";
-  onCancel: () => void;
-  onSubmit: (url: string) => void;
-}) {
-  const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const valid = (() => {
-    try {
-      new URL(url.trim());
-    } catch {
-      return false;
-    }
-    return kind === "YOUTUBE" ? parseYouTubeId(url.trim()) !== null : /^https?:\/\//i.test(url.trim());
-  })();
-
-  const submit = () => {
-    if (!valid || busy) return;
-    setBusy(true);
-    onSubmit(url.trim());
-  };
-
-  return (
-    <div className="w-64 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl p-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]">
-        {kind === "YOUTUBE" ? <Video size={13} strokeWidth={1.75} /> : <Link2 size={13} strokeWidth={1.75} />}
-        {kind === "YOUTUBE" ? "Coller un lien YouTube" : "Coller un lien"}
-      </div>
-      <input
-        ref={inputRef}
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-          if (e.key === "Escape") onCancel();
-        }}
-        placeholder={kind === "YOUTUBE" ? "https://youtube.com/watch?v=…" : "https://…"}
-        className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded px-2 py-1.5 text-[11px] text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]"
-      />
-      <div className="flex items-center justify-end gap-1.5">
-        <button onClick={onCancel} className="px-2 py-1 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">
-          Annuler
-        </button>
-        <button
-          onClick={submit}
-          disabled={!valid || busy}
-          className="px-2.5 py-1 text-[10px] rounded bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-40 transition-opacity"
-        >
-          {busy ? "Ajout…" : "Ajouter"}
-        </button>
-      </div>
     </div>
   );
 }
@@ -966,8 +881,6 @@ function JournalItemBlock({
   setEditingKey,
   menuOpen,
   menuRef,
-  insertMenuOpen,
-  insertMenuRef,
   onToggleMenu,
   onMoveUp,
   onMoveDown,
@@ -975,7 +888,6 @@ function JournalItemBlock({
   onDeleteBlock,
   onDeleteColumns,
   onDetachImage,
-  onCreateEmbed,
   onSaveNote,
   onPersistNote,
   onSaveTitle,
@@ -984,15 +896,10 @@ function JournalItemBlock({
   onPersistQuote,
   onPersistAudioTranscript,
   onSaveImageTitle,
-  onCreateBlock,
-  onCreateAudio,
-  onRequestAudio,
   onMoveWithinColumn,
   onSwitchColumnSides,
   onUnclaimBlock,
-  onFillWithImage,
-  onFillWithNew,
-  onFillWithAudio,
+  onOpenColumnPicker,
   sortable,
   isDragging,
   dropHoverKey,
@@ -1005,8 +912,6 @@ function JournalItemBlock({
   setEditingKey: (key: string | null) => void;
   menuOpen: boolean;
   menuRef?: React.RefObject<HTMLDivElement | null>;
-  insertMenuOpen: boolean;
-  insertMenuRef?: React.RefObject<HTMLDivElement | null>;
   onToggleMenu: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -1014,7 +919,6 @@ function JournalItemBlock({
   onDeleteBlock: (type: "note" | "title" | "quote" | "audio" | "embed", id: string) => void;
   onDeleteColumns: (id: string) => void;
   onDetachImage: (id: string) => void;
-  onCreateEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
   onSaveNote: (id: string, content: string) => void;
   onPersistNote: (id: string, content: string) => Promise<void>;
   onSaveTitle: (id: string, content: string) => void;
@@ -1023,15 +927,10 @@ function JournalItemBlock({
   onPersistQuote: (id: string, content: string) => Promise<void>;
   onPersistAudioTranscript: (id: string, transcript: string) => Promise<void>;
   onSaveImageTitle: (id: string, title: string) => void;
-  onCreateBlock: (type: "note" | "title" | "quote" | "columns") => void;
-  onCreateAudio: (created: CreatedAudioBlock) => void;
-  onRequestAudio: (onCreated: (a: CreatedAudioBlock) => void) => void;
   onMoveWithinColumn: (columnsId: string, side: "left" | "right", from: number, to: number) => void;
   onSwitchColumnSides: (columnsId: string) => void;
   onUnclaimBlock: (columnsId: string, side: "left" | "right", block: JournalBlock) => void;
-  onFillWithImage: (columnsId: string, side: "left" | "right", image: JournalImage) => void;
-  onFillWithNew: (columnsId: string, side: "left" | "right", type: "note" | "title" | "quote") => void;
-  onFillWithAudio: (columnsId: string, side: "left" | "right", created: CreatedAudioBlock) => void;
+  onOpenColumnPicker: (columnsId: string, side: "left" | "right") => void;
   sortable: SortableGrid;
   isDragging: boolean;
   dropHoverKey: string | null;
@@ -1041,7 +940,7 @@ function JournalItemBlock({
   const isVisualBlock = item.type === "image" || item.type === "audio" || item.type === "columns" || item.type === "embed";
 
   const itemMenu = (
-    <div className="relative" ref={menuOpen ? menuRef : insertMenuOpen ? insertMenuRef : undefined}>
+    <div className="relative" ref={menuOpen ? menuRef : undefined}>
       <button
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleMenu(); }}
         className={cn(
@@ -1113,11 +1012,6 @@ function JournalItemBlock({
               </button>
             </>
           )}
-        </div>
-      )}
-      {insertMenuOpen && (
-        <div className="absolute right-0 top-full mt-1 z-50" onClick={(e) => e.stopPropagation()}>
-          <InsertTypeMenu onCreateBlock={onCreateBlock} onCreateAudio={onCreateAudio} onCreateEmbed={onCreateEmbed} onRequestAudio={onRequestAudio} />
         </div>
       )}
     </div>
@@ -1215,7 +1109,6 @@ function JournalItemBlock({
             columnsId={item.id}
             side="left"
             blocks={item.left}
-            visitImages={visitImages}
             editingKey={editingKey}
             setEditingKey={setEditingKey}
             onSaveNote={onSaveNote}
@@ -1228,10 +1121,7 @@ function JournalItemBlock({
             onDeleteBlock={onDeleteBlock}
             onMoveWithin={(from, to) => onMoveWithinColumn(item.id, "left", from, to)}
             onUnclaim={(block) => onUnclaimBlock(item.id, "left", block)}
-            onFillWithImage={(img) => onFillWithImage(item.id, "left", img)}
-            onFillWithNew={(type) => onFillWithNew(item.id, "left", type)}
-            onFillWithAudio={(a) => onFillWithAudio(item.id, "left", a)}
-            onRequestAudio={onRequestAudio}
+            onOpenPicker={() => onOpenColumnPicker(item.id, "left")}
             dropHoverKey={dropHoverKey}
             sortable={sortable}
           />
@@ -1239,7 +1129,6 @@ function JournalItemBlock({
             columnsId={item.id}
             side="right"
             blocks={item.right}
-            visitImages={visitImages}
             editingKey={editingKey}
             setEditingKey={setEditingKey}
             onSaveNote={onSaveNote}
@@ -1252,10 +1141,7 @@ function JournalItemBlock({
             onDeleteBlock={onDeleteBlock}
             onMoveWithin={(from, to) => onMoveWithinColumn(item.id, "right", from, to)}
             onUnclaim={(block) => onUnclaimBlock(item.id, "right", block)}
-            onFillWithImage={(img) => onFillWithImage(item.id, "right", img)}
-            onFillWithNew={(type) => onFillWithNew(item.id, "right", type)}
-            onFillWithAudio={(a) => onFillWithAudio(item.id, "right", a)}
-            onRequestAudio={onRequestAudio}
+            onOpenPicker={() => onOpenColumnPicker(item.id, "right")}
             dropHoverKey={dropHoverKey}
             sortable={sortable}
           />
@@ -1525,7 +1411,6 @@ function ColumnStack({
   columnsId,
   side,
   blocks,
-  visitImages,
   editingKey,
   setEditingKey,
   onSaveNote,
@@ -1538,17 +1423,13 @@ function ColumnStack({
   onDeleteBlock,
   onMoveWithin,
   onUnclaim,
-  onFillWithImage,
-  onFillWithNew,
-  onFillWithAudio,
-  onRequestAudio,
+  onOpenPicker,
   dropHoverKey,
   sortable,
 }: {
   columnsId: string;
   side: "left" | "right";
   blocks: JournalBlock[];
-  visitImages: JournalImage[];
   editingKey: string | null;
   setEditingKey: (key: string | null) => void;
   onSaveNote: (id: string, content: string) => void;
@@ -1561,78 +1442,25 @@ function ColumnStack({
   onDeleteBlock: (type: "note" | "title" | "quote" | "audio", id: string) => void;
   onMoveWithin: (from: number, to: number) => void;
   onUnclaim: (block: JournalBlock) => void;
-  onFillWithImage: (image: JournalImage) => void;
-  onFillWithNew: (type: "note" | "title" | "quote") => void;
-  onFillWithAudio: (created: CreatedAudioBlock) => void;
-  onRequestAudio: (onCreated: (a: CreatedAudioBlock) => void) => void;
+  /** Ouvre la pop-up centrale BlockTypeModal, scopée à ce slot de colonne. */
+  onOpenPicker: () => void;
   dropHoverKey: string | null;
   sortable: SortableGrid;
 }) {
-  const [picker, setPicker] = useState<"closed" | "menu" | "image">("closed");
   const dropKey = `columns:${columnsId}:${side}`;
   const isDropHover = dropHoverKey === dropKey;
 
   const adder = (
-    <div className="relative">
-      {picker === "closed" && (
-        <button
-          type="button"
-          onClick={() => setPicker("menu")}
-          className={cn(
-            "flex items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors",
-            blocks.length === 0 ? "w-8 h-8 rounded-full text-lg" : "w-full py-2 text-xs border border-dashed border-[var(--border-default)]"
-          )}
-        >
-          {blocks.length === 0 ? "+" : "+ Ajouter"}
-        </button>
+    <button
+      type="button"
+      onClick={onOpenPicker}
+      className={cn(
+        "flex items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors",
+        blocks.length === 0 ? "w-8 h-8 rounded-full text-lg" : "w-full py-2 text-xs border border-dashed border-[var(--border-default)]"
       )}
-      {picker === "menu" && (
-        // Largeur fixe + centrage indépendant de l'ancêtre : quand la pile est
-        // VIDE, le "+" rond vit dans un conteneur flex centré qui se réduit à
-        // la taille de son contenu — une fois le bouton masqué (menu ouvert),
-        // ce conteneur s'effondre à ~0px et `inset-x-0` écrasait le menu en
-        // une bande verticale illisible (bug remonté 2026-07-14).
-        <div className="absolute left-1/2 -translate-x-1/2 top-0 z-20 w-44 flex flex-col items-stretch gap-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] p-2">
-          <button onClick={() => { onFillWithNew("title"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Heading size={13} strokeWidth={1.75} /> Titre</button>
-          <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Pilcrow size={13} strokeWidth={1.75} /> Texte</button>
-          <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Quote size={13} strokeWidth={1.75} /> Citation</button>
-          <button onClick={() => setPicker("image")} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><ImageIcon size={13} strokeWidth={1.75} /> Image</button>
-          <button onClick={() => { onRequestAudio(onFillWithAudio); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Mic size={13} strokeWidth={1.75} /> Audio</button>
-          <button onClick={() => setPicker("closed")} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] mt-0.5">Annuler</button>
-        </div>
-      )}
-      {picker === "image" && (
-        // w-44 (pas plus large) : sur mobile, la colonne GAUCHE est proche du
-        // bord d'écran — un panneau plus large centré sur le déclencheur
-        // dépasserait à gauche du viewport (mesuré : centre ~99px, marge de
-        // sécurité ~89px de chaque côté).
-        <div className="absolute left-1/2 -translate-x-1/2 top-0 z-20 w-44 p-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] max-h-48 overflow-y-auto">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Images de la visite</p>
-            <button onClick={() => setPicker("closed")} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center"><X size={14} strokeWidth={2} /></button>
-          </div>
-          {visitImages.length === 0 ? (
-            <p className="text-[11px] text-[var(--text-tertiary)]">Aucune image disponible.</p>
-          ) : (
-            <div className="grid grid-cols-3 gap-1">
-              {visitImages.map((img) => (
-                <button
-                  key={img.id}
-                  type="button"
-                  onClick={() => { onFillWithImage(img); setPicker("closed"); }}
-                  className="aspect-square rounded overflow-hidden bg-[var(--bg-surface)] hover:ring-1 hover:ring-[var(--text-primary)] transition-all"
-                >
-                  {img.thumbnailKey && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={getThumbnailUrl(img.thumbnailKey)} alt="" className="w-full h-full object-cover" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    >
+      {blocks.length === 0 ? "+" : "+ Ajouter"}
+    </button>
   );
 
   return (
@@ -1640,7 +1468,7 @@ function ColumnStack({
       {blocks.length === 0 && (
         <div className="relative min-h-[6rem] rounded-lg border border-dashed border-[var(--border-default)] flex items-center justify-center">
           {adder}
-          {isDropHover && picker === "closed" && (
+          {isDropHover && (
             <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] text-[var(--text-primary)]">
               Déposer ici
             </span>
