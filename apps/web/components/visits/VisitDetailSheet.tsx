@@ -2,6 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
 import Link from "next/link";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import type { GlobalMapVisit } from "./VisitsGlobalMap";
@@ -57,9 +58,9 @@ export function VisitDetailSheet({ visit, onClose }: VisitDetailSheetProps) {
           <button
             onClick={onClose}
             aria-label="Fermer"
-            className="flex-shrink-0 w-9 h-9 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors leading-none"
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
           >
-            ✕
+            <X size={18} strokeWidth={2} />
           </button>
         </div>
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { LocateOff } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
@@ -163,9 +164,9 @@ export function VisitsGlobalMap({ visits }: { visits: GlobalMapVisit[] }) {
           <button
             onClick={() => setShowUngeo((v) => !v)}
             title={`${ungeo.length} visite${ungeo.length !== 1 ? "s" : ""} non localisée${ungeo.length !== 1 ? "s" : ""}`}
-            className="relative w-8 h-8 flex items-center justify-center rounded-full bg-[var(--bg-elevated)]/90 backdrop-blur-sm border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors text-sm"
+            className="relative w-8 h-8 flex items-center justify-center rounded-full bg-[var(--bg-elevated)]/90 backdrop-blur-sm border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
-            ⌖
+            <LocateOff size={15} strokeWidth={1.75} />
             <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--bg-base)] border border-[var(--border-default)] text-[9px] leading-none flex items-center justify-center text-[var(--text-tertiary)]">
               {ungeo.length}
             </span>

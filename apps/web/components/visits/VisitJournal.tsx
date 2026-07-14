@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { Heading, Pilcrow, Quote, Mic, Columns2, Image as ImageIcon, MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
 import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
@@ -724,20 +725,20 @@ function InsertTypeMenu({
       className="w-48 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
       onClick={(e) => e.stopPropagation()}
     >
-      <button onClick={() => onCreateBlock("title")} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        T Titre
+      <button onClick={() => onCreateBlock("title")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Heading size={14} strokeWidth={1.75} /> Titre
       </button>
-      <button onClick={() => onCreateBlock("note")} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        ¶ Texte
+      <button onClick={() => onCreateBlock("note")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Pilcrow size={14} strokeWidth={1.75} /> Texte
       </button>
-      <button onClick={() => onCreateBlock("quote")} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        ❝ Citation
+      <button onClick={() => onCreateBlock("quote")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Quote size={14} strokeWidth={1.75} /> Citation
       </button>
-      <button onClick={() => setRecording(true)} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        🎙 Audio
+      <button onClick={() => setRecording(true)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Mic size={14} strokeWidth={1.75} /> Audio
       </button>
-      <button onClick={() => onCreateBlock("columns")} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
-        ▥ 2 colonnes
+      <button onClick={() => onCreateBlock("columns")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Columns2 size={14} strokeWidth={1.75} /> 2 colonnes
       </button>
     </div>
   );
@@ -836,7 +837,7 @@ function JournalItemBlock({
         )}
         title="Options"
       >
-        ⋯
+        <MoreHorizontal size={16} strokeWidth={2} />
       </button>
       {menuOpen && (
         <div
@@ -846,44 +847,44 @@ function JournalItemBlock({
           <button
             onClick={onMoveUp}
             disabled={idx === 0}
-            className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
           >
-            ↑ Monter
+            <ArrowUp size={13} strokeWidth={1.75} /> Monter
           </button>
           <button
             onClick={onMoveDown}
             disabled={idx === total - 1}
-            className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
           >
-            ↓ Descendre
+            <ArrowDown size={13} strokeWidth={1.75} /> Descendre
           </button>
           <button
             onClick={onOpenInsertMenu}
-            className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
           >
-            ✎ Insérer un bloc après
+            <FilePlus size={13} strokeWidth={1.75} /> Insérer un bloc après
           </button>
           {(item.type === "note" || item.type === "title" || item.type === "quote" || item.type === "audio") && (
             <button
               onClick={() => onDeleteBlock(item.type, item.id)}
-              className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
             >
-              Supprimer
+              <Trash2 size={13} strokeWidth={1.75} /> Supprimer
             </button>
           )}
           {item.type === "columns" && (
             <>
               <button
                 onClick={() => onSwitchColumnSides(item.id)}
-                className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
               >
-                ⇄ Échanger gauche/droite
+                <ArrowLeftRight size={13} strokeWidth={1.75} /> Échanger gauche/droite
               </button>
               <button
                 onClick={() => onDeleteColumns(item.id)}
-                className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
               >
-                Supprimer les colonnes
+                <Trash2 size={13} strokeWidth={1.75} /> Supprimer les colonnes
               </button>
             </>
           )}
@@ -1290,11 +1291,11 @@ function ColumnStack({
       )}
       {picker === "menu" && (
         <div className="absolute inset-x-0 top-0 z-20 flex flex-col items-stretch gap-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] p-2">
-          <button onClick={() => { onFillWithNew("title"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">T Titre</button>
-          <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">¶ Texte</button>
-          <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">❝ Citation</button>
-          <button onClick={() => setPicker("image")} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">🖼 Image</button>
-          <button onClick={() => setPicker("audio")} className="w-full py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">🎙 Audio</button>
+          <button onClick={() => { onFillWithNew("title"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Heading size={13} strokeWidth={1.75} /> Titre</button>
+          <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Pilcrow size={13} strokeWidth={1.75} /> Texte</button>
+          <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Quote size={13} strokeWidth={1.75} /> Citation</button>
+          <button onClick={() => setPicker("image")} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><ImageIcon size={13} strokeWidth={1.75} /> Image</button>
+          <button onClick={() => setPicker("audio")} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Mic size={13} strokeWidth={1.75} /> Audio</button>
           <button onClick={() => setPicker("closed")} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] mt-0.5">Annuler</button>
         </div>
       )}
@@ -1302,7 +1303,7 @@ function ColumnStack({
         <div className="absolute inset-x-0 top-0 z-20 p-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] max-h-48 overflow-y-auto">
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Images de la visite</p>
-            <button onClick={() => setPicker("closed")} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-xs">✕</button>
+            <button onClick={() => setPicker("closed")} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center"><X size={14} strokeWidth={2} /></button>
           </div>
           {visitImages.length === 0 ? (
             <p className="text-[11px] text-[var(--text-tertiary)]">Aucune image disponible.</p>
@@ -1465,28 +1466,28 @@ function ColumnStackItem({
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
-        className="w-6 h-6 rounded-full bg-black/50 text-white/90 text-[11px] flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity"
+        className="w-6 h-6 rounded-full bg-black/50 text-white/90 flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity"
         title="Options"
       >
-        ⋯
+        <MoreHorizontal size={14} strokeWidth={2} />
       </button>
       {menuOpen && (
         <div
           className="absolute right-0 top-full mt-1 z-30 w-40 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          <button onClick={() => { setMenuOpen(false); onMoveUp(); }} disabled={idx === 0} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
-            ↑ Monter
+          <button onClick={() => { setMenuOpen(false); onMoveUp(); }} disabled={idx === 0} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
+            <ArrowUp size={13} strokeWidth={1.75} /> Monter
           </button>
-          <button onClick={() => { setMenuOpen(false); onMoveDown(); }} disabled={idx === total - 1} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
-            ↓ Descendre
+          <button onClick={() => { setMenuOpen(false); onMoveDown(); }} disabled={idx === total - 1} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
+            <ArrowDown size={13} strokeWidth={1.75} /> Descendre
           </button>
-          <button onClick={() => { setMenuOpen(false); onUnclaim(); }} className="w-full text-left px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
-            ✕ Retirer de la colonne
+          <button onClick={() => { setMenuOpen(false); onUnclaim(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
+            <X size={13} strokeWidth={1.75} /> Retirer de la colonne
           </button>
           {block.type !== "image" && (
-            <button onClick={() => { setMenuOpen(false); onDeleteBlock(block.type, block.id); }} className="w-full text-left px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
-              Supprimer
+            <button onClick={() => { setMenuOpen(false); onDeleteBlock(block.type, block.id); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
+              <Trash2 size={13} strokeWidth={1.75} /> Supprimer
             </button>
           )}
         </div>

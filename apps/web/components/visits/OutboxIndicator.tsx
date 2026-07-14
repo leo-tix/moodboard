@@ -1,6 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { RotateCw } from "lucide-react";
 import { flushOutbox } from "@/lib/offline/outbox";
 import { useOutbox } from "@/lib/offline/useOutbox";
 
@@ -43,9 +44,9 @@ export function OutboxIndicator({ visitId }: { visitId: string }) {
             <button
               type="button"
               onClick={() => void flushOutbox()}
-              className="ml-0.5 text-[var(--text-primary)] underline underline-offset-2 hover:opacity-80"
+              className="ml-0.5 text-[var(--text-primary)] hover:opacity-80 flex items-center"
             >
-              ↻
+              <RotateCw size={13} strokeWidth={2} />
             </button>
           )}
         </motion.div>

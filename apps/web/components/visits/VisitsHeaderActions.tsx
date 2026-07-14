@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Map as MapIcon, Plus } from "lucide-react";
 import { CreateVisitModal } from "@/components/visits/CreateVisitModal";
 
 // Actions du header de /visites : accès à la carte cumulée + création d'une
@@ -18,17 +19,14 @@ export function VisitsHeaderActions() {
         href="/visites/carte"
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-md text-[var(--text-primary)] transition-colors"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 3 3.6 5.2a1 1 0 0 0-.6.9v13.4a.5.5 0 0 0 .7.5L9 18l6 3 5.4-2.2a1 1 0 0 0 .6-.9V4.5a.5.5 0 0 0-.7-.5L15 6 9 3Z" />
-          <path d="M9 3v15" /><path d="M15 6v15" />
-        </svg>
+        <MapIcon size={14} strokeWidth={1.8} />
         Carte
       </Link>
       <button
         onClick={() => setShowCreate(true)}
-        className="px-3 py-1.5 text-sm bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-md text-[var(--text-primary)] transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-md text-[var(--text-primary)] transition-colors"
       >
-        + Nouvelle visite
+        <Plus size={14} strokeWidth={2} /> Nouvelle visite
       </button>
 
       {showCreate && (

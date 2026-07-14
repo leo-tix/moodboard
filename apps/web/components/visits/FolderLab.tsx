@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { Scissors, Frame, Sparkles, Zap, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { loadImageForCanvas } from "@/lib/image/loadForCanvas";
@@ -345,7 +346,7 @@ export function FolderLab({ images }: { images: FolderImage[] }) {
               orientation === "vertical" ? "bg-[#3b82f6] text-white" : "bg-[#e8e8e8] text-[#333] hover:bg-white",
             )}
           >
-            ✂ {orientation === "vertical" ? "Vertical" : "Horizontal"}
+            <Scissors size={15} strokeWidth={1.75} /> {orientation === "vertical" ? "Vertical" : "Horizontal"}
           </button>
           <button
             onClick={() => setFrame((f) => !f)}
@@ -354,7 +355,7 @@ export function FolderLab({ images }: { images: FolderImage[] }) {
               frame ? "bg-[#1a1a1a] text-white" : "bg-[#e8e8e8] text-[#333] hover:bg-white",
             )}
           >
-            🖼 Frame
+            <Frame size={15} strokeWidth={1.75} /> Frame
           </button>
           <button
             onClick={() => setGlass((g) => !g)}
@@ -363,7 +364,7 @@ export function FolderLab({ images }: { images: FolderImage[] }) {
               glass ? "bg-[#1a1a1a] text-white" : "bg-[#e8e8e8] text-[#333] hover:bg-white",
             )}
           >
-            ＋ Glass
+            <Sparkles size={15} strokeWidth={1.75} /> Glass
           </button>
         </div>
       </div>
@@ -379,9 +380,9 @@ export function FolderLab({ images }: { images: FolderImage[] }) {
         </button>
         <button
           onClick={() => setShakeKey((k) => k + 1)}
-          className="px-4 py-2 rounded-full text-sm font-medium bg-[#e8e8e8] text-[#333] hover:bg-white transition-colors"
+          className="px-4 py-2 rounded-full text-sm font-medium bg-[#e8e8e8] text-[#333] hover:bg-white transition-colors flex items-center gap-1.5"
         >
-          ⚡ shake
+          <Zap size={15} strokeWidth={1.75} /> shake
         </button>
         <button
           onClick={() => { setSelectedIds([]); setPickerOpen(false); }}
@@ -392,16 +393,16 @@ export function FolderLab({ images }: { images: FolderImage[] }) {
         <button
           onClick={exportPNG}
           disabled={selected.length === 0 || exporting}
-          className="px-4 py-2 rounded-full text-sm font-medium bg-[#1a1a1a] text-white hover:bg-black transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-full text-sm font-medium bg-[#1a1a1a] text-white hover:bg-black transition-colors disabled:opacity-50 flex items-center gap-1.5"
         >
-          {exporting ? "…" : "↓ PNG"}
+          <Download size={15} strokeWidth={1.75} /> {exporting ? "…" : "PNG"}
         </button>
         <button
           onClick={exportStory}
           disabled={selected.length === 0 || exporting}
-          className="px-4 py-2 rounded-full text-sm font-medium bg-[#1a1a1a] text-white hover:bg-black transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-full text-sm font-medium bg-[#1a1a1a] text-white hover:bg-black transition-colors disabled:opacity-50 flex items-center gap-1.5"
         >
-          {exporting ? "…" : "↓ 9:16"}
+          <Download size={15} strokeWidth={1.75} /> {exporting ? "…" : "9:16"}
         </button>
       </div>
 

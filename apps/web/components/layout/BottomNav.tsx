@@ -4,23 +4,24 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TriageBadge } from "@/components/triage/TriageBadge";
 
-const NAV_ITEMS = [
-  { href: "/library",     label: "Biblio",      icon: "◻" },
-  { href: "/collections", label: "Collections", icon: "▣" },
-  { href: "/upload",      label: "Ajouter",     icon: "+", primary: true },
-  { href: "/triage",      label: "Triage",      icon: "⇄" },
-  { href: "/search",      label: "Recherche",   icon: "◎" },
+const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; primary?: boolean }[] = [
+  { href: "/library",     label: "Biblio",      icon: Images },
+  { href: "/collections", label: "Collections", icon: Layers },
+  { href: "/upload",      label: "Ajouter",     icon: Plus, primary: true },
+  { href: "/triage",      label: "Triage",      icon: Inbox },
+  { href: "/search",      label: "Recherche",   icon: Search },
 ];
 
 // Destinations secondaires — accessibles via le bouton "Plus"
-const MORE_ITEMS = [
-  { href: "/moodboards",      label: "Planches", icon: "⬚" },
-  { href: "/visites",         label: "Visites",  icon: "◈" },
-  { href: "/settings/general", label: "Réglages", icon: "⚙" },
-  { href: "/settings/account", label: "Compte",   icon: "◉" },
+const MORE_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/moodboards",      label: "Planches", icon: LayoutDashboard },
+  { href: "/visites",         label: "Visites",  icon: Landmark },
+  { href: "/settings/general", label: "Réglages", icon: Settings },
+  { href: "/settings/account", label: "Compte",   icon: CircleUser },
 ];
 
 export function BottomNav() {
@@ -69,7 +70,7 @@ export function BottomNav() {
                           : "text-[var(--text-secondary)] active:bg-[var(--bg-elevated)]"
                       )}
                     >
-                      <span className="font-mono text-xs opacity-60 w-4 text-center">{item.icon}</span>
+                      <item.icon size={18} strokeWidth={1.75} className="opacity-80" />
                       {item.label}
                     </Link>
                   );
@@ -101,13 +102,13 @@ export function BottomNav() {
                 >
                   <span
                     className={cn(
-                      "w-9 h-9 rounded-full flex items-center justify-center text-base transition-colors border",
+                      "w-9 h-9 rounded-full flex items-center justify-center transition-colors border",
                       isActive
                         ? "bg-[var(--text-primary)] text-[var(--bg-base)] border-transparent"
                         : "border-[var(--border-default)] text-[var(--text-secondary)]"
                     )}
                   >
-                    +
+                    <item.icon size={20} strokeWidth={2} />
                   </span>
                 </Link>
               );
@@ -125,8 +126,8 @@ export function BottomNav() {
                     : "text-[var(--text-tertiary)]"
                 )}
               >
-                <span className="relative font-mono text-[11px] leading-none">
-                  {item.icon}
+                <span className="relative leading-none">
+                  <item.icon size={20} strokeWidth={1.75} />
                   {item.href === "/triage" && (
                     <span className="absolute -top-2 -right-2.5 pointer-events-none">
                       <TriageBadge />
@@ -149,7 +150,7 @@ export function BottomNav() {
                 : "text-[var(--text-tertiary)]"
             )}
           >
-            <span className="font-mono text-[11px] leading-none">⋯</span>
+            <span className="leading-none"><MoreHorizontal size={20} strokeWidth={1.75} /></span>
             <span className="text-[9px] tracking-wide leading-none">Plus</span>
           </button>
         </div>

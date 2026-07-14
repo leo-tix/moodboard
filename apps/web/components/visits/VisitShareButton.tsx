@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { Share2, FolderOpen } from "lucide-react";
 
 interface Props {
   visitId: string;
@@ -82,10 +83,7 @@ export function VisitShareButton({ visitId, shareToken: initialToken, shareExpir
         className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
         title="Partager le carnet"
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-          <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
-        </svg>
+        <Share2 size={13} strokeWidth={2} />
         Partager
         {isActive && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
       </button>
@@ -99,7 +97,7 @@ export function VisitShareButton({ visitId, shareToken: initialToken, shareExpir
             href={`/visites/${visitId}/dossier`}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs bg-[var(--bg-base)] hover:bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
-            🗂 Partager en dossier (image)
+            <FolderOpen size={14} strokeWidth={1.75} /> Partager en dossier (image)
           </Link>
 
           <div className="h-px bg-[var(--border-subtle)]" />

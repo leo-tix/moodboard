@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
+import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/lib/storage/urls";
 import { TriageBadge } from "@/components/triage/TriageBadge";
@@ -19,15 +20,15 @@ function initialsOf(name: string | null, email: string): string {
   return (parts[0]?.[0] ?? "?").toUpperCase();
 }
 
-const NAV_ITEMS = [
-  { href: "/", label: "Accueil", icon: "○" },
-  { href: "/library", label: "Bibliothèque", icon: "◻" },
-  { href: "/collections", label: "Collections", icon: "▣" },
-  { href: "/moodboards", label: "Planches", icon: "⬚" },
-  { href: "/visites", label: "Visites", icon: "◈" },
-  { href: "/search", label: "Recherche", icon: "◎" },
-  { href: "/upload",  label: "Ajouter",  icon: "+" },
-  { href: "/triage",  label: "Triage",   icon: "⇄" },
+const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/", label: "Accueil", icon: Home },
+  { href: "/library", label: "Bibliothèque", icon: Images },
+  { href: "/collections", label: "Collections", icon: Layers },
+  { href: "/moodboards", label: "Planches", icon: LayoutDashboard },
+  { href: "/visites", label: "Visites", icon: Landmark },
+  { href: "/search", label: "Recherche", icon: Search },
+  { href: "/upload",  label: "Ajouter",  icon: Plus },
+  { href: "/triage",  label: "Triage",   icon: Inbox },
 ];
 
 export function Sidebar({ user }: { user: SidebarUser }) {
@@ -74,8 +75,8 @@ export function Sidebar({ user }: { user: SidebarUser }) {
                 />
               )}
               {/* Icon — with superposed badge in icon-only mode (md, not xl) */}
-              <span className="relative z-10 font-mono text-xs flex-shrink-0">
-                {item.icon}
+              <span className="relative z-10 flex-shrink-0">
+                <item.icon size={18} strokeWidth={1.75} />
                 {item.href === "/triage" && (
                   <span className="absolute -top-2 -right-2.5 xl:hidden pointer-events-none">
                     <TriageBadge />
@@ -106,7 +107,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
               : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
           )}
         >
-          <span className="font-mono text-xs opacity-50">⚙</span>
+          <Settings size={18} strokeWidth={1.75} className="opacity-70" />
           <span className="hidden xl:block">Réglages</span>
         </Link>
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { Image as ImageIcon, Mic, Camera, X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   pickSupportedAudioMimeType,
@@ -604,41 +605,41 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.95 }}
             transition={{ type: "tween", duration: 0.15, ease: [0.2, 0, 0, 1] }}
-            className="fixed right-4 md:right-6 z-[66] bottom-[calc(8.75rem+env(safe-area-inset-bottom))] md:bottom-[10.25rem] flex flex-col items-center gap-2.5"
+            className="fixed left-1/2 -translate-x-1/2 z-[66] bottom-[calc(8.75rem+env(safe-area-inset-bottom))] md:bottom-[10.25rem] flex flex-col items-center gap-2.5"
           >
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={openGallery}
                 title="Choisir dans la galerie"
-                className="w-12 h-12 rounded-full flex items-center justify-center text-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
               >
-                🖼
+                <ImageIcon size={20} strokeWidth={1.75} />
               </button>
               <button
                 type="button"
                 onClick={openMicFromMenu}
                 title="Mémo vocal"
-                className="w-12 h-12 rounded-full flex items-center justify-center text-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
               >
-                🎙
+                <Mic size={20} strokeWidth={1.75} />
               </button>
               <button
                 type="button"
                 onClick={openCamera}
                 title="Prendre une photo"
-                className="w-12 h-12 rounded-full flex items-center justify-center text-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-primary)] active:scale-95 transition-transform"
               >
-                📷
+                <Camera size={20} strokeWidth={1.75} />
               </button>
             </div>
             <button
               type="button"
               onClick={() => setActionMenuOpen(false)}
               title="Fermer"
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-tertiary)] hover:text-[var(--text-primary)] active:scale-95 transition-transform"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl text-[var(--text-tertiary)] hover:text-[var(--text-primary)] active:scale-95 transition-transform"
             >
-              ✕
+              <X size={16} strokeWidth={2} />
             </button>
           </motion.div>
         )}
@@ -658,8 +659,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         onContextMenu={(e) => e.preventDefault()}
         title="Ajouter (appui long : mémo vocal)"
         className={cn(
-          "fixed right-4 md:right-6 z-[65] w-14 h-14 rounded-full flex items-center justify-center",
-          // Mobile : au-dessus de la BottomNav (h-14) + safe area ; desktop : coin bas-droit
+          "fixed left-1/2 -translate-x-1/2 z-[65] w-14 h-14 rounded-full flex items-center justify-center",
+          // Mobile : au-dessus de la BottomNav (h-14) + safe area ; desktop : bas-centre
           "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6",
           "bg-[var(--text-primary)] text-[var(--bg-base)] shadow-2xl shadow-black/50",
           "active:scale-95 transition-transform select-none touch-none",
@@ -670,9 +671,7 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         {uploadingPhoto ? (
           <span className="w-5 h-5 border-2 border-[var(--bg-base)] border-t-transparent rounded-full animate-spin" />
         ) : (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Plus size={24} strokeWidth={2} />
         )}
       </button>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Play, Pause, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BAR_COUNT = 64;
@@ -132,9 +133,9 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
         title={playing ? "Pause" : "Lecture"}
       >
         {playing ? (
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" /><rect x="14" y="4" width="5" height="16" /></svg>
+          <Pause size={14} strokeWidth={0} fill="currentColor" />
         ) : (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: 1 }}><path d="M6 4l15 8-15 8V4z" /></svg>
+          <Play size={14} strokeWidth={0} fill="currentColor" style={{ marginLeft: 1 }} />
         )}
       </button>
 
@@ -145,9 +146,7 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
         className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
         title="Reculer de 15s"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" />
-        </svg>
+        <RotateCcw size={15} strokeWidth={1.8} />
       </button>
 
       {/* Waveform — cliquable pour naviguer */}
@@ -187,9 +186,7 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
         className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
         title="Avancer de 15s"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5" />
-        </svg>
+        <RotateCw size={15} strokeWidth={1.8} />
       </button>
 
       <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0 tabular-nums w-16 text-right">

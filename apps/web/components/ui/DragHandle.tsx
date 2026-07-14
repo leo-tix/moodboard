@@ -1,5 +1,6 @@
 "use client";
 
+import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DragHandleProps } from "@/hooks/useDragHandle";
 
@@ -26,11 +27,7 @@ export function DragHandle({ className, title, ...handleProps }: Props) {
       )}
       title={title ?? "Glisser"}
     >
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className="text-white">
-        <circle cx="3" cy="2.5" r="1.1" /><circle cx="9" cy="2.5" r="1.1" />
-        <circle cx="3" cy="6" r="1.1" /><circle cx="9" cy="6" r="1.1" />
-        <circle cx="3" cy="9.5" r="1.1" /><circle cx="9" cy="9.5" r="1.1" />
-      </svg>
+      <GripVertical size={14} strokeWidth={2} className="text-white" />
     </div>
   );
 }
