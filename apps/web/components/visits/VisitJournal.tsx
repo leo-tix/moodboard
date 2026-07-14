@@ -765,9 +765,15 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           révèle au survol/focus (ou "/" au clavier). Sur TACTILE (pas de
           survol), un vrai bouton visible "+ Ajouter un bloc" — sinon
           impossible d'ajouter du texte au doigt. */}
-      {/* Marge basse importante sur tactile : le FAB de capture (fixe, centré
-          en bas) recouvrait sinon ce bouton une fois défilé tout en bas. */}
-      <div className="mt-2 relative pointer-coarse:mb-32">
+      {/* Marge basse : le FAB de capture (VisitCaptureFab, fixe, centré en
+          bas) est affiché sur TOUS les viewports, pas seulement tactile
+          (`bottom-6` desktop, `bottom-[4.5rem+safe-area]` mobile) — la marge
+          était réservée à `pointer-coarse:` (tactile) uniquement, donc un
+          utilisateur desktop à la souris n'avait aucun dégagement : une fois
+          défilé en bas, ce bouton finissait sous le FAB, qui interceptait le
+          clic (menu galerie/micro/photo au lieu d'ouvrir le choix de bloc —
+          lu comme "impossible de créer un bloc", retour 2026-07-14). */}
+      <div className="mt-2 relative mb-32 md:mb-24">
         <button
           type="button"
           onClick={() => setInsertMenu(insertMenu?.afterIdx === null ? null : { afterIdx: null })}

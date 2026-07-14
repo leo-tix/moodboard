@@ -36,6 +36,21 @@ export function AudioPlayer({
   const [duration, setDuration] = useState(durationSec ?? 0);
   const [peaks, setPeaks] = useState<number[] | null>(null);
 
+  // `compact` signale une intention ("ce bloc est dans une pile de colonne,
+  // resserre-toi SI BESOIN") — sans ce garde-fou viewport, il s'appliquait
+  // aussi sur desktop où les colonnes sont largement assez larges pour la
+  // version complète, écrasant inutilement la waveform/masquant les ±15s
+  // (retour utilisateur 2026-07-14 : "l'affichage n'est pas optimisé").
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsNarrowViewport(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  const effectiveCompact = compact && isNarrowViewport;
+
   // Décode le fichier une fois pour en extraire la forme d'onde. Best-effort
   // sur plusieurs fronts, tous rencontrés en conditions réelles :
   // - Safari/iOS ne sait pas décoder le webm/opus enregistré sur Chrome ;
@@ -106,7 +121,13 @@ export function AudioPlayer({
     const el = audioRef.current;
     if (!el) return;
     const onTime = () => setCurrentTime(el.currentTime);
-    const onLoaded = () => setDuration(el.duration || durationSec || 0);
+    // `el.duration` peut valoir Infinity pour un webm produit par
+    // MediaRecorder (durée absente de l'en-tête tant que le fichier n'a pas
+    // été entièrement lu/seeké — bug connu de Chrome) — Infinity étant
+    // "truthy", `el.duration || durationSec` ne retombait jamais sur la
+    // durée connue au moment de l'enregistrement, et fmt(Infinity) affichait
+    // littéralement "Infinity:NaN" (retour utilisateur 2026-07-14).
+    const onLoaded = () => setDuration(Number.isFinite(el.duration) ? el.duration : (durationSec ?? 0));
     const onEnded = () => setPlaying(false);
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("loadedmetadata", onLoaded);
@@ -139,13 +160,13 @@ export function AudioPlayer({
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const progress = duration > 0 ? currentTime / duration : 0;
-  const barCount = compact ? BAR_COUNT_COMPACT : BAR_COUNT;
-  const barGap = compact ? 1 : 2;
-  const barHeightPx = compact ? 20 : 28;
-  const playSize = compact ? "w-6 h-6" : "w-8 h-8";
+  const barCount = effectiveCompact ? BAR_COUNT_COMPACT : BAR_COUNT;
+  const barGap = effectiveCompact ? 1 : 2;
+  const barHeightPx = effectiveCompact ? 20 : 28;
+  const playSize = effectiveCompact ? "w-6 h-6" : "w-8 h-8";
 
   return (
-    <div className={cn("flex items-center flex-1 min-w-0", compact ? "gap-1" : "gap-2")}>
+    <div className={cn("flex items-center flex-1 min-w-0", effectiveCompact ? "gap-1" : "gap-2")}>
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
 
       <button
@@ -156,9 +177,9 @@ export function AudioPlayer({
         title={playing ? "Pause" : "Lecture"}
       >
         {playing ? (
-          <Pause size={compact ? 11 : 14} strokeWidth={0} fill="currentColor" />
+          <Pause size={effectiveCompact ? 11 : 14} strokeWidth={0} fill="currentColor" />
         ) : (
-          <Play size={compact ? 11 : 14} strokeWidth={0} fill="currentColor" style={{ marginLeft: 1 }} />
+          <Play size={effectiveCompact ? 11 : 14} strokeWidth={0} fill="currentColor" style={{ marginLeft: 1 }} />
         )}
       </button>
 
@@ -167,7 +188,7 @@ export function AudioPlayer({
           réelle à la waveform, qui s'écrasait ou débordait de la carte
           (retour utilisateur 2026-07-14). Le tap-pour-naviguer sur la
           waveform reste disponible, c'est le geste principal de toute façon. */}
-      {!compact && (
+      {!effectiveCompact && (
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
@@ -181,7 +202,7 @@ export function AudioPlayer({
 
       {/* Waveform — cliquable pour naviguer */}
       <div
-        className={cn("relative flex-1 flex items-center cursor-pointer min-w-0", compact ? "h-5" : "h-8")}
+        className={cn("relative flex-1 flex items-center cursor-pointer min-w-0", effectiveCompact ? "h-5" : "h-8")}
         style={{ gap: barGap }}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
@@ -210,7 +231,7 @@ export function AudioPlayer({
         })}
       </div>
 
-      {!compact && (
+      {!effectiveCompact && (
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
@@ -225,7 +246,7 @@ export function AudioPlayer({
       {/* Temps : en compact, juste le total (identité du clip) — la valeur
           courante change à chaque frame de lecture et un libellé "0:12/1:34"
           fixe à 64px ne rentrait plus une fois la waveform déduite. */}
-      {compact ? (
+      {effectiveCompact ? (
         <span className="text-[9px] text-[var(--text-tertiary)] flex-shrink-0 tabular-nums">
           {fmt(playing ? currentTime : duration)}
         </span>
