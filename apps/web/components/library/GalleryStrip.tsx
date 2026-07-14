@@ -14,19 +14,27 @@ interface GalleryStripProps {
   currentId: string;
   items: StripItem[];
   onFallback: (items: StripItem[]) => void;
+  /** Le parent a fini de vérifier sessionStorage pour un contexte scoped
+   *  (résultats de recherche, collection, visite…). Tant que c'est faux, on
+   *  n'a pas encore la réponse — ne PAS déclencher le repli "toute la
+   *  bibliothèque" prématurément (voir DetailPageClient.tsx pour le détail
+   *  de la course évitée : cet effet, enfant, s'exécute avant celui du
+   *  parent qui lit sessionStorage). */
+  navContextChecked: boolean;
 }
 
-export function GalleryStrip({ currentId, items, onFallback }: GalleryStripProps) {
+export function GalleryStrip({ currentId, items, onFallback, navContextChecked }: GalleryStripProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Fallback: fetch from API when not coming from library
+  // Fallback: fetch from API only once on sait qu'il n'y a vraiment aucun
+  // contexte scoped (pas juste "pas encore vérifié").
   useEffect(() => {
-    if (items.length > 0) return;
+    if (items.length > 0 || !navContextChecked) return;
     fetch("/api/library/strip")
       .then((r) => r.json())
       .then((data) => onFallback(data.items ?? []))
       .catch(() => {});
-  }, [items.length, onFallback]);
+  }, [items.length, navContextChecked, onFallback]);
 
   // Center active thumbnail instantly in the strip
   useEffect(() => {

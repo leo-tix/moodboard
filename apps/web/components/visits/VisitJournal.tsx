@@ -1343,7 +1343,25 @@ function JournalItemBlock({
           draggable={false}
           onContextMenu={(e) => e.preventDefault()}
           style={{ WebkitTouchCallout: "none" }}
-          onClick={(e) => { if (sortable.wasDragging()) e.preventDefault(); }}
+          onClick={(e) => {
+            if (sortable.wasDragging()) { e.preventDefault(); return; }
+            // Contexte de navigation pour la visionneuse (←/→) — sans ça, ouvrir
+            // une image du carnet retombait sur le repli "toute la bibliothèque"
+            // de GalleryStrip, au lieu de ne parcourir que les images de CETTE
+            // visite.
+            try {
+              const context = {
+                items: visitImages.map((img) => ({
+                  id: img.id,
+                  title: img.title,
+                  thumbnailKey: img.thumbnailKey,
+                })),
+              };
+              sessionStorage.setItem("moodboard:libraryNav", JSON.stringify(context));
+            } catch {
+              // sessionStorage unavailable
+            }
+          }}
         >
           {item.thumbnailKey ? (
             // eslint-disable-next-line @next/next/no-img-element

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Pencil, X } from "lucide-react";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
@@ -139,6 +139,25 @@ export function CollectionDetailClient({
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // Contexte de navigation pour la visionneuse plein écran (←/→) — sans ça,
+  // ouvrir une image depuis une collection retombait sur le repli "toute la
+  // bibliothèque" de GalleryStrip (aucun contexte écrit), au lieu de ne
+  // parcourir que les images de CETTE collection.
+  const handleBeforeNavigate = useCallback(() => {
+    try {
+      const context = {
+        items: items.map(({ inspiration }) => ({
+          id: inspiration.id,
+          title: inspiration.title,
+          thumbnailKey: inspiration.images[0]?.thumbnailKey ?? null,
+        })),
+      };
+      sessionStorage.setItem("moodboard:libraryNav", JSON.stringify(context));
+    } catch {
+      // sessionStorage unavailable
+    }
+  }, [items]);
+
   return (
     <div className="space-y-10">
 
@@ -235,6 +254,7 @@ export function CollectionDetailClient({
                       selectable={selectMode}
                       selected={selected.has(inspiration.id)}
                       onSelect={selectMode ? toggleSelect : undefined}
+                      onBeforeNavigate={!selectMode ? handleBeforeNavigate : undefined}
                     />
 
                     {!selectMode && (

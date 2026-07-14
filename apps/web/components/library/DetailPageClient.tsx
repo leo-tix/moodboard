@@ -141,6 +141,16 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
   const [zoomIdx, setZoomIdx] = useState(DEFAULT_ZOOM_IDX);
   const [panelHidden, setPanelHidden] = useState(false);
   const [stripItems, setStripItems] = useState<StripItem[]>([]);
+  // Passé à GalleryStrip pour retarder son repli "toute la bibliothèque"
+  // jusqu'à ce qu'on ait vraiment vérifié sessionStorage — sans ça,
+  // GalleryStrip (descendant) exécute son effet de montage AVANT celui-ci
+  // (les effets enfants s'exécutent avant ceux du parent) : il voit
+  // `items.length === 0` (état initial, avant lecture) et démarre aussitôt
+  // son fetch "toute la bibliothèque", qui écrase ensuite le contexte
+  // correct une fois résolu — la navigation ←/→ retombait toujours sur la
+  // bibliothèque entière malgré un contexte scoped valide en sessionStorage
+  // (retour utilisateur : navigation contextuelle de la visionneuse).
+  const [navContextChecked, setNavContextChecked] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [immersive, setImmersive] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -183,7 +193,13 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
       if (sessionStorage.getItem("moodboard:copiedMeta")) {
         setHasCopied(true);
       }
-    } catch { /* sessionStorage unavailable */ }
+    } catch {
+      // sessionStorage unavailable
+    } finally {
+      // Dans TOUS les cas (contexte trouvé ou non, erreur ou non) — débloque
+      // le repli whole-library de GalleryStrip une fois la vérif faite.
+      setNavContextChecked(true);
+    }
   }, []);
 
   // ── Derive prev / next from strip order ──
@@ -530,6 +546,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         currentId={data.id}
         items={stripItems}
         onFallback={handleFallback}
+        navContextChecked={navContextChecked}
       />
 
       {/* ── Shortcuts overlay ── */}
