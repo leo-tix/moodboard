@@ -2118,7 +2118,11 @@ export function MoodboardEditor({ initialData }: Props) {
     (created: CreatedAudioBlock) => {
       const { x, y } = getViewportCenter();
       const W = 280;
-      const H = 300;
+      // Un peu plus haut que la première version (300) pour laisser de la
+      // place à la transcription "karaoke" (2026-07-14) sans avoir à
+      // redimensionner tout de suite — reste redimensionnable comme tout
+      // élément du canvas.
+      const H = 360;
       const el: AudioElement = {
         id: makeId(),
         type: "audio",
@@ -3987,6 +3991,7 @@ function ElementContent({
         <AudioMemoCard
           storageKey={el.storageKey}
           durationSec={el.durationSec}
+          transcript={el.transcript}
           authorName={el.authorName}
           authorImage={el.authorImage}
         />

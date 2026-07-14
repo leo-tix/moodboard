@@ -874,6 +874,7 @@ function ViewerElement({
       <AudioMemoCard
         storageKey={el.storageKey}
         durationSec={el.durationSec}
+        transcript={el.transcript}
         authorName={el.authorName}
         authorImage={el.authorImage}
       />
