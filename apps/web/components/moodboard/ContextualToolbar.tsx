@@ -1,6 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
+import {
+  Lock, LockOpen, Trash2, LayoutGrid, LayoutPanelTop,
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+  AlignLeft, AlignCenter, AlignRight, ArrowLeft, ArrowRight,
+} from "lucide-react";
 import type {
   CanvasElement,
   ImageElement,
@@ -80,19 +86,9 @@ function Sep() {
   );
 }
 
-// Mini lock/unlock SVG icons for the toolbar
-const LockClosedIcon = () => (
-  <svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor" aria-hidden>
-    <rect x="1.5" y="5" width="7" height="5.5" rx="1.2" />
-    <path d="M3 5V3.5a2 2 0 0 1 4 0V5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-  </svg>
-);
-const LockOpenIcon = () => (
-  <svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor" aria-hidden>
-    <rect x="1.5" y="5" width="7" height="5.5" rx="1.2" />
-    <path d="M3 5V3.5a2 2 0 0 1 4 0" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-  </svg>
-);
+// Mini lock/unlock icons for the toolbar
+const LockClosedIcon = () => <Lock size={13} strokeWidth={1.75} />;
+const LockOpenIcon = () => <LockOpen size={13} strokeWidth={1.75} />;
 
 function ColorSwatch({
   value,
@@ -282,70 +278,21 @@ function unitPatches(
 
 // ── Layout / Arrangement SVG icons ──────────────────────────────────────────
 
+const ICON = { size: 13, strokeWidth: 1.75 } as const;
 const LayoutIcons = {
-  grid: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="0" y="0" width="5" height="5" rx="0.5" />
-      <rect x="7" y="0" width="5" height="5" rx="0.5" />
-      <rect x="0" y="7" width="5" height="5" rx="0.5" />
-      <rect x="7" y="7" width="5" height="5" rx="0.5" />
-    </svg>
-  ),
-  masonry: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="0" y="0" width="5" height="7" rx="0.5" />
-      <rect x="0" y="9" width="5" height="3" rx="0.5" />
-      <rect x="7" y="0" width="5" height="3" rx="0.5" />
-      <rect x="7" y="5" width="5" height="7" rx="0.5" />
-    </svg>
-  ),
+  grid: <LayoutGrid size={ICON.size} strokeWidth={ICON.strokeWidth} />,
+  masonry: <LayoutPanelTop size={ICON.size} strokeWidth={ICON.strokeWidth} />,
 };
 
-// ── Alignment SVG icons ──────────────────────────────────────────────────────
+// ── Alignment icons (lucide) ─────────────────────────────────────────────────
 
 const AlignIcons = {
-  left: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="0" y="1" width="1.5" height="10" />
-      <rect x="2" y="2.5" width="5" height="2.5" rx="0.5" />
-      <rect x="2" y="7" width="8" height="2.5" rx="0.5" />
-    </svg>
-  ),
-  centerH: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="5.25" y="0" width="1.5" height="12" />
-      <rect x="2" y="2.5" width="8" height="2.5" rx="0.5" />
-      <rect x="1" y="7" width="10" height="2.5" rx="0.5" />
-    </svg>
-  ),
-  right: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="10.5" y="1" width="1.5" height="10" />
-      <rect x="5" y="2.5" width="5" height="2.5" rx="0.5" />
-      <rect x="2" y="7" width="8" height="2.5" rx="0.5" />
-    </svg>
-  ),
-  top: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="1" y="0" width="10" height="1.5" />
-      <rect x="2.5" y="2" width="2.5" height="5" rx="0.5" />
-      <rect x="7" y="2" width="2.5" height="8" rx="0.5" />
-    </svg>
-  ),
-  centerV: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="0" y="5.25" width="12" height="1.5" />
-      <rect x="2.5" y="2" width="2.5" height="8" rx="0.5" />
-      <rect x="7" y="1" width="2.5" height="10" rx="0.5" />
-    </svg>
-  ),
-  bottom: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="1" y="10.5" width="10" height="1.5" />
-      <rect x="2.5" y="4" width="2.5" height="6" rx="0.5" />
-      <rect x="7" y="1" width="2.5" height="9" rx="0.5" />
-    </svg>
-  ),
+  left: <AlignStartVertical size={ICON.size} strokeWidth={ICON.strokeWidth} />,
+  centerH: <AlignCenterVertical size={ICON.size} strokeWidth={ICON.strokeWidth} />,
+  right: <AlignEndVertical size={ICON.size} strokeWidth={ICON.strokeWidth} />,
+  top: <AlignStartHorizontal size={ICON.size} strokeWidth={ICON.strokeWidth} />,
+  centerV: <AlignCenterHorizontal size={ICON.size} strokeWidth={ICON.strokeWidth} />,
+  bottom: <AlignEndHorizontal size={ICON.size} strokeWidth={ICON.strokeWidth} />,
 };
 
 // ── Main toolbar ─────────────────────────────────────────────────────────────
@@ -573,29 +520,9 @@ export function ContextualToolbar({
                   active={((single as TextElement).textAlign ?? "left") === align}
                   onClick={() => upd(single.id, { textAlign: align })}
                 >
-                  <svg width="11" height="9" viewBox="0 0 11 9" fill="currentColor" aria-hidden>
-                    {align === "left" && (
-                      <>
-                        <rect x="0" y="0" width="11" height="1.5" rx="0.5"/>
-                        <rect x="0" y="3.5" width="7"  height="1.5" rx="0.5"/>
-                        <rect x="0" y="7"   width="9"  height="1.5" rx="0.5"/>
-                      </>
-                    )}
-                    {align === "center" && (
-                      <>
-                        <rect x="0"   y="0"   width="11" height="1.5" rx="0.5"/>
-                        <rect x="2"   y="3.5" width="7"  height="1.5" rx="0.5"/>
-                        <rect x="1"   y="7"   width="9"  height="1.5" rx="0.5"/>
-                      </>
-                    )}
-                    {align === "right" && (
-                      <>
-                        <rect x="0"   y="0"   width="11" height="1.5" rx="0.5"/>
-                        <rect x="4"   y="3.5" width="7"  height="1.5" rx="0.5"/>
-                        <rect x="2"   y="7"   width="9"  height="1.5" rx="0.5"/>
-                      </>
-                    )}
-                  </svg>
+                  {align === "left" && <AlignLeft size={13} strokeWidth={1.75} />}
+                  {align === "center" && <AlignCenter size={13} strokeWidth={1.75} />}
+                  {align === "right" && <AlignRight size={13} strokeWidth={1.75} />}
                 </ToolBtn>
               ))}
               <Sep />
@@ -779,7 +706,7 @@ export function ContextualToolbar({
                         : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
                     }`}
                   >
-                    ←
+                    <ArrowLeft size={13} strokeWidth={1.75} />
                   </button>
                   <button
                     title="Pointe de fin"
@@ -794,7 +721,7 @@ export function ContextualToolbar({
                         : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
                     }`}
                   >
-                    →
+                    <ArrowRight size={13} strokeWidth={1.75} />
                   </button>
                   <Sep />
                 </>
@@ -824,7 +751,7 @@ export function ContextualToolbar({
       {/* Delete */}
       <Sep />
       <ToolBtn title="Supprimer (Suppr)" onClick={onDeleteSelected} danger>
-        ✕
+        <Trash2 size={13} strokeWidth={1.75} />
       </ToolBtn>
     </div>
     </TouchCtx.Provider>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { CategorySelect } from "./CategorySelect";
 import { TagInput } from "./TagInput";
@@ -176,7 +177,7 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
             {/* Mode archives : Restaurer en priorité */}
             {isArchivedMode && (
               <Button size="sm" onClick={restore} loading={restoring}>
-                ↩ Restaurer vers triage
+                <span className="inline-flex items-center gap-1.5"><Undo2 size={14} strokeWidth={1.75} /> Restaurer vers triage</span>
               </Button>
             )}
 

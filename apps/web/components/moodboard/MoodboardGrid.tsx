@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { X, MoreHorizontal } from "lucide-react";
 import type { MoodboardData, MoodboardFolderData, CanvasElement } from "@/lib/moodboard/types";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import { cn } from "@/lib/utils";
@@ -325,9 +326,9 @@ function FolderPill({
         <span
           role="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="opacity-0 group-hover/pill:opacity-100 pointer-coarse:opacity-100 hover:text-red-400 transition-opacity"
+          className="opacity-0 group-hover/pill:opacity-100 pointer-coarse:opacity-100 hover:text-red-400 transition-opacity inline-flex items-center"
         >
-          ✕
+          <X size={12} strokeWidth={2} />
         </span>
       )}
     </button>
@@ -536,10 +537,10 @@ function MoodboardCard({
           <div className="relative" ref={menuRef}>
             <button
               onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-              className="opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all text-sm"
+              className="opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-all"
               title="Options"
             >
-              ⋯
+              <MoreHorizontal size={16} strokeWidth={2} />
             </button>
             {menuOpen && (
               <div
@@ -587,10 +588,10 @@ function MoodboardCard({
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(moodboard.id); }}
-            className="opacity-0 group-hover:opacity-100 w-6 h-6 hidden md:flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-all text-xs"
+            className="opacity-0 group-hover:opacity-100 w-6 h-6 hidden md:flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-all"
             title="Supprimer"
           >
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
       </div>

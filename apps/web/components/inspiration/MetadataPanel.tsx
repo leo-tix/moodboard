@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { X, Check } from "lucide-react";
 import { CategoryMultiSelect, type CategorySelection } from "./CategoryMultiSelect";
 import { TagInput } from "./TagInput";
 import { AutocompleteInput } from "./AutocompleteInput";
@@ -167,10 +168,10 @@ export function MetadataPanel({ id, initialData, colorPalette, initialCollection
                 <button
                   type="button"
                   onClick={() => removeFromCollection(col.id)}
-                  className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity leading-none"
+                  className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity leading-none inline-flex items-center"
                   title="Retirer de cette collection"
                 >
-                  ✕
+                  <X size={11} strokeWidth={2} />
                 </button>
               </span>
             ))}
@@ -270,7 +271,7 @@ export function MetadataPanel({ id, initialData, colorPalette, initialCollection
           </div>
         )}
         {!saving && saved && (
-          <span className="text-[10px] text-[var(--text-tertiary)]">Sauvegardé ✓</span>
+          <span className="text-[10px] text-[var(--text-tertiary)] inline-flex items-center gap-1">Sauvegardé <Check size={11} strokeWidth={2} /></span>
         )}
       </div>
 

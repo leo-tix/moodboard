@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { useRouter } from "next/navigation";
+import { Images, ArrowLeft, ArrowRight, Ban } from "lucide-react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   MoodboardData,
@@ -2578,7 +2579,7 @@ export function MoodboardEditor({ initialData }: Props) {
           }`}
           title="Bibliothèque d'images"
         >
-          ◻ Biblio
+          <span className="flex items-center gap-1"><Images size={13} strokeWidth={1.75} /> Biblio</span>
         </button>
 
         <div className="w-px h-4 bg-[var(--border-subtle)]" />
@@ -3086,7 +3087,7 @@ export function MoodboardEditor({ initialData }: Props) {
                             ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
                             : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:border-[var(--border-default)]"
                         }`}
-                      >∅</button>
+                      ><Ban size={12} strokeWidth={1.75} /></button>
                     </div>
                   )}
 
@@ -3133,13 +3134,13 @@ export function MoodboardEditor({ initialData }: Props) {
                           toolArrowStart !== "none"
                             ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
                             : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
-                        }`}>←</button>
+                        }`}><ArrowLeft size={13} strokeWidth={1.75} className="mx-auto" /></button>
                       <button title="Pointe fin" onClick={() => setToolArrowEnd(v => v === "none" ? "arrow" : "none")}
                         className={`flex-1 h-5 rounded text-[11px] border transition-colors ${
                           toolArrowEnd !== "none"
                             ? "border-[var(--accent,#a78bfa)] text-[var(--accent,#a78bfa)]"
                             : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
-                        }`}>→</button>
+                        }`}><ArrowRight size={13} strokeWidth={1.75} className="mx-auto" /></button>
                     </div>
                   )}
 

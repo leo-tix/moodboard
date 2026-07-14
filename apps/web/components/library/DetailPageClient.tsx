@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { X, ChevronLeft, ChevronRight, Copy, ClipboardPaste, Check, Minus, Plus, Maximize2 } from "lucide-react";
 import { getImageUrl } from "@/lib/storage/urls";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
 import { GalleryStrip, type StripItem } from "@/components/library/GalleryStrip";
@@ -98,9 +99,9 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
           <p className="text-xs font-medium text-[var(--text-primary)]">Raccourcis</p>
           <button
             onClick={onClose}
-            className="w-5 h-5 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors text-xs"
+            className="w-5 h-5 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
           >
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
         <div className="space-y-2">
@@ -348,11 +349,11 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         {/* Prev */}
         {prevItem ? (
           <Link href={`/library/${prevItem.id}`} replace title={`← ${prevItem.title}`}
-            className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors text-base sm:text-sm">
-            ‹
+            className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors">
+            <ChevronLeft size={18} strokeWidth={2} />
           </Link>
         ) : (
-          <span className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)] text-base sm:text-sm">‹</span>
+          <span className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)]"><ChevronLeft size={18} strokeWidth={2} /></span>
         )}
 
         {/* Title + counter */}
@@ -366,11 +367,11 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         {/* Next */}
         {nextItem ? (
           <Link href={`/library/${nextItem.id}`} replace title={`${nextItem.title} →`}
-            className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors text-base sm:text-sm">
-            ›
+            className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded transition-colors">
+            <ChevronRight size={18} strokeWidth={2} />
           </Link>
         ) : (
-          <span className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)] text-base sm:text-sm">›</span>
+          <span className="flex-shrink-0 w-9 h-9 sm:w-6 sm:h-6 flex items-center justify-center opacity-20 text-[var(--text-tertiary)]"><ChevronRight size={18} strokeWidth={2} /></span>
         )}
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
@@ -381,8 +382,8 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
           title="Copier les métadonnées (auteur, année, tags, catégories…)"
           className="flex items-center gap-1 h-9 px-2 sm:h-6 sm:px-1.5 rounded transition-colors flex-shrink-0 text-xs sm:text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
         >
-          <span className="sm:hidden">{copied ? "✓" : "⎘"}</span>
-          <span className="hidden sm:inline">{copied ? "✓ Copié" : "⎘ Copier"}</span>
+          <span className="sm:hidden flex">{copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.75} />}</span>
+          <span className="hidden sm:inline-flex items-center gap-1">{copied ? <><Check size={12} strokeWidth={2} /> Copié</> : <><Copy size={12} strokeWidth={1.75} /> Copier</>}</span>
         </button>
         {hasCopied && (
           <button
@@ -390,8 +391,8 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             title="Coller les métadonnées sur cette image"
             className="flex items-center gap-1 h-9 px-2 sm:h-6 sm:px-1.5 rounded transition-colors flex-shrink-0 text-xs sm:text-[10px] text-[var(--accent,#a78bfa)] hover:opacity-80 hover:bg-[var(--bg-surface)]"
           >
-            <span className="sm:hidden">{pasted ? "✓" : "⎗"}</span>
-            <span className="hidden sm:inline">{pasted ? "✓ Collé" : "⎘ Coller"}</span>
+            <span className="sm:hidden flex">{pasted ? <Check size={14} strokeWidth={2} /> : <ClipboardPaste size={14} strokeWidth={1.75} />}</span>
+            <span className="hidden sm:inline-flex items-center gap-1">{pasted ? <><Check size={12} strokeWidth={2} /> Collé</> : <><ClipboardPaste size={12} strokeWidth={1.75} /> Coller</>}</span>
           </button>
         )}
 
@@ -401,7 +402,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         <div className="hidden sm:flex items-center gap-0.5 flex-shrink-0">
           <button onClick={zoomOut} disabled={zoomIdx === 0}
             className="w-6 h-6 flex items-center justify-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded disabled:opacity-20 transition-colors"
-            title="Zoom arrière (−)">−</button>
+            title="Zoom arrière (−)"><Minus size={14} strokeWidth={2} /></button>
           <button
             onClick={() => isZoomed && setZoomIdx(DEFAULT_ZOOM_IDX)}
             className={`px-1.5 h-6 text-[10px] rounded transition-colors tabular-nums min-w-[2.75rem] text-center ${
@@ -412,7 +413,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
           </button>
           <button onClick={zoomIn} disabled={zoomIdx === ZOOM_LEVELS.length - 1}
             className="w-6 h-6 flex items-center justify-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded disabled:opacity-20 transition-colors"
-            title="Zoom avant (+)">+</button>
+            title="Zoom avant (+)"><Plus size={14} strokeWidth={2} /></button>
         </div>
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
@@ -470,9 +471,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
           )}
           {/* Affordance plein écran */}
           <div className="absolute bottom-2.5 right-2.5 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 1H1v4M8 1h4v4M5 12H1V8M8 12h4V8" />
-            </svg>
+            <Maximize2 size={13} strokeWidth={1.6} className="text-white/85" />
           </div>
         </div>
 

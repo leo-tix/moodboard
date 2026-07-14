@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
+import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { getImageUrl } from "@/lib/storage/urls";
 
 export interface LightboxItem {
@@ -91,10 +92,10 @@ export function Lightbox({ items, currentIndex, onClose, onNavigate }: LightboxP
           </Link>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center text-white/50 hover:text-white transition-colors rounded-full hover:bg-white/10 text-base leading-none"
+            className="w-8 h-8 flex items-center justify-center text-white/50 hover:text-white transition-colors rounded-full hover:bg-white/10 leading-none"
             aria-label="Fermer"
           >
-            ✕
+            <X size={18} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -133,10 +134,10 @@ export function Lightbox({ items, currentIndex, onClose, onNavigate }: LightboxP
         {hasPrev && (
           <button
             onClick={(e) => { e.stopPropagation(); onNavigate(currentIndex - 1); }}
-            className="absolute left-2 md:left-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/50 hover:text-white transition-colors rounded-full hover:bg-white/10 text-lg z-10"
+            className="absolute left-2 md:left-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/50 hover:text-white transition-colors rounded-full hover:bg-white/10 z-10"
             aria-label="Précédent"
           >
-            ←
+            <ChevronLeft size={22} strokeWidth={2} />
           </button>
         )}
 
@@ -144,10 +145,10 @@ export function Lightbox({ items, currentIndex, onClose, onNavigate }: LightboxP
         {hasNext && (
           <button
             onClick={(e) => { e.stopPropagation(); onNavigate(currentIndex + 1); }}
-            className="absolute right-2 md:right-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/50 hover:text-white transition-colors rounded-full hover:bg-white/10 text-lg z-10"
+            className="absolute right-2 md:right-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/50 hover:text-white transition-colors rounded-full hover:bg-white/10 z-10"
             aria-label="Suivant"
           >
-            →
+            <ChevronRight size={22} strokeWidth={2} />
           </button>
         )}
       </div>

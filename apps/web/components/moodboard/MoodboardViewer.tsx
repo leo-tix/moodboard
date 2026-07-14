@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
+import { X } from "lucide-react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   CanvasElement,
@@ -84,10 +85,10 @@ function NavigationGuide({ onClose }: { onClose: () => void }) {
         </div>
         <button
           onClick={onClose}
-          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors text-xs leading-none"
+          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors leading-none"
           title="Fermer"
         >
-          ✕
+          <X size={16} strokeWidth={2} />
         </button>
       </div>
 

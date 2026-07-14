@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { motion, type PanInfo } from "framer-motion";
+import { LayoutDashboard, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { useDragHandle } from "@/hooks/useDragHandle";
@@ -116,9 +117,7 @@ export function InspirationCard({
       {/* Badge moodboards */}
       {moodboardCount != null && moodboardCount > 0 && (
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[9px] font-medium px-1.5 py-0.5 rounded-full pointer-events-none">
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="1" y="3" width="8" height="6" rx="1"/><path d="M3 3V2a2 2 0 014 0v1"/>
-          </svg>
+          <LayoutDashboard size={9} strokeWidth={1.5} />
           {moodboardCount}
         </div>
       )}
@@ -136,7 +135,7 @@ export function InspirationCard({
               : "bg-black/40 border-white/40"
           )}
         >
-          {selected && <span className="text-[var(--bg-base)] text-[9px] font-bold">✓</span>}
+          {selected && <Check size={12} strokeWidth={3} className="text-[var(--bg-base)]" />}
         </div>
       )}
 

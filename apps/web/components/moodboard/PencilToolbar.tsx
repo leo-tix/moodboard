@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Pen, Highlighter, Eraser, Undo2, Trash2, X, GripVertical } from "lucide-react";
 import type { PencilTool } from "./PencilLayer";
 
 // ── Preset palettes ─────────────────────────────────────────────────────────
@@ -24,62 +25,13 @@ const SIZES: { label: string; value: number }[] = [
 
 // ── Icons ───────────────────────────────────────────────────────────────────
 
-const PenIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 2.5l2.5 2.5L5 13.5 2 14l.5-3L11 2.5z"/>
-    <path d="M9.5 4l2.5 2.5"/>
-  </svg>
-);
-
-const MarkerIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 13l2-5L12 3l1 1-7 7-5 2z"/>
-    <path d="M9 5l2 2"/>
-    <path d="M3 13l1-1"/>
-  </svg>
-);
-
-const EraserIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2 14h12"/>
-    <path d="M12.5 3.5L14 5 7.5 11.5 4 12 3.5 8.5 10 2l2.5 1.5z"/>
-    <path d="M3.5 8.5L7.5 12"/>
-  </svg>
-);
-
-const UndoIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2 5h6a3 3 0 0 1 0 6H5"/>
-    <path d="M2 5l3-3M2 5l3 3"/>
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2 3.5h9"/>
-    <path d="M5 3.5V2.5h3v1"/>
-    <rect x="3" y="3.5" width="7" height="8" rx="1"/>
-    <path d="M5.5 6v3.5M7.5 6v3.5"/>
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-    <path d="M1 1l9 9M10 1L1 10"/>
-  </svg>
-);
-
-// Drag handle: 2×3 grid of dots
-const GripIcon = () => (
-  <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-    <circle cx="2.5" cy="2.5" r="1.5"/>
-    <circle cx="7.5" cy="2.5" r="1.5"/>
-    <circle cx="2.5" cy="7"   r="1.5"/>
-    <circle cx="7.5" cy="7"   r="1.5"/>
-    <circle cx="2.5" cy="11.5" r="1.5"/>
-    <circle cx="7.5" cy="11.5" r="1.5"/>
-  </svg>
-);
+const PenIcon = () => <Pen size={16} strokeWidth={1.6} />;
+const MarkerIcon = () => <Highlighter size={16} strokeWidth={1.6} />;
+const EraserIcon = () => <Eraser size={16} strokeWidth={1.6} />;
+const UndoIcon = () => <Undo2 size={13} strokeWidth={1.6} />;
+const TrashIcon = () => <Trash2 size={13} strokeWidth={1.6} />;
+const CloseIcon = () => <X size={12} strokeWidth={1.6} />;
+const GripIcon = () => <GripVertical size={14} strokeWidth={2} />;
 
 // ── Component ───────────────────────────────────────────────────────────────
 

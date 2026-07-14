@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import { getImageUrl } from "@/lib/storage/urls";
 
 interface ImmersiveViewerProps {
@@ -303,10 +304,10 @@ export function ImmersiveViewer({
         <div className="flex items-center gap-2 px-2 py-1.5">
           <button
             onClick={onClose}
-            className="w-11 h-11 flex items-center justify-center text-white/80 active:text-white text-lg flex-shrink-0"
+            className="w-11 h-11 flex items-center justify-center text-white/80 active:text-white flex-shrink-0"
             aria-label="Fermer"
           >
-            ✕
+            <X size={20} strokeWidth={2} />
           </button>
           <p className="flex-1 min-w-0 text-white/90 text-sm font-light truncate">{title}</p>
           {counter && (

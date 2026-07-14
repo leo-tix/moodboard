@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ChevronDown, CircleSlash } from "lucide-react";
 import { InspirationGrid, type InspirationGridItem } from "./InspirationGrid";
 import { BatchEditBar } from "./BatchEditBar";
 import { LibraryDropZone, type DropTarget, type LibraryDropZoneHandle } from "./LibraryDropZone";
@@ -65,13 +66,7 @@ function Dropdown<T extends string>({
         }`}
       >
         {displayLabel}
-        <svg
-          className={`w-3 h-3 opacity-60 transition-transform ${open ? "rotate-180" : ""}`}
-          viewBox="0 0 12 12"
-          fill="none"
-        >
-          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <ChevronDown size={12} strokeWidth={1.75} className={`opacity-60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       <AnimatePresence>
@@ -138,13 +133,7 @@ function SortDropdown({
         className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)] transition-all whitespace-nowrap"
       >
         {SORT_LABELS[value]}
-        <svg
-          className={`w-3 h-3 opacity-50 transition-transform ${open ? "rotate-180" : ""}`}
-          viewBox="0 0 12 12"
-          fill="none"
-        >
-          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <ChevronDown size={12} strokeWidth={1.75} className={`opacity-50 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       <AnimatePresence>
@@ -507,7 +496,7 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
                     className="text-xs text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-full border border-amber-500/40 hover:border-amber-500/70 transition-colors whitespace-nowrap"
                     title="Sélectionner toutes les images absentes de toute planche"
                   >
-                    ⊘ Non-utilisées ({unusedIds.size})
+                    <span className="inline-flex items-center gap-1"><CircleSlash size={12} strokeWidth={1.75} /> Non-utilisées ({unusedIds.size})</span>
                   </button>
                 )}
                 <button

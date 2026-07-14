@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check, Layers, Landmark, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CollectionOption { id: string; name: string }
@@ -189,7 +190,7 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
                     data-drop-target={JSON.stringify({ type: "collection", id: c.id, name: c.name })}
                     className={chipClass(`col-${c.id}`)}
                   >
-                    {successKey === `col-${c.id}` ? "✓" : "▣"} {c.name}
+                    <span className="inline-flex items-center gap-1">{successKey === `col-${c.id}` ? <Check size={13} strokeWidth={2} /> : <Layers size={13} strokeWidth={1.75} />} {c.name}</span>
                   </div>
                 ))}
 
@@ -202,7 +203,7 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
                     className={chipClass(`visit-${v.id}`)}
                     title={visitLabel(v)}
                   >
-                    {successKey === `visit-${v.id}` ? "✓" : "🏛"} {v.place}
+                    <span className="inline-flex items-center gap-1">{successKey === `visit-${v.id}` ? <Check size={13} strokeWidth={2} /> : <Landmark size={13} strokeWidth={1.75} />} {v.place}</span>
                   </div>
                 ))}
               </div>
@@ -240,7 +241,7 @@ export const LibraryDropZone = forwardRef<LibraryDropZoneHandle, LibraryDropZone
                   )}
                   title="Supprimer"
                 >
-                  🗑
+                  <Trash2 size={16} strokeWidth={1.75} />
                 </div>
               )}
             </div>
