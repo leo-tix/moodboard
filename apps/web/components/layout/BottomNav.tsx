@@ -8,16 +8,20 @@ import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Setting
 import { cn } from "@/lib/utils";
 import { TriageBadge } from "@/components/triage/TriageBadge";
 
+// 5 slots (4 items ici + le bouton "Plus" ajouté séparément dans le JSX) avec
+// le "+" en position centrale (index 2 sur 5 : 2 items avant, Recherche +
+// "Plus" après) — Collections déplacée vers "Plus" pour lui laisser sa place
+// (demande utilisateur 2026-07-14, le "+" doit être visuellement centré).
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; primary?: boolean }[] = [
   { href: "/library",     label: "Biblio",      icon: Images },
-  { href: "/collections", label: "Collections", icon: Layers },
-  { href: "/upload",      label: "Ajouter",     icon: Plus, primary: true },
   { href: "/triage",      label: "Triage",      icon: Inbox },
+  { href: "/upload",      label: "Ajouter",     icon: Plus, primary: true },
   { href: "/search",      label: "Recherche",   icon: Search },
 ];
 
 // Destinations secondaires — accessibles via le bouton "Plus"
 const MORE_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/collections",     label: "Collections", icon: Layers },
   { href: "/moodboards",      label: "Planches", icon: LayoutDashboard },
   { href: "/visites",         label: "Visites",  icon: Landmark },
   { href: "/settings/general", label: "Réglages", icon: Settings },
