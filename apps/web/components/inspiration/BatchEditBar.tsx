@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Undo2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { CategorySelect } from "./CategorySelect";
 import { TagInput } from "./TagInput";
@@ -37,6 +38,11 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
+  // Bascule mobile entre le panneau "Actions" (défaut — Restaurer/Collections/
+  // Supprimer) et "Modifier" (Titre/Catégorie/Tags + Appliquer), retiré
+  // ci-avant puis redemandé par l'utilisateur : garder la feuille mobile
+  // épurée par défaut tout en gardant l'édition de métadonnées accessible.
+  const [mobilePanel, setMobilePanel] = useState<"actions" | "edit">("actions");
 
   useEffect(() => {
     fetch("/api/categories")
@@ -111,12 +117,12 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
       <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border-t border-[var(--border-default)] rounded-t-2xl md:rounded-none px-4 pt-2 md:pt-3 pb-3"
            style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
 
-        {/* ───────── Mobile : feuille verticale plein écran, pas de scroll
-            horizontal — chaque champ prend toute la largeur, gros boutons
-            tactiles. Les champs Titre/Catégorie/Tags sont MASQUÉS en mode
-            archives : aucun bouton n'y déclenche leur sauvegarde dans ce
-            mode (seuls Restaurer/Supprimer agissent), les montrer serait un
-            cul-de-sac. */}
+        {/* ───────── Mobile : feuille verticale, pas de scroll horizontal.
+            Bascule "Actions" / "Modifier" à indicateur glissant (framer
+            layoutId) : la feuille reste épurée par défaut (Restaurer/
+            Collections/Supprimer) tout en gardant l'édition de métadonnées
+            en masse (Titre/Catégorie/Tags) à un tap, y compris en mode
+            archives. */}
         <div className="md:hidden">
           <div className="flex justify-center pb-2">
             <div className="w-8 h-1 rounded-full bg-[var(--border-default)]" />
@@ -131,8 +137,34 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
             </button>
           </div>
 
-          {!isArchivedMode && (
-            <div className="flex flex-col gap-3 mb-4">
+          {/* Bascule à indicateur glissant */}
+          <div className="relative flex p-1 mb-3 rounded-lg bg-[var(--bg-surface)]">
+            {(["actions", "edit"] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setMobilePanel(id)}
+                className="relative flex-1 py-1.5 text-xs font-medium rounded-md"
+              >
+                {mobilePanel === id && (
+                  <motion.div
+                    layoutId="batchEditBarTabIndicator"
+                    className="absolute inset-0 rounded-md bg-[var(--bg-elevated)] shadow-sm"
+                    transition={{ type: "spring", bounce: 0.15, duration: 0.25 }}
+                  />
+                )}
+                <span className={cn(
+                  "relative z-10 transition-colors",
+                  mobilePanel === id ? "text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"
+                )}>
+                  {id === "actions" ? "Actions" : "Modifier"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {mobilePanel === "edit" ? (
+            <div className="flex flex-col gap-3">
               <div>
                 <label className={sectionLabel}>Titre (identique)</label>
                 <input
@@ -162,51 +194,50 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
                   <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
                 </div>
               </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2.5">
-            {isArchivedMode ? (
-              <Button onClick={restore} loading={restoring} className="w-full">
-                <span className="inline-flex items-center gap-1.5"><Undo2 size={14} strokeWidth={1.75} /> Restaurer vers triage</span>
-              </Button>
-            ) : (
               <Button onClick={save} loading={saving} disabled={!hasPatch} className="w-full">
                 Appliquer
               </Button>
-            )}
-
-            <div className="flex items-center justify-between gap-3 px-0.5">
-              {!isArchivedMode ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCollectionModal(true)}
-                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  ▣ Ajouter à une collection
-                </button>
-              ) : <span />}
-
-              {confirmDelete ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-red-400">Confirmer ?</span>
-                  <button onClick={deleteAll} disabled={deleting} className="text-xs font-medium text-red-400 hover:text-red-300">
-                    {deleting ? "…" : "Oui"}
-                  </button>
-                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
-                    Non
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmDelete(true)}
-                  className="text-xs text-[var(--text-tertiary)] hover:text-red-400 transition-colors"
-                >
-                  Supprimer tout
-                </button>
-              )}
             </div>
-          </div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {isArchivedMode && (
+                <Button onClick={restore} loading={restoring} className="w-full">
+                  <span className="inline-flex items-center gap-1.5"><Undo2 size={14} strokeWidth={1.75} /> Restaurer vers triage</span>
+                </Button>
+              )}
+
+              <div className="flex items-center justify-between gap-3 px-0.5">
+                {!isArchivedMode ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCollectionModal(true)}
+                    className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    ▣ Ajouter à une collection
+                  </button>
+                ) : <span />}
+
+                {confirmDelete ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-red-400">Confirmer ?</span>
+                    <button onClick={deleteAll} disabled={deleting} className="text-xs font-medium text-red-400 hover:text-red-300">
+                      {deleting ? "…" : "Oui"}
+                    </button>
+                    <button onClick={() => setConfirmDelete(false)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+                      Non
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="text-xs text-[var(--text-tertiary)] hover:text-red-400 transition-colors"
+                  >
+                    Supprimer tout
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ───────── Desktop : rangée horizontale compacte (espace large,
@@ -226,56 +257,55 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
 
           <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
 
-          {!isArchivedMode && (
-            <>
-              {/* Title */}
-              <div className="w-44 flex-shrink-0">
-                <label className={sectionLabel}>Titre (identique)</label>
-                <input
-                  className={fieldClass}
-                  placeholder="Laisser vide = inchangé"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </div>
+          {/* Titre/Catégorie/Tags : toujours visibles (y compris en mode
+              archives) — Appliquer est désormais toujours disponible aussi
+              (voir Actions ci-dessous), ces champs ne sont donc plus jamais
+              un cul-de-sac. Édition en masse redemandée par l'utilisateur
+              après avoir été retirée par erreur du mode archives. */}
+          <div className="w-44 flex-shrink-0">
+            <label className={sectionLabel}>Titre (identique)</label>
+            <input
+              className={fieldClass}
+              placeholder="Laisser vide = inchangé"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
 
-              {/* Category — dropUp so dropdown opens upward */}
-              <div className="w-44 flex-shrink-0">
-                <label className={sectionLabel}>Catégorie</label>
-                {categories.length > 0 ? (
-                  <CategorySelect
-                    categories={categories}
-                    value={category}
-                    onChange={setCategory}
-                    dropUp
-                    showCreateButton
-                  />
-                ) : (
-                  <div className={`${fieldClass} text-[var(--text-tertiary)]`}>Chargement…</div>
-                )}
-              </div>
+          {/* Category — dropUp so dropdown opens upward */}
+          <div className="w-44 flex-shrink-0">
+            <label className={sectionLabel}>Catégorie</label>
+            {categories.length > 0 ? (
+              <CategorySelect
+                categories={categories}
+                value={category}
+                onChange={setCategory}
+                dropUp
+                showCreateButton
+              />
+            ) : (
+              <div className={`${fieldClass} text-[var(--text-tertiary)]`}>Chargement…</div>
+            )}
+          </div>
 
-              {/* Tags */}
-              <div className="w-44 flex-shrink-0">
-                <label className={sectionLabel}>Ajouter des tags</label>
-                <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
-              </div>
+          {/* Tags */}
+          <div className="w-44 flex-shrink-0">
+            <label className={sectionLabel}>Ajouter des tags</label>
+            <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
+          </div>
 
-              <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
-            </>
-          )}
+          <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
 
           {/* Actions */}
           <div className="flex-shrink-0 flex flex-col justify-center gap-2 pt-3">
-            {isArchivedMode ? (
+            {isArchivedMode && (
               <Button size="sm" onClick={restore} loading={restoring}>
                 <span className="inline-flex items-center gap-1.5"><Undo2 size={14} strokeWidth={1.75} /> Restaurer vers triage</span>
               </Button>
-            ) : (
-              <Button size="sm" onClick={save} loading={saving} disabled={!hasPatch}>
-                Appliquer
-              </Button>
             )}
+            <Button size="sm" onClick={save} loading={saving} disabled={!hasPatch}>
+              Appliquer
+            </Button>
             {!isArchivedMode && (
               <button
                 type="button"
