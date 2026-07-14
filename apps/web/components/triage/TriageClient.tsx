@@ -133,11 +133,13 @@ function BottomSheet({
 
   return (
     <>
-      {/* Backdrop — image plein écran quand fourni (mode "expanded"), sinon voile noir classique */}
+      {/* Backdrop — image plein écran quand fourni (mode "expanded"), sinon voile noir classique.
+          z-[61] : au-dessus de BottomNav (z-[60], toujours monté) — sinon la
+          nav restait visible/cliquable par-dessus le voile. */}
       {open && (
         <div
           ref={backdropRef}
-          className="fixed inset-0 z-40 md:hidden"
+          className="fixed inset-0 z-[61] md:hidden"
           onClick={onClose}
         >
           {backdrop ?? <div className="absolute inset-0 bg-black/40" />}
@@ -145,10 +147,14 @@ function BottomSheet({
       )}
       {/* Sheet — touch-action:none scoped à la seule zone de drag (poignée/en-tête) ;
           le mettre sur tout le conteneur bloquerait aussi le scroll natif du
-          contenu en dessous (touch-action d'un ancêtre restreint ses descendants). */}
+          contenu en dessous (touch-action d'un ancêtre restreint ses descendants).
+          z-[65] > BottomNav (z-[60], toujours monté, fixed bottom-0) : sinon la
+          nav capte les gestes tactiles sur la bande du bas de la feuille et
+          "Année" (dernier champ) reste inatteignable même une fois scrollé
+          (bug remonté 2026-07-14, persistait après le premier fix min-h-0). */}
       <div
         ref={sheetRef}
-        className={`fixed inset-x-0 bottom-0 z-50 md:hidden transition-transform duration-300 ease-out ${
+        className={`fixed inset-x-0 bottom-0 z-[65] md:hidden transition-transform duration-300 ease-out ${
           open ? "translate-y-0" : "translate-y-full"
         }`}
         style={{ maxHeight: "80vh" }}
@@ -186,7 +192,15 @@ function BottomSheet({
               champs du bas inatteignables (bug remonté 2026-07-14). */}
           <div
             className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4"
-            style={{ overscrollBehavior: "contain", touchAction: "pan-y" }}
+            style={{
+              overscrollBehavior: "contain",
+              touchAction: "pan-y",
+              // Le contenu peut désormais scroller AU-DESSUS de BottomNav
+              // (z-[65]), mais sans cette marge le dernier champ ("Année")
+              // finissait pile derrière la nav (56px + safe-area) même
+              // entièrement scrollé — visible mais son input restait masqué.
+              paddingBottom: "calc(56px + env(safe-area-inset-bottom) + 20px)",
+            }}
           >
             {children}
           </div>
