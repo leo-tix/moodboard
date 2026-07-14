@@ -102,66 +102,94 @@ export function VisitCoverCarousel({
   if (images.length === 0) return null;
 
   return (
-    <div className={cn("relative -mx-4 md:-mx-6 -mt-4 md:-mt-6 mb-5 h-[38vh] md:h-[46vh] overflow-hidden", className)}>
-      <div
-        ref={scrollerRef}
-        className="h-full w-full flex overflow-x-auto snap-x snap-mandatory scroll-smooth"
-        style={{ scrollbarWidth: "none" }}
-      >
-        {images.map((img) => (
-          <div key={img.id} className="h-full w-full flex-shrink-0 snap-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={getImageUrl(img.storageKey)}
-              alt=""
-              loading={img.id === images[0].id ? "eager" : "lazy"}
-              className="h-full w-full object-cover"
-            />
-          </div>
+    // Détachée des bords + coins arrondis + halo lumineux (retour utilisateur
+    // 2026-07-14) — a remplacé le bandeau plein-large "Apple Journal"
+    // d'origine (voir ancien commit) : hauteur réduite d'1/4 (h-[38/46vh] →
+    // h-[29/35vh]), marge haute au lieu du tuck sous la barre sticky.
+    <div className={cn("relative mt-2 md:mt-3 mb-5 h-[29vh] md:h-[35vh]", className)}>
+      {/* Halo lumineux : version floutée/agrandie de l'image active, posée
+          DERRIÈRE la carte et débordant largement au-delà (façon "ambient
+          light" Apple TV) — un calque par image, crossfade par opacité au
+          changement d'`activeIndex` pour "réagir" au défilement du carrousel. */}
+      <div className="pointer-events-none absolute -inset-6 md:-inset-10 -z-10 overflow-hidden rounded-[2rem]">
+        {images.map((img, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={img.id}
+            src={getImageUrl(img.storageKey)}
+            alt=""
+            aria-hidden
+            className={cn(
+              "absolute inset-0 h-full w-full object-cover scale-110 blur-3xl saturate-150 transition-opacity duration-700",
+              i === activeIndex ? "opacity-70" : "opacity-0"
+            )}
+          />
         ))}
       </div>
 
-      {/* Retour flottant façon Journal — visible sans scroller, par-dessus la photo */}
-      {backHref && (
-        <Link
-          href={backHref}
-          className="absolute top-3 left-3 md:top-4 md:left-4 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm text-white/90 hover:bg-black/70 transition-colors"
-          title="Retour au carnet de visite"
+      {/* Carte nette : image, dégradés, infos — clip + coins arrondis */}
+      <div className="relative h-full w-full overflow-hidden rounded-2xl">
+        <div
+          ref={scrollerRef}
+          className="h-full w-full flex overflow-x-auto snap-x snap-mandatory scroll-smooth"
+          style={{ scrollbarWidth: "none" }}
         >
-          <ChevronLeft size={16} strokeWidth={2} />
-        </Link>
-      )}
-
-      {/* Slot haut-droite (ex. bouton Partager) */}
-      {topRight && <div className="absolute top-3 right-3 md:top-4 md:right-4 z-10">{topRight}</div>}
-
-      {/* Dégradé de lisibilité (haut + bas) et infos en grand — cover "premium" */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/50 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
-      <div className="absolute inset-x-0 bottom-8 px-5 md:px-8">
-        {children ?? (
-          <h1
-            className="pointer-events-none text-white font-light text-3xl md:text-5xl leading-[1.05] tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]"
-            style={{ textWrap: "balance" }}
-          >
-            {title}
-          </h1>
-        )}
-      </div>
-
-      {images.length > 1 && (
-        <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-1.5">
-          {images.map((img, i) => (
-            <span
-              key={img.id}
-              className={cn(
-                "h-1.5 rounded-full transition-all",
-                i === activeIndex ? "w-4 bg-white" : "w-1.5 bg-white/40"
-              )}
-            />
+          {images.map((img) => (
+            <div key={img.id} className="h-full w-full flex-shrink-0 snap-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={getImageUrl(img.storageKey)}
+                alt=""
+                loading={img.id === images[0].id ? "eager" : "lazy"}
+                className="h-full w-full object-cover"
+              />
+            </div>
           ))}
         </div>
-      )}
+
+        {/* Retour flottant façon Journal — visible sans scroller, par-dessus la photo */}
+        {backHref && (
+          <Link
+            href={backHref}
+            className="absolute top-3 left-3 md:top-4 md:left-4 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm text-white/90 hover:bg-black/70 transition-colors"
+            title="Retour au carnet de visite"
+          >
+            <ChevronLeft size={16} strokeWidth={2} />
+          </Link>
+        )}
+
+        {/* Slot haut-droite (ex. bouton Partager) */}
+        {topRight && <div className="absolute top-3 right-3 md:top-4 md:right-4 z-10">{topRight}</div>}
+
+        {/* Dégradé de lisibilité (haut + bas), plus prononcé qu'avant — et
+            infos en grand par-dessus, cover "premium". */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/95 via-black/50 to-transparent" />
+        <div className="absolute inset-x-0 bottom-8 px-5 md:px-8">
+          {children ?? (
+            <h1
+              className="pointer-events-none text-white font-light text-3xl md:text-5xl leading-[1.05] tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]"
+              style={{ textWrap: "balance" }}
+            >
+              {title}
+            </h1>
+          )}
+        </div>
+
+        {images.length > 1 && (
+          <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-1.5">
+            {images.map((img, i) => (
+              <span
+                key={img.id}
+                className={cn(
+                  "h-1.5 rounded-full transition-all",
+                  i === activeIndex ? "w-4 bg-white" : "w-1.5 bg-white/40"
+                )}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -66,7 +66,7 @@ export default async function PublicCarnetPage({ params }: Props) {
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
-      <div className="max-w-3xl mx-auto p-4 md:p-6">
+      <div className="max-w-4xl mx-auto p-4 md:p-6">
         {/* Infos superposées SUR la cover (titre/lieu/date), pas de doublon
             en dessous — cohérent avec la page de détail. */}
         {hasCover ? (

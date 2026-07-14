@@ -101,20 +101,20 @@ export default async function VisiteDetailPage({ params }: Props) {
   return (
     // Largeur limitée + centrée, à l'image du carnet public (carnet/[token]) —
     // demande utilisateur 2026-07-14 : "ce sera + classe" + réduit
-    // naturellement le nombre de colonnes d'images visibles.
-    <div className="max-w-3xl mx-auto p-4 md:p-6">
+    // naturellement le nombre de colonnes d'images visibles. Élargie ensuite
+    // à max-w-4xl (retour "rendre un petit peu plus large l'ensemble").
+    <div className="max-w-4xl mx-auto p-4 md:p-6">
       {/* Retour + Partager ancrés en haut (sticky) : accessibles pendant tout
           le défilement du carnet (demande utilisateur 2026-07-14). */}
       <VisitTopBar backHref="/visites">{shareButton}</VisitTopBar>
 
       {/* Cover premium : le titre/lieu/date (éditables) superposés SUR la
-          couverture — plus de bloc d'infos dupliqué en dessous. Détachée des
-          bords + coins arrondis (demande utilisateur 2026-07-14, "+ classe") —
-          seul le tuck vertical sous la barre sticky transparente (-mt-14 =
-          hauteur de barre) est conservé, l'édge-to-edge horizontal (mx) du
-          composant est annulé ici. */}
+          couverture — plus de bloc d'infos dupliqué en dessous. Détachée +
+          arrondie + halo lumineux : tout le style vit désormais dans les
+          classes par défaut de VisitCoverCarousel (partagées avec la page
+          publique), plus besoin d'override ici. */}
       {hasCover ? (
-        <VisitCoverCarousel images={coverImages} className="-mt-14 md:-mt-14 mx-0 md:mx-0 rounded-2xl">
+        <VisitCoverCarousel images={coverImages}>
           {editableHeader}
         </VisitCoverCarousel>
       ) : (
