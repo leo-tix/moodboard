@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Heading, Pilcrow, Quote, Mic, Columns2, Image as ImageIcon, MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus } from "lucide-react";
+import { Heading, Pilcrow, Quote, Mic, Columns2, Image as ImageIcon, MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus, Link2, Video, ExternalLink, ImageOff } from "lucide-react";
+import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
 import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
@@ -69,7 +70,24 @@ export interface JournalColumns {
   right: JournalBlock[];
 }
 
-export type JournalItem = JournalBlock | JournalColumns;
+/**
+ * Bloc "lien externe" (kind LINK, carte d'aperçu Open Graph) ou "embed
+ * YouTube" (kind YOUTUBE, iframe). Bloc TOP-LEVEL uniquement — pas admissible
+ * dans une pile de colonnes (donc absent de JournalBlock), au même titre que
+ * le bloc "2 colonnes".
+ */
+export interface JournalEmbed {
+  type: "embed";
+  id: string; // visitEmbedId
+  kind: "LINK" | "YOUTUBE";
+  url: string;
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string | null;
+}
+
+export type JournalItem = JournalBlock | JournalColumns | JournalEmbed;
 
 interface VisitJournalProps {
   visitId: string;
@@ -339,8 +357,11 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
         return;
       }
       const draggedBlock = getBlockAtLoc(itemsRef.current, loc);
-      if (!draggedBlock || draggedBlock.type === "columns") {
-        persistOrder(itemsRef.current); // les colonnes ne s'imbriquent jamais
+      if (!draggedBlock || draggedBlock.type === "columns" || draggedBlock.type === "embed") {
+        // Colonnes et blocs lien/embed restent top-level : ils ne s'imbriquent
+        // jamais dans une colonne. Le réordonnancement top-level a déjà été géré
+        // en direct par onReorder.
+        persistOrder(itemsRef.current);
         return;
       }
 
@@ -393,7 +414,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   // Chaque type "simple" (créé vide, réclamable) a son propre endpoint REST
   // mais la même forme { content } — un seul mapping pour les fonctions qui
   // en ont besoin.
-  const ENDPOINT_BY_TYPE = { note: "notes", title: "titles", quote: "quotes", audio: "audio" } as const;
+  const ENDPOINT_BY_TYPE = { note: "notes", title: "titles", quote: "quotes", audio: "audio", embed: "embeds" } as const;
 
   // ── Création de bloc (titre / texte / citation / colonnes) ──
   const createBlock = async (afterIdx: number | null, type: "note" | "title" | "quote" | "columns") => {
@@ -508,14 +529,56 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
     if (!res?.ok) throw new Error("save failed");
   };
 
-  // Supprime un bloc pur (texte/titre/citation/audio), où qu'il soit (le
-  // serveur nettoie lui-même toute colonne qui le réclamait).
-  const deleteBlock = async (type: "note" | "title" | "quote" | "audio", id: string) => {
+  // Supprime un bloc pur (texte/titre/citation/audio) ou un bloc lien/embed, où
+  // qu'il soit (le serveur nettoie lui-même toute colonne qui le réclamait).
+  const deleteBlock = async (type: "note" | "title" | "quote" | "audio" | "embed", id: string) => {
     setMenuIdx(null);
     const loc = locateBlock(itemsRef.current, `${type}-${id}`);
     const next = loc ? removeAtLoc(itemsRef.current, loc) : itemsRef.current.filter((it) => !(it.type === type && it.id === id));
     setItems(next);
     await fetch(`/api/visits/${visitId}/${ENDPOINT_BY_TYPE[type]}/${id}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  // Retire une image DU CARNET sans la supprimer : elle repart dans la
+  // bibliothèque (visitId=null côté serveur). Non destructif — choix produit
+  // 2026-07-14 (cohérent avec "supprimer un bloc = retirer la référence ici").
+  const detachImage = async (imageId: string) => {
+    setMenuIdx(null);
+    const loc = locateBlock(itemsRef.current, `image-${imageId}`);
+    const next = loc ? removeAtLoc(itemsRef.current, loc) : itemsRef.current;
+    setItems(next);
+    if (loc?.kind === "column") persistColumnsSides(loc.columnsId, next);
+    else persistOrder(next);
+    await fetch(`/api/visits/${visitId}/inspirations/${imageId}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  // Crée un bloc lien externe (LINK) ou embed YouTube (YOUTUBE). Le serveur
+  // récupère les métadonnées (Open Graph / oEmbed) et renvoie le bloc complet.
+  const createEmbed = async (afterIdx: number | null, kind: "LINK" | "YOUTUBE", url: string) => {
+    setMenuIdx(null);
+    setInsertMenu(null);
+    const insertAt = afterIdx === null ? items.length : afterIdx + 1;
+    const res = await fetch(`/api/visits/${visitId}/embeds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, url }),
+    });
+    if (!res.ok) return;
+    const c = await res.json();
+    const newItem: JournalItem = {
+      type: "embed",
+      id: c.id,
+      kind: c.kind,
+      url: c.url,
+      title: c.title ?? null,
+      description: c.description ?? null,
+      image: c.image ?? null,
+      siteName: c.siteName ?? null,
+    };
+    const next = [...items];
+    next.splice(insertAt, 0, newItem);
+    setItems(next);
+    persistOrder(next);
   };
 
   // ── Colonnes CRUD ──
@@ -633,6 +696,8 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
             onOpenInsertMenu={() => { setMenuIdx(null); setInsertMenu({ afterIdx: idx }); }}
             onDeleteBlock={deleteBlock}
             onDeleteColumns={deleteColumns}
+            onDetachImage={detachImage}
+            onCreateEmbed={(kind, url) => createEmbed(idx, kind, url)}
             onSaveNote={saveNote}
             onPersistNote={persistNote}
             onSaveTitle={saveTitle}
@@ -671,7 +736,13 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           ) : (
             <div className="w-full h-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3 shadow-2xl shadow-black/50 rotate-[1deg] overflow-hidden">
               <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap line-clamp-4">
-                {draggedItem.type === "columns" ? "2 colonnes" : "content" in draggedItem ? draggedItem.content : draggedItem.transcript}
+                {draggedItem.type === "columns"
+                  ? "2 colonnes"
+                  : draggedItem.type === "embed"
+                    ? draggedItem.title || draggedItem.url
+                    : "content" in draggedItem
+                      ? draggedItem.content
+                      : draggedItem.transcript}
               </p>
             </div>
           )}
@@ -702,7 +773,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
           // tombait sous le FAB / hors écran et le choix du type était
           // inatteignable. Desktop : vers le bas comme avant.
           <div ref={insertMenuRef} className="absolute left-4 z-50 bottom-full mb-1 md:bottom-auto md:top-full md:mt-1">
-            <InsertTypeMenu visitId={visitId} onCreateBlock={(type) => createBlock(null, type)} onCreateAudio={(a) => insertAudioBlock(null, a)} />
+            <InsertTypeMenu visitId={visitId} onCreateBlock={(type) => createBlock(null, type)} onCreateAudio={(a) => insertAudioBlock(null, a)} onCreateEmbed={(kind, url) => createEmbed(null, kind, url)} />
           </div>
         )}
       </div>
@@ -718,15 +789,21 @@ function InsertTypeMenu({
   visitId,
   onCreateBlock,
   onCreateAudio,
+  onCreateEmbed,
 }: {
   visitId: string;
   onCreateBlock: (type: "note" | "title" | "quote" | "columns") => void;
   onCreateAudio: (created: CreatedAudioBlock) => void;
+  onCreateEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
 }) {
-  const [recording, setRecording] = useState(false);
+  const [mode, setMode] = useState<"menu" | "recording" | "LINK" | "YOUTUBE">("menu");
 
-  if (recording) {
-    return <AudioRecorderInline visitId={visitId} onClose={() => setRecording(false)} onCreated={onCreateAudio} />;
+  if (mode === "recording") {
+    return <AudioRecorderInline visitId={visitId} onClose={() => setMode("menu")} onCreated={onCreateAudio} />;
+  }
+
+  if (mode === "LINK" || mode === "YOUTUBE") {
+    return <EmbedUrlInput kind={mode} onCancel={() => setMode("menu")} onSubmit={(url) => onCreateEmbed(mode, url)} />;
   }
 
   return (
@@ -743,12 +820,85 @@ function InsertTypeMenu({
       <button onClick={() => onCreateBlock("quote")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
         <Quote size={14} strokeWidth={1.75} /> Citation
       </button>
-      <button onClick={() => setRecording(true)} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+      <button onClick={() => setMode("recording")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
         <Mic size={14} strokeWidth={1.75} /> Audio
+      </button>
+      <button onClick={() => setMode("LINK")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Link2 size={14} strokeWidth={1.75} /> Lien externe
+      </button>
+      <button onClick={() => setMode("YOUTUBE")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
+        <Video size={14} strokeWidth={1.75} /> YouTube
       </button>
       <button onClick={() => onCreateBlock("columns")} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors">
         <Columns2 size={14} strokeWidth={1.75} /> 2 colonnes
       </button>
+    </div>
+  );
+}
+
+// Saisie d'URL pour créer un bloc lien/embed. Validation légère côté client
+// (le serveur revérifie) : YouTube exige une URL youtube reconnaissable.
+function EmbedUrlInput({
+  kind,
+  onCancel,
+  onSubmit,
+}: {
+  kind: "LINK" | "YOUTUBE";
+  onCancel: () => void;
+  onSubmit: (url: string) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const valid = (() => {
+    try {
+      new URL(url.trim());
+    } catch {
+      return false;
+    }
+    return kind === "YOUTUBE" ? parseYouTubeId(url.trim()) !== null : /^https?:\/\//i.test(url.trim());
+  })();
+
+  const submit = () => {
+    if (!valid || busy) return;
+    setBusy(true);
+    onSubmit(url.trim());
+  };
+
+  return (
+    <div className="w-64 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl p-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]">
+        {kind === "YOUTUBE" ? <Video size={13} strokeWidth={1.75} /> : <Link2 size={13} strokeWidth={1.75} />}
+        {kind === "YOUTUBE" ? "Coller un lien YouTube" : "Coller un lien"}
+      </div>
+      <input
+        ref={inputRef}
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder={kind === "YOUTUBE" ? "https://youtube.com/watch?v=…" : "https://…"}
+        className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded px-2 py-1.5 text-[11px] text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]"
+      />
+      <div className="flex items-center justify-end gap-1.5">
+        <button onClick={onCancel} className="px-2 py-1 text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">
+          Annuler
+        </button>
+        <button
+          onClick={submit}
+          disabled={!valid || busy}
+          className="px-2.5 py-1 text-[10px] rounded bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-40 transition-opacity"
+        >
+          {busy ? "Ajout…" : "Ajouter"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -772,6 +922,8 @@ function JournalItemBlock({
   onOpenInsertMenu,
   onDeleteBlock,
   onDeleteColumns,
+  onDetachImage,
+  onCreateEmbed,
   onSaveNote,
   onPersistNote,
   onSaveTitle,
@@ -807,8 +959,10 @@ function JournalItemBlock({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onOpenInsertMenu: () => void;
-  onDeleteBlock: (type: "note" | "title" | "quote" | "audio", id: string) => void;
+  onDeleteBlock: (type: "note" | "title" | "quote" | "audio" | "embed", id: string) => void;
   onDeleteColumns: (id: string) => void;
+  onDetachImage: (id: string) => void;
+  onCreateEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
   onSaveNote: (id: string, content: string) => void;
   onPersistNote: (id: string, content: string) => Promise<void>;
   onSaveTitle: (id: string, content: string) => void;
@@ -832,7 +986,7 @@ function JournalItemBlock({
   visitId: string;
 }) {
   const sortableKey = keyOf(item);
-  const isVisualBlock = item.type === "image" || item.type === "audio" || item.type === "columns";
+  const isVisualBlock = item.type === "image" || item.type === "audio" || item.type === "columns" || item.type === "embed";
 
   const itemMenu = (
     <div className="relative" ref={menuOpen ? menuRef : insertMenuOpen ? insertMenuRef : undefined}>
@@ -873,12 +1027,22 @@ function JournalItemBlock({
           >
             <FilePlus size={13} strokeWidth={1.75} /> Insérer un bloc après
           </button>
-          {(item.type === "note" || item.type === "title" || item.type === "quote" || item.type === "audio") && (
+          {(item.type === "note" || item.type === "title" || item.type === "quote" || item.type === "audio" || item.type === "embed") && (
             <button
               onClick={() => onDeleteBlock(item.type, item.id)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
             >
               <Trash2 size={13} strokeWidth={1.75} /> Supprimer
+            </button>
+          )}
+          {/* Image : suppression NON destructive — on la retire du carnet, elle
+              reste dans la bibliothèque (choix produit 2026-07-14). */}
+          {item.type === "image" && (
+            <button
+              onClick={() => onDetachImage(item.id)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] border-t border-[var(--border-subtle)] transition-colors"
+            >
+              <ImageOff size={13} strokeWidth={1.75} /> Retirer du carnet
             </button>
           )}
           {item.type === "columns" && (
@@ -901,7 +1065,7 @@ function JournalItemBlock({
       )}
       {insertMenuOpen && (
         <div className="absolute right-0 top-full mt-1 z-50" onClick={(e) => e.stopPropagation()}>
-          <InsertTypeMenu visitId={visitId} onCreateBlock={onCreateBlock} onCreateAudio={onCreateAudio} />
+          <InsertTypeMenu visitId={visitId} onCreateBlock={onCreateBlock} onCreateAudio={onCreateAudio} onCreateEmbed={onCreateEmbed} />
         </div>
       )}
     </div>
@@ -1046,6 +1210,62 @@ function JournalItemBlock({
         </div>
         <div className="absolute -top-1 right-1.5 z-10">{itemMenu}</div>
         <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute -bottom-1 right-1.5 z-10" title="Glisser pour réordonner" />
+      </motion.div>
+    );
+  }
+
+  // ── Bloc lien externe (carte d'aperçu Open Graph) / embed YouTube (iframe) ──
+  if (item.type === "embed") {
+    if (isDragging) return ghostBar;
+    const domain = (() => {
+      try { return new URL(item.url).hostname.replace(/^www\./, ""); } catch { return item.url; }
+    })();
+    const videoId = item.kind === "YOUTUBE" ? parseYouTubeId(item.url) : null;
+    return (
+      <motion.div layout {...sortable.getContainerProps(sortableKey)} className="col-span-full relative group py-1">
+        {item.kind === "YOUTUBE" ? (
+          <div className="rounded-lg overflow-hidden bg-black" style={{ aspectRatio: "16 / 9" }}>
+            {videoId ? (
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+                title={item.title ?? "YouTube"}
+                className="w-full h-full"
+                loading="lazy"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)] text-xs">Vidéo indisponible</div>
+            )}
+          </div>
+        ) : (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            // Un drag qui vient de se terminer ne doit pas ouvrir le lien.
+            onClick={(e) => { if (sortable.wasDragging()) e.preventDefault(); }}
+            className="flex items-stretch gap-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] overflow-hidden hover:border-[var(--border-default)] transition-colors"
+          >
+            <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center gap-1">
+              <p className="text-sm font-medium text-[var(--text-primary)] line-clamp-1">{item.title || domain}</p>
+              {item.description && (
+                <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-snug">{item.description}</p>
+              )}
+              <p className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
+                <ExternalLink size={11} strokeWidth={1.75} /> {item.siteName || domain}
+              </p>
+            </div>
+            {item.image && (
+              <div className="w-28 sm:w-40 flex-shrink-0 bg-[var(--bg-surface)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.image} alt="" className="w-full h-full object-cover" loading="lazy" />
+              </div>
+            )}
+          </a>
+        )}
+        <div className="absolute top-2 right-2 z-10">{itemMenu}</div>
+        <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-2 right-2 z-10" title="Glisser pour réordonner" />
       </motion.div>
     );
   }

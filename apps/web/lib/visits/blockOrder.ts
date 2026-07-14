@@ -4,13 +4,14 @@ import { db } from "@/lib/db";
 // partagent un même espace de tri séquentiel (voir schema.prisma). Un
 // nouveau bloc ajouté "en fin de carnet" doit regarder le max des 6 tables.
 export async function nextBlockOrder(visitId: string): Promise<number> {
-  const [img, note, title, quote, audio, columns] = await Promise.all([
+  const [img, note, title, quote, audio, columns, embed] = await Promise.all([
     db.inspiration.aggregate({ where: { visitId }, _max: { visitOrder: true } }),
     db.visitNote.aggregate({ where: { visitId }, _max: { order: true } }),
     db.visitTitle.aggregate({ where: { visitId }, _max: { order: true } }),
     db.visitQuote.aggregate({ where: { visitId }, _max: { order: true } }),
     db.visitAudio.aggregate({ where: { visitId }, _max: { order: true } }),
     db.visitColumns.aggregate({ where: { visitId }, _max: { order: true } }),
+    db.visitEmbed.aggregate({ where: { visitId }, _max: { order: true } }),
   ]);
   return (
     Math.max(
@@ -20,6 +21,7 @@ export async function nextBlockOrder(visitId: string): Promise<number> {
       quote._max.order ?? -1,
       audio._max.order ?? -1,
       columns._max.order ?? -1,
+      embed._max.order ?? -1,
     ) + 1
   );
 }

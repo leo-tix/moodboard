@@ -20,6 +20,7 @@ export interface JournalSourceVisit {
   quoteBlocks: { id: string; content: string; order: number; createdAt: Date }[];
   audioClips: { id: string; storageKey: string; durationSec: number | null; transcript: string | null; order: number; createdAt: Date }[];
   columnBlocks: { id: string; left: unknown; right: unknown; order: number; createdAt: Date }[];
+  embeds: { id: string; kind: "LINK" | "YOUTUBE"; url: string; title: string | null; description: string | null; image: string | null; siteName: string | null; order: number; createdAt: Date }[];
 }
 
 type BlockLookupKey = `${"image" | "note" | "title" | "quote" | "audio"}-${string}`;
@@ -88,6 +89,23 @@ export function buildJournalItems(visit: JournalSourceVisit): JournalItem[] {
       item: { type: "columns", id: c.id, left: resolveStack(c.left), right: resolveStack(c.right) },
       order: c.order,
       createdAt: c.createdAt,
+    });
+  });
+  // Blocs lien/embed — top-level uniquement, jamais réclamés par une colonne.
+  visit.embeds.forEach((e) => {
+    merged.push({
+      item: {
+        type: "embed",
+        id: e.id,
+        kind: e.kind,
+        url: e.url,
+        title: e.title,
+        description: e.description,
+        image: e.image,
+        siteName: e.siteName,
+      },
+      order: e.order,
+      createdAt: e.createdAt,
     });
   });
 

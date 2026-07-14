@@ -1,7 +1,9 @@
+import { ExternalLink } from "lucide-react";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
+import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { AudioPlayer } from "@/components/visits/AudioPlayer";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
-import type { JournalItem, JournalBlock } from "@/components/visits/VisitJournal";
+import type { JournalItem, JournalBlock, JournalEmbed } from "@/components/visits/VisitJournal";
 
 // Rendu LECTURE SEULE du carnet pour la page publique (Phase 5). Réutilise les
 // mêmes types que l'éditeur (JournalItem) mais aucun composant interactif
@@ -81,7 +83,61 @@ function ReadOnlyBlock({ block }: { block: JournalBlock }) {
   );
 }
 
+// Bloc lien externe (carte d'aperçu) / embed YouTube (iframe) en lecture seule.
+function ReadOnlyEmbed({ embed }: { embed: JournalEmbed }) {
+  const domain = (() => {
+    try { return new URL(embed.url).hostname.replace(/^www\./, ""); } catch { return embed.url; }
+  })();
+  if (embed.kind === "YOUTUBE") {
+    const videoId = parseYouTubeId(embed.url);
+    return (
+      <div className="rounded-lg overflow-hidden bg-black" style={{ aspectRatio: "16 / 9" }}>
+        {videoId ? (
+          <iframe
+            src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+            title={embed.title ?? "YouTube"}
+            className="w-full h-full"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)] text-xs">Vidéo indisponible</div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <a
+      href={embed.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-stretch rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] overflow-hidden hover:border-[var(--border-default)] transition-colors"
+    >
+      <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center gap-1">
+        <p className="text-sm font-medium text-[var(--text-primary)] line-clamp-1">{embed.title || domain}</p>
+        {embed.description && (
+          <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-snug">{embed.description}</p>
+        )}
+        <p className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
+          <ExternalLink size={11} strokeWidth={1.75} /> {embed.siteName || domain}
+        </p>
+      </div>
+      {embed.image && (
+        <div className="w-28 sm:w-40 flex-shrink-0 bg-[var(--bg-surface)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={embed.image} alt="" className="w-full h-full object-cover" loading="lazy" />
+        </div>
+      )}
+    </a>
+  );
+}
+
 function ReadOnlyItem({ item }: { item: JournalItem }) {
+  if (item.type === "embed") {
+    return <div className="col-span-full"><ReadOnlyEmbed embed={item} /></div>;
+  }
+
   if (item.type === "columns") {
     return (
       <div className="col-span-full grid grid-cols-2 gap-3">

@@ -8,7 +8,7 @@ interface Params { params: Promise<{ id: string }> }
 const reorderSchema = z.object({
   items: z.array(
     z.object({
-      type: z.enum(["image", "note", "title", "quote", "audio", "columns"]),
+      type: z.enum(["image", "note", "title", "quote", "audio", "columns", "embed"]),
       id: z.string(),
       order: z.number().int(),
     }),
@@ -51,6 +51,9 @@ export async function POST(req: NextRequest, { params }: Params) {
       }
       if (item.type === "audio") {
         return db.visitAudio.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
+      }
+      if (item.type === "embed") {
+        return db.visitEmbed.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
       }
       return db.visitColumns.updateMany({ where: { id: item.id, visitId: id }, data: { order: item.order } });
     }),

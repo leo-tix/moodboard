@@ -40,6 +40,7 @@ export default async function PublicCarnetPage({ params }: Props) {
       quoteBlocks: true,
       audioClips: true,
       columnBlocks: true,
+      embeds: true,
     },
   });
 

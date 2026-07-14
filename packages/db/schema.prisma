@@ -221,6 +221,7 @@ model Visit {
   quoteBlocks  VisitQuote[]
   titleBlocks  VisitTitle[]
   columnBlocks VisitColumns[]
+  embeds       VisitEmbed[]
 
   @@index([visitDate])
   @@index([userId])
@@ -327,6 +328,36 @@ model VisitColumns {
 
   @@index([visitId])
   @@map("visit_columns")
+}
+
+// Bloc "lien externe" et "embed YouTube" du carnet (2026-07-14) — même table,
+// discriminée par `kind`. LINK : carte d'aperçu (métadonnées Open Graph
+// récupérées côté serveur à la création — title/description/image/siteName,
+// URLs externes, pas de R2). YOUTUBE : l'URL est transformée en iframe au
+// rendu (title/miniature via oEmbed). Bloc TOP-LEVEL uniquement : pas
+// réclamable dans une colonne (contrairement aux blocs purs), donc absent
+// des refs VisitColumns.
+model VisitEmbed {
+  id          String         @id @default(cuid())
+  visitId     String
+  visit       Visit          @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  kind        VisitEmbedKind @default(LINK)
+  url         String
+  title       String?
+  description String?
+  image       String?
+  siteName    String?
+  order       Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([visitId])
+  @@map("visit_embeds")
+}
+
+enum VisitEmbedKind {
+  LINK
+  YOUTUBE
 }
 
 enum MediaType {

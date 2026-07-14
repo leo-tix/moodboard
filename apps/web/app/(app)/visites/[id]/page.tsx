@@ -57,6 +57,7 @@ export default async function VisiteDetailPage({ params }: Props) {
       quoteBlocks: true,
       audioClips: true,
       columnBlocks: true,
+      embeds: true,
     },
   });
 
