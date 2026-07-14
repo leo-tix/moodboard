@@ -7,6 +7,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlashCommand } from "./tiptap/SlashCommand";
+import { MobileFormatBar } from "./MobileFormatBar";
 
 // ── Bloc de texte pur du carnet façon Notion ────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
@@ -50,6 +51,9 @@ const AUTOSAVE_DEBOUNCE_MS = 800;
 
 export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placeholder, className }: NoteEditorProps) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  // Barre de formatage mobile : affichée quand l'éditeur est focus sur tactile.
+  const [focused, setFocused] = useState(false);
+  const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
   const debounceRef = useRef<number | null>(null);
   const savedFadeRef = useRef<number | null>(null);
   // Refs pour lire les callbacks/état à jour depuis les handlers Tiptap
@@ -104,7 +108,9 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
       },
     },
     onUpdate: ({ editor: e }) => scheduleAutoSave(() => e.getHTML()),
+    onFocus: () => setFocused(true),
     onBlur: ({ editor: e }) => {
+      setFocused(false);
       // Le blur prend la main : annule l'auto-save en attente pour ne pas
       // sauvegarder après coup un contenu que le blur a pu supprimer (vide).
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
@@ -159,6 +165,10 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
           >
             <BubbleButtons editor={editor} />
           </BubbleMenu>
+
+          {/* Mobile : barre de formatage ancrée au-dessus du clavier (le
+              surlignage-pour-formater est peu fiable au tactile). */}
+          {isTouch && focused && <MobileFormatBar editor={editor} />}
 
           {/* Indicateur d'auto-save — même vocabulaire ●/✓ que MetadataPanel */}
           <span className="absolute -top-1 right-0 text-[10px] select-none" aria-live="polite">

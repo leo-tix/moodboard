@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Heading, Pilcrow, Quote, Mic, Columns2, Image as ImageIcon, MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2 } from "lucide-react";
+import { Heading, Pilcrow, Quote, Mic, Columns2, Image as ImageIcon, MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
 import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
@@ -678,18 +678,22 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
         </div>
       )}
 
-      {/* Cliquer dans le vide en fin de carnet ouvre le sélecteur de type de
-          bloc (façon Notion) — remplace l'ancien bouton "+ Bloc" explicite.
-          Quasi invisible au repos, se révèle au survol/focus ; "/" au clavier
-          fait la même chose. */}
+      {/* Fin de carnet : sur DESKTOP, zone quasi invisible façon Notion qui se
+          révèle au survol/focus (ou "/" au clavier). Sur TACTILE (pas de
+          survol), un vrai bouton visible "+ Ajouter un bloc" — sinon
+          impossible d'ajouter du texte au doigt. */}
       <div className="mt-2 relative">
         <button
           type="button"
           onClick={() => setInsertMenu(insertMenu?.afterIdx === null ? null : { afterIdx: null })}
           onKeyDown={(e) => { if (e.key === "/") { e.preventDefault(); setInsertMenu({ afterIdx: null }); } }}
-          className="w-full min-h-[3rem] rounded-lg text-left px-4 text-sm text-[var(--text-tertiary)] opacity-0 hover:opacity-70 focus-visible:opacity-70 transition-opacity cursor-text"
+          className="w-full min-h-[3rem] rounded-lg px-4 text-sm text-[var(--text-tertiary)] transition-opacity cursor-text flex items-center gap-2
+                     opacity-0 hover:opacity-70 focus-visible:opacity-70
+                     pointer-coarse:opacity-100 pointer-coarse:border pointer-coarse:border-dashed pointer-coarse:border-[var(--border-default)] pointer-coarse:justify-center"
         >
-          Cliquer, ou taper «&nbsp;/&nbsp;» pour ajouter un bloc…
+          <Plus size={16} strokeWidth={1.75} />
+          <span className="pointer-coarse:hidden">Cliquer, ou taper «&nbsp;/&nbsp;» pour ajouter un bloc…</span>
+          <span className="hidden pointer-coarse:inline">Ajouter un bloc</span>
         </button>
         {insertMenu?.afterIdx === null && (
           <div ref={insertMenuRef} className="absolute top-full left-4 mt-1 z-50">
