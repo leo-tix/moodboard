@@ -15,6 +15,7 @@ import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { TitleEditor } from "@/components/visits/TitleEditor";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
+import { TranscriptKaraoke } from "@/components/audio/TranscriptKaraoke";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1369,15 +1370,23 @@ function AudioBlockContent({
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(audio.transcript ?? "");
+  const [playback, setPlayback] = useState({ currentTime: 0, duration: audio.durationSec ?? 0, playing: false });
 
   useEffect(() => {
     if (!editing) setValue(audio.transcript ?? "");
   }, [audio.transcript, editing]);
 
+  const cleanTranscript = audio.transcript?.trim() || null;
+
   return (
     <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
       <AudioPlayerBoundary src={getAudioUrl(audio.storageKey)}>
-        <AudioPlayer src={getAudioUrl(audio.storageKey)} durationSec={audio.durationSec} compact={compact} />
+        <AudioPlayer
+          src={getAudioUrl(audio.storageKey)}
+          durationSec={audio.durationSec}
+          compact={compact}
+          onPlaybackState={setPlayback}
+        />
       </AudioPlayerBoundary>
       {editing ? (
         <textarea
@@ -1392,15 +1401,21 @@ function AudioBlockContent({
           placeholder="Transcription…"
           className="w-full bg-transparent text-xs text-[var(--text-secondary)] focus:outline-none resize-none placeholder:text-[var(--text-tertiary)]"
         />
+      ) : cleanTranscript ? (
+        <div onClick={() => setEditing(true)} className="cursor-text">
+          <TranscriptKaraoke
+            transcript={cleanTranscript}
+            currentTime={playback.currentTime}
+            duration={playback.duration}
+            playing={playback.playing}
+            scroll={false}
+            activeColor="var(--accent)"
+            baseColor="var(--text-secondary)"
+          />
+        </div>
       ) : (
-        <p
-          onClick={() => setEditing(true)}
-          className={cn(
-            "text-xs leading-relaxed cursor-text",
-            audio.transcript ? "text-[var(--text-secondary)]" : "text-[var(--text-tertiary)] italic"
-          )}
-        >
-          {audio.transcript || "Transcription vide — cliquer pour éditer"}
+        <p onClick={() => setEditing(true)} className="text-xs leading-relaxed cursor-text text-[var(--text-tertiary)] italic">
+          Transcription vide — cliquer pour éditer
         </p>
       )}
     </div>

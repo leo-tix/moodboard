@@ -23,10 +23,15 @@ export function AudioPlayer({
   src,
   durationSec,
   compact = false,
+  onPlaybackState,
 }: {
   src: string;
   durationSec?: number | null;
   compact?: boolean;
+  /** Remonte l'état de lecture au parent — utilisé par le bloc audio du
+      carnet pour synchroniser la transcription karaoke (TranscriptKaraoke)
+      sur ce lecteur, sans dupliquer le suivi de currentTime/duration. */
+  onPlaybackState?: (state: { currentTime: number; duration: number; playing: boolean }) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -136,6 +141,19 @@ export function AudioPlayer({
       el.removeEventListener("ended", onEnded);
     };
   }, [durationSec]);
+
+  // Ref plutôt que dépendance directe sur `onPlaybackState` : le parent
+  // (bloc audio du carnet) passe souvent une closure inline recréée à
+  // chaque rendu — la mettre en dépendance ferait rejouer cet effet à
+  // chaque rendu du parent (boucle : callback → setState → rerender →
+  // nouvelle closure → effet → callback...).
+  const onPlaybackStateRef = useRef(onPlaybackState);
+  useEffect(() => {
+    onPlaybackStateRef.current = onPlaybackState;
+  });
+  useEffect(() => {
+    onPlaybackStateRef.current?.({ currentTime, duration, playing });
+  }, [currentTime, duration, playing]);
 
   const togglePlay = () => {
     const el = audioRef.current;

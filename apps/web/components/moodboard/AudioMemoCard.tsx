@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play, Pause, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAudioUrl, getImageUrl } from "@/lib/storage/urls";
 import { AudioMemoWaveform } from "@/components/audio/AudioMemoWaveform";
+import { TranscriptKaraoke } from "@/components/audio/TranscriptKaraoke";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
 
 const BAR_COUNT = 64;
@@ -16,32 +17,6 @@ export interface AudioMemoCardProps {
   authorName?: string | null;
   authorImage?: string | null;
   className?: string;
-}
-
-interface WordTiming {
-  word: string;
-  start: number;
-  end: number;
-}
-
-// Répartit les mots sur la durée du clip, pondérée par leur longueur (un mot
-// long prend plus de temps à dire qu'un mot court) — pas un vrai alignement
-// forcé (aucune donnée de timing par mot n'est produite par la transcription
-// live Web Speech ni par Whisper local tel qu'utilisé ici), mais une
-// approximation qui "danse" de façon crédible avec la lecture, dans l'esprit
-// karaoke demandé.
-function estimateWordTimings(transcript: string, duration: number): WordTiming[] {
-  const words = transcript.split(/\s+/).filter(Boolean);
-  if (words.length === 0 || duration <= 0) return [];
-  const weights = words.map((w) => w.length + 2); // +2 : pause approximative entre mots
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  let cumulative = 0;
-  return words.map((word, i) => {
-    const start = (cumulative / totalWeight) * duration;
-    cumulative += weights[i];
-    const end = (cumulative / totalWeight) * duration;
-    return { word, start, end };
-  });
 }
 
 // Bloc mémo vocal des planches — carte sombre inspirée du "voice recorder
@@ -146,26 +121,6 @@ function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, a
   const progress = duration > 0 ? currentTime / duration : 0;
 
   const cleanTranscript = transcript?.trim() || null;
-  const wordTimings = useMemo(
-    () => (cleanTranscript ? estimateWordTimings(cleanTranscript, duration) : []),
-    [cleanTranscript, duration]
-  );
-  const activeWordIndex = useMemo(() => {
-    if (wordTimings.length === 0) return -1;
-    if (currentTime >= duration && duration > 0) return wordTimings.length - 1;
-    const idx = wordTimings.findIndex((w) => currentTime >= w.start && currentTime < w.end);
-    if (idx !== -1) return idx;
-    // Entre deux mots (arrondis) — garde le dernier mot déjà "passé".
-    for (let i = wordTimings.length - 1; i >= 0; i--) {
-      if (currentTime >= wordTimings[i].start) return i;
-    }
-    return -1;
-  }, [wordTimings, currentTime, duration]);
-
-  const activeWordRef = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (playing) activeWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeWordIndex, playing]);
 
   return (
     <div
@@ -207,30 +162,17 @@ function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, a
           à venir sont estompés. Fondu haut/bas façon téléprompteur pour un
           rendu premium sur le texte tronqué. */}
       {cleanTranscript && (
-        <div className="relative flex-1 min-h-0 mx-4 mt-1 mb-2">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-3 bg-gradient-to-b from-[#111114] to-transparent z-10" />
-          <div className="h-full overflow-y-auto scrollbar-none py-1.5">
-            <p className="text-[13px] leading-relaxed" style={{ textWrap: "pretty" }}>
-              {wordTimings.length > 0
-                ? wordTimings.map((w, i) => (
-                    <span
-                      key={i}
-                      ref={i === activeWordIndex ? activeWordRef : undefined}
-                      className="transition-[opacity,color] duration-200"
-                      style={{
-                        opacity: i === activeWordIndex ? 1 : i < activeWordIndex ? 0.55 : 0.32,
-                        color: i === activeWordIndex ? "#c4b5fd" : "#ffffff",
-                        fontWeight: i === activeWordIndex ? 600 : 400,
-                      }}
-                    >
-                      {w.word}{" "}
-                    </span>
-                  ))
-                : <span className="text-white/45">{cleanTranscript}</span>}
-            </p>
-          </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3 bg-gradient-to-t from-[#0c0c0e] to-transparent z-10" />
-        </div>
+        <TranscriptKaraoke
+          transcript={cleanTranscript}
+          currentTime={currentTime}
+          duration={duration}
+          playing={playing}
+          className="flex-1 min-h-0 mx-4 mt-1 mb-2"
+          fadeTop="#111114"
+          fadeBottom="#0c0c0e"
+          activeColor="#c4b5fd"
+          baseColor="#ffffff"
+        />
       )}
 
       {/* Transport minimal */}

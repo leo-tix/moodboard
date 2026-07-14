@@ -1,9 +1,13 @@
+"use client";
+
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { AudioPlayer } from "@/components/visits/AudioPlayer";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
+import { TranscriptKaraoke } from "@/components/audio/TranscriptKaraoke";
 import type { JournalItem, JournalBlock, JournalEmbed } from "@/components/visits/VisitJournal";
 
 // Rendu LECTURE SEULE du carnet pour la page publique (Phase 5). Réutilise les
@@ -37,20 +41,7 @@ function ReadOnlyBlock({ block, compact = false }: { block: JournalBlock; compac
   }
 
   if (block.type === "audio") {
-    // compact : bloc DANS une pile de 2 colonnes (même raisonnement que
-    // l'éditeur, voir AudioPlayer.tsx et VisitJournal.tsx) — sans lui, les
-    // boutons ±15s + le libellé de temps fixe ne laissaient plus de place
-    // à la waveform dans une colonne mobile étroite.
-    return (
-      <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
-        <AudioPlayerBoundary src={getAudioUrl(block.storageKey)}>
-          <AudioPlayer src={getAudioUrl(block.storageKey)} durationSec={block.durationSec} compact={compact} />
-        </AudioPlayerBoundary>
-        {block.transcript && (
-          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{block.transcript}</p>
-        )}
-      </div>
-    );
+    return <AudioReadOnlyBlock block={block} compact={compact} />;
   }
 
   // image
@@ -85,6 +76,39 @@ function ReadOnlyBlock({ block, compact = false }: { block: JournalBlock; compac
         </figcaption>
       )}
     </figure>
+  );
+}
+
+// Bloc audio en lecture seule — composant à part (plutôt qu'inline dans
+// ReadOnlyBlock) pour pouvoir utiliser useState : ReadOnlyBlock a des retours
+// anticipés avant la branche "audio" pour les autres types de bloc, ce qui
+// interdirait d'y appeler un hook directement.
+function AudioReadOnlyBlock({ block, compact }: { block: Extract<JournalBlock, { type: "audio" }>; compact: boolean }) {
+  const [playback, setPlayback] = useState({ currentTime: 0, duration: block.durationSec ?? 0, playing: false });
+  const cleanTranscript = block.transcript?.trim() || null;
+
+  return (
+    <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
+      <AudioPlayerBoundary src={getAudioUrl(block.storageKey)}>
+        <AudioPlayer
+          src={getAudioUrl(block.storageKey)}
+          durationSec={block.durationSec}
+          compact={compact}
+          onPlaybackState={setPlayback}
+        />
+      </AudioPlayerBoundary>
+      {cleanTranscript && (
+        <TranscriptKaraoke
+          transcript={cleanTranscript}
+          currentTime={playback.currentTime}
+          duration={playback.duration}
+          playing={playback.playing}
+          scroll={false}
+          activeColor="var(--accent)"
+          baseColor="var(--text-secondary)"
+        />
+      )}
+    </div>
   );
 }
 
