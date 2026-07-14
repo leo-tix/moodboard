@@ -66,26 +66,32 @@ export default async function PublicCarnetPage({ params }: Props) {
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
       <div className="max-w-3xl mx-auto p-4 md:p-6">
-        {hasCover && <VisitCoverCarousel images={coverImages} title={coverTitle} />}
-
-        <header className="mb-5 mt-4">
-          {visit.exhibition ? (
-            <>
-              <h1 className="font-serif text-2xl md:text-3xl font-semibold text-[var(--text-primary)] leading-tight">
-                {visit.exhibition}
+        {/* Infos superposées SUR la cover (titre/lieu/date), pas de doublon
+            en dessous — cohérent avec la page de détail. */}
+        {hasCover ? (
+          <VisitCoverCarousel images={coverImages}>
+            <div className="drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
+              <h1 className="font-serif text-white text-3xl md:text-4xl font-semibold leading-tight">
+                {coverTitle}
               </h1>
-              <p className="text-sm text-[var(--text-secondary)] mt-1">{visit.place}</p>
-            </>
-          ) : (
+              <p className="text-sm text-white/85 mt-1">
+                {visit.exhibition ? `${visit.place} · ${date}` : date}
+              </p>
+            </div>
+          </VisitCoverCarousel>
+        ) : (
+          <header className="mb-5 mt-4">
             <h1 className="font-serif text-2xl md:text-3xl font-semibold text-[var(--text-primary)] leading-tight">
-              {visit.place}
+              {coverTitle}
             </h1>
-          )}
-          <p className="text-xs text-[var(--text-tertiary)] mt-1">{date}</p>
-          {visit.notes && (
-            <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl whitespace-pre-wrap">{visit.notes}</p>
-          )}
-        </header>
+            {visit.exhibition && <p className="text-sm text-[var(--text-secondary)] mt-1">{visit.place}</p>}
+            <p className="text-xs text-[var(--text-tertiary)] mt-1">{date}</p>
+          </header>
+        )}
+
+        {visit.notes && (
+          <p className="text-xs text-[var(--text-tertiary)] mb-5 max-w-xl whitespace-pre-wrap">{visit.notes}</p>
+        )}
 
         {hasMap && (
           <div className="mb-6 rounded-xl overflow-hidden border border-[var(--border-subtle)]">

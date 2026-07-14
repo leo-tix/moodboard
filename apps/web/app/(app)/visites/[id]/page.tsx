@@ -79,49 +79,60 @@ export default async function VisiteDetailPage({ params }: Props) {
   const mapThumbnailKey = orderedInspirations[0]?.images[0]?.thumbnailKey ?? null;
 
   const hasCover = coverImages.length > 0;
-  const coverTitle = visit.exhibition || visit.place;
+  const shareButton = (
+    <VisitShareButton
+      visitId={visit.id}
+      shareToken={visit.shareToken}
+      shareExpiry={visit.shareExpiry ? visit.shareExpiry.toISOString() : null}
+    />
+  );
+  const editableHeader = (
+    <VisitHeaderEditable
+      visitId={visit.id}
+      place={visit.place}
+      exhibition={visit.exhibition}
+      visitDate={visit.visitDate.toISOString()}
+      imageCount={visit.inspirations.length}
+      variant={hasCover ? "cover" : "default"}
+    />
+  );
 
   return (
     <div className="p-4 md:p-6">
-      <VisitCoverCarousel images={coverImages} title={coverTitle} backHref="/visites" />
-
-      <header className="mb-5">
-        {/* Sans cover (visite sans image), le retour flottant n'existe pas —
-            on garde le lien texte classique. */}
-        {!hasCover && (
+      {/* Cover premium : le titre/lieu/date (éditables) et le bouton Partager
+          sont superposés SUR la couverture — plus de bloc d'infos dupliqué en
+          dessous (demande utilisateur 2026-07-14). */}
+      {hasCover ? (
+        <VisitCoverCarousel images={coverImages} backHref="/visites" topRight={shareButton}>
+          {editableHeader}
+        </VisitCoverCarousel>
+      ) : (
+        <header className="mb-5">
           <Link
             href="/visites"
             className="inline-block mb-2 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
           >
             ← Carnet de visite
           </Link>
-        )}
-
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <VisitHeaderEditable
-              visitId={visit.id}
-              place={visit.place}
-              exhibition={visit.exhibition}
-              visitDate={visit.visitDate.toISOString()}
-              imageCount={visit.inspirations.length}
-            />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">{editableHeader}</div>
+            {shareButton}
           </div>
-          <VisitShareButton
-            visitId={visit.id}
-            shareToken={visit.shareToken}
-            shareExpiry={visit.shareExpiry ? visit.shareExpiry.toISOString() : null}
-          />
+        </header>
+      )}
+
+      {(visit.address || visit.notes) && (
+        <div className="mb-5">
+          {visit.address && (
+            <p className="text-xs text-[var(--text-tertiary)]">{visit.address}</p>
+          )}
+          {visit.notes && (
+            <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl whitespace-pre-wrap">
+              {visit.notes}
+            </p>
+          )}
         </div>
-        {visit.address && (
-          <p className="text-xs text-[var(--text-tertiary)] mt-1">{visit.address}</p>
-        )}
-        {visit.notes && (
-          <p className="text-xs text-[var(--text-tertiary)] mt-2 max-w-xl whitespace-pre-wrap">
-            {visit.notes}
-          </p>
-        )}
-      </header>
+      )}
 
       {/* Carte pleine largeur juste après le titre/lieu — pin avec vignette
           mise en avant (même style que la carte cumulée), "carte premium". */}

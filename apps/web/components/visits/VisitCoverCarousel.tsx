@@ -25,11 +25,19 @@ export function VisitCoverCarousel({
   images,
   title,
   backHref,
+  children,
+  topRight,
 }: {
   images: CoverImage[];
-  /** Titre affiché en grand sur la cover — exposition, ou lieu à défaut. */
-  title: string;
+  /** Titre affiché en grand sur la cover — exposition, ou lieu à défaut.
+   *  Ignoré si `children` est fourni (overlay d'infos personnalisé). */
+  title?: string;
   backHref?: string;
+  /** Overlay d'infos en bas de la cover (ex. en-tête éditable) — remplace le
+   *  titre statique. */
+  children?: React.ReactNode;
+  /** Slot en haut à droite de la cover (ex. bouton Partager). */
+  topRight?: React.ReactNode;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -122,16 +130,21 @@ export function VisitCoverCarousel({
         </Link>
       )}
 
-      {/* Dégradé de lisibilité (haut + bas) et titre en grand — cover "premium" */}
+      {/* Slot haut-droite (ex. bouton Partager) */}
+      {topRight && <div className="absolute top-3 right-3 md:top-4 md:right-4 z-10">{topRight}</div>}
+
+      {/* Dégradé de lisibilité (haut + bas) et infos en grand — cover "premium" */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/50 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-8 px-5 md:px-8">
-        <h1
-          className="text-white font-light text-3xl md:text-5xl leading-[1.05] tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]"
-          style={{ textWrap: "balance" }}
-        >
-          {title}
-        </h1>
+      <div className="absolute inset-x-0 bottom-8 px-5 md:px-8">
+        {children ?? (
+          <h1
+            className="pointer-events-none text-white font-light text-3xl md:text-5xl leading-[1.05] tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]"
+            style={{ textWrap: "balance" }}
+          >
+            {title}
+          </h1>
+        )}
       </div>
 
       {images.length > 1 && (
