@@ -98,7 +98,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
       {/* Settings + compte */}
       <div className="px-2 xl:px-3 py-3 border-t border-[var(--border-subtle)] space-y-0.5">
         <Link
-          href="/settings/general"
+          href="/settings/categories"
           title="Réglages"
           className={cn(
             "flex items-center justify-center xl:justify-start gap-3 xl:px-3 py-2.5 rounded-md text-sm transition-colors relative",
