@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -340,10 +341,10 @@ export function CategoryManager({ isAdmin }: { isAdmin: boolean }) {
                 ) : (
                   <button
                     onClick={() => setConfirmDelete(cat.id)}
-                    className="text-[10px] text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-1.5 py-1 flex-shrink-0"
+                    className="text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-1.5 py-1 flex-shrink-0 inline-flex items-center"
                     title="Supprimer"
                   >
-                    ✕
+                    <X size={13} strokeWidth={2} />
                   </button>
                 ))}
               </div>

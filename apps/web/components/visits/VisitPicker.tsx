@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Landmark, X } from "lucide-react";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
 export interface VisitRef {
@@ -163,15 +164,15 @@ export function VisitPicker({ inspirationId, initialVisit }: VisitPickerProps) {
 
       {visit ? (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-[var(--bg-elevated)] text-[var(--text-secondary)] max-w-full">
-          <span className="truncate">🏛 {visitLabel(visit)}</span>
+          <span className="truncate inline-flex items-center gap-1.5"><Landmark size={13} strokeWidth={1.75} /> {visitLabel(visit)}</span>
           <button
             type="button"
             onClick={detach}
             disabled={busy}
-            className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity leading-none flex-shrink-0"
+            className="ml-0.5 opacity-40 hover:opacity-100 transition-opacity leading-none flex-shrink-0 inline-flex items-center"
             title="Détacher de cette visite"
           >
-            ✕
+            <X size={12} strokeWidth={2} />
           </button>
         </span>
       ) : (

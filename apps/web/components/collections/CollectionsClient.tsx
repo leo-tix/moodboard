@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { Pencil, X } from "lucide-react";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import type { CollectionSuggestion } from "@/lib/collections/suggestions";
 
@@ -246,10 +247,10 @@ export function CollectionsClient({
                       </p>
                       <button
                         onClick={() => startRename(col)}
-                        className="opacity-0 group-hover/name:opacity-100 pointer-coarse:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-[9px] flex-shrink-0"
+                        className="opacity-0 group-hover/name:opacity-100 pointer-coarse:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] flex-shrink-0 inline-flex items-center"
                         title="Renommer"
                       >
-                        ✎
+                        <Pencil size={11} strokeWidth={1.75} />
                       </button>
                     </div>
                   )}
@@ -341,10 +342,10 @@ export function CollectionsClient({
                       onClick={() =>
                         setDismissedSuggestions((prev) => new Set([...prev, s.label]))
                       }
-                      className="text-[9px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-auto"
+                      className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-auto inline-flex items-center"
                       title="Ignorer cette suggestion"
                     >
-                      ✕
+                      <X size={12} strokeWidth={2} />
                     </button>
                   </div>
                 </div>

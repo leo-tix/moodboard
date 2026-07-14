@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { Upload, Check, Pencil, Landmark, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import { Button } from "@/components/ui/Button";
@@ -263,7 +264,7 @@ export function DropZone() {
               exit={{ opacity: 0 }}
               className="text-center px-8"
             >
-              <div className="text-3xl mb-3 opacity-30">↑</div>
+              <div className="mb-3 opacity-30 flex justify-center"><Upload size={30} strokeWidth={1.5} /></div>
               <p className="text-[var(--text-secondary)] text-sm mb-1">
                 {isTouchDevice
                   ? "Appuie pour sélectionner tes images"
@@ -312,7 +313,7 @@ export function DropZone() {
                   <>
                     {/* Pastille statut */}
                     <div className="absolute top-1 left-1 w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 bg-green-500/80">
-                      <span className="text-white text-[8px]">✓</span>
+                      <Check size={10} strokeWidth={3} className="text-white" />
                     </div>
 
                     {/* Bouton éditer — toujours visible sur touch, au survol sinon */}
@@ -323,8 +324,8 @@ export function DropZone() {
                       }}
                       className={`absolute inset-0 bg-black/0 hover:bg-black/40 transition-colors flex items-end justify-end p-1.5 ${isTouchDevice ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
                     >
-                      <span className="text-white text-[10px] bg-black/60 px-1.5 py-0.5 rounded">
-                        ✎
+                      <span className="text-white bg-black/60 px-1.5 py-1 rounded inline-flex items-center">
+                        <Pencil size={11} strokeWidth={1.75} />
                       </span>
                     </button>
                   </>
@@ -441,8 +442,8 @@ export function DropZone() {
                 className="w-full flex items-center justify-between px-5 py-3 hover:bg-[var(--bg-elevated)] transition-colors"
               >
                 <div className="text-left">
-                  <p className="text-xs font-medium text-[var(--text-primary)]">
-                    🏛 Contexte de visite
+                  <p className="text-xs font-medium text-[var(--text-primary)] flex items-center gap-1.5">
+                    <Landmark size={13} strokeWidth={1.75} /> Contexte de visite
                   </p>
                   <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
                     Photos prises lors d&apos;une visite (musée, galerie, expo…) — regroupées dans le carnet de visite
@@ -526,7 +527,7 @@ export function DropZone() {
                   !hasVisitContext
                 }
               >
-                {batchApplied ? "Appliqué ✓" : `Appliquer aux ${doneIds.length} images`}
+                {batchApplied ? <span className="inline-flex items-center gap-1.5"><Check size={14} strokeWidth={2} /> Appliqué</span> : `Appliquer aux ${doneIds.length} images`}
               </Button>
             </div>
           </motion.div>
@@ -561,7 +562,7 @@ export function DropZone() {
                   onClick={() => setEditingId(null)}
                   className="w-9 h-9 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2 flex-shrink-0"
                 >
-                  ✕
+                  <X size={16} strokeWidth={2} />
                 </button>
               </div>
               <div className="h-48 bg-[var(--bg-surface)] flex-shrink-0 overflow-hidden">

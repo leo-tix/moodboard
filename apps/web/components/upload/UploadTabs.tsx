@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { Upload, Video, Share2, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropZone } from "@/components/upload/DropZone";
 import { YouTubeImportClient } from "@/components/youtube/YouTubeImportClient";
 import { SocialImportClient } from "@/components/upload/SocialImportClient";
 
-const TABS = [
-  { id: "files",   label: "Fichiers",              icon: "↑" },
-  { id: "youtube", label: "YouTube",               icon: "▶" },
-  { id: "social",  label: "Pinterest / Instagram", icon: "◈" },
-] as const;
+const TABS: { id: "files" | "youtube" | "social"; label: string; icon: LucideIcon }[] = [
+  { id: "files",   label: "Fichiers",              icon: Upload },
+  { id: "youtube", label: "YouTube",               icon: Video },
+  { id: "social",  label: "Pinterest / Instagram", icon: Share2 },
+];
 
 type Tab = (typeof TABS)[number]["id"];
 
@@ -32,7 +33,7 @@ export function UploadTabs() {
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             )}
           >
-            <span className="font-mono text-xs opacity-50">{t.icon}</span>
+            <span className="opacity-70 flex"><t.icon size={15} strokeWidth={1.75} /></span>
             {t.label}
           </button>
         ))}

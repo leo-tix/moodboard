@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { X, Square, Mic, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pickSupportedAudioMimeType, requestMicrophone } from "@/lib/audio/recorder";
 import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
@@ -143,7 +144,7 @@ export function AudioRecorderInline({
     >
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Bloc audio</p>
-        <button type="button" onClick={onClose} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-xs">✕</button>
+        <button type="button" onClick={onClose} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center"><X size={14} strokeWidth={2} /></button>
       </div>
       {error && <p className="text-[10px] text-red-400 mb-2">{error}</p>}
       {!blob ? (
@@ -155,7 +156,7 @@ export function AudioRecorderInline({
             recording ? "bg-red-500/20 text-red-400" : "bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-base)]"
           )}
         >
-          {recording ? "⏹ Arrêter" : "🎙 Enregistrer"}
+          <span className="inline-flex items-center gap-1.5">{recording ? <><Square size={13} strokeWidth={2} fill="currentColor" /> Arrêter</> : <><Mic size={13} strokeWidth={1.75} /> Enregistrer</>}</span>
         </button>
       ) : (
         <div className="space-y-2">
@@ -175,7 +176,7 @@ export function AudioRecorderInline({
               className="w-full py-1.5 rounded-md text-[10px] text-[var(--text-secondary)] border border-dashed border-[var(--border-default)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-60"
             >
               {transcribing === null
-                ? "✎ Transcrire (local, ~40 Mo au 1er usage)"
+                ? <span className="inline-flex items-center gap-1.5"><Pencil size={12} strokeWidth={1.75} /> Transcrire (local, ~40 Mo au 1er usage)</span>
                 : transcribing.phase === "downloading"
                   ? `Téléchargement… ${transcribing.loadedMB ?? 0}/${transcribing.totalMB ?? "?"} Mo`
                   : transcribing.phase === "transcribing"

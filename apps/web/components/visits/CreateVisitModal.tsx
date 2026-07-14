@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { X, MapPin, LocateFixed } from "lucide-react";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
 interface CreateVisitModalProps {
@@ -128,7 +129,7 @@ export function CreateVisitModal({ inspirationIds, onClose, onCreated }: CreateV
             onClick={onClose}
             className="w-9 h-9 md:w-auto md:h-auto flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors leading-none"
           >
-            ✕
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
 
@@ -153,14 +154,12 @@ export function CreateVisitModal({ inspirationIds, onClose, onCreated }: CreateV
               {locating ? (
                 <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-                </svg>
+                <LocateFixed size={15} strokeWidth={1.8} />
               )}
             </button>
           </div>
           {geo && (
-            <p className="text-[10px] text-[var(--text-tertiary)] -mt-1.5 truncate">📍 {geo.address}</p>
+            <p className="text-[10px] text-[var(--text-tertiary)] -mt-1.5 truncate inline-flex items-center gap-1"><MapPin size={11} strokeWidth={1.75} /> {geo.address}</p>
           )}
           <input
             className={fld}

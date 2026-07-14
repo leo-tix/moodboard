@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Pencil, X } from "lucide-react";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import type { SuggestedAddition } from "@/lib/collections/suggestions";
@@ -160,10 +161,10 @@ export function CollectionDetailClient({
             <h1 className="text-2xl font-light text-[var(--text-primary)]">{name}</h1>
             <button
               onClick={() => { setNameValue(name); setIsEditingName(true); }}
-              className="opacity-60 md:opacity-0 md:group-hover/title:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-sm"
+              className="opacity-60 md:opacity-0 md:group-hover/title:opacity-100 transition-opacity text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] inline-flex items-center"
               title="Renommer"
             >
-              ✎
+              <Pencil size={15} strokeWidth={1.75} />
             </button>
           </>
         )}
@@ -243,7 +244,7 @@ export function CollectionDetailClient({
                         className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity hover:bg-black/80 disabled:opacity-40 z-10"
                         title="Retirer de la collection"
                       >
-                        {removing === inspiration.id ? "…" : "✕"}
+                        {removing === inspiration.id ? "…" : <X size={12} strokeWidth={2} />}
                       </button>
                     )}
                   </div>
@@ -290,10 +291,10 @@ export function CollectionDetailClient({
                     {/* Dismiss */}
                     <button
                       onClick={() => dismissSuggestion(s.id)}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white/70 text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity hover:bg-black/70 z-10"
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white/70 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity hover:bg-black/70 z-10"
                       title="Ignorer"
                     >
-                      ✕
+                      <X size={11} strokeWidth={2} />
                     </button>
                   </div>
 

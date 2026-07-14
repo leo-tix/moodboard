@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Check } from 'lucide-react';
 
 export default function ShareDonePage() {
   const router = useRouter();
@@ -32,9 +33,7 @@ export default function ShareDonePage() {
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 px-6">
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="w-12 h-12 rounded-full bg-[var(--bg-surface)] border border-[var(--border-default)] flex items-center justify-center">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--text-primary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 10l4.5 4.5L16 6" />
-          </svg>
+          <Check size={20} strokeWidth={1.75} className="text-[var(--text-primary)]" />
         </div>
         <p className="text-sm font-medium text-[var(--text-primary)]">
           {count === 1 ? '1 image ajoutée' : `${count} images ajoutées`}

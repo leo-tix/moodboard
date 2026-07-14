@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import { X, Check, ArrowUp, CircleSlash, RotateCcw, Copy, Maximize2, PartyPopper } from "lucide-react";
 import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
 import { CategoryMultiSelect, type CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { TagInput } from "@/components/inspiration/TagInput";
@@ -161,7 +162,7 @@ function BottomSheet({
                 className="w-9 h-9 -mr-2 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors text-sm"
                 aria-label="Fermer"
               >
-                ✕
+                <X size={16} strokeWidth={2} />
               </button>
             </div>
           </div>
@@ -538,7 +539,7 @@ export function TriageClient() {
   if (queue.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-6 text-center px-8">
-        <div className="text-7xl animate-bounce">🎉</div>
+        <div className="animate-bounce text-[var(--text-primary)]"><PartyPopper size={56} strokeWidth={1.5} /></div>
         <div>
           <p className="text-2xl font-medium text-[var(--text-primary)]">Tout est trié !</p>
           <p className="text-sm text-[var(--text-tertiary)] mt-2">
@@ -608,8 +609,8 @@ export function TriageClient() {
 
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           <a href="/search?archived=true"
-            className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-2 py-1 rounded-lg hidden sm:block">
-            ⊘ Archives
+            className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-2 py-1 rounded-lg hidden sm:flex items-center gap-1">
+            <CircleSlash size={11} strokeWidth={1.75} /> Archives
           </a>
           {/* Rewind (Tinder) — annule la dernière décision accept/archive */}
           <button
@@ -618,14 +619,14 @@ export function TriageClient() {
             title="Annuler la dernière décision (z)"
             className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-25 disabled:hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] rounded-lg flex-shrink-0"
           >
-            ↺
+            <RotateCcw size={15} strokeWidth={1.75} />
           </button>
           <button
             onClick={() => !isExiting && animateExit("up", () => doAction("skip"))}
             className="h-9 sm:h-auto flex items-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-3 sm:py-1.5 rounded-lg flex-shrink-0"
             title="Passer (↑)"
           >
-            Passer ↑
+            <span className="inline-flex items-center gap-1">Passer <ArrowUp size={13} strokeWidth={1.75} /></span>
           </button>
         </div>
       </div>
@@ -693,17 +694,17 @@ export function TriageClient() {
                 {/* Hint overlays */}
                 {hint === "right" && (
                   <div className="absolute inset-0 bg-gradient-to-l from-green-500/30 to-transparent flex items-center justify-end pr-6 pointer-events-none">
-                    <span className="text-5xl font-black text-green-400 drop-shadow-lg rotate-[-12deg] border-4 border-green-400 rounded-2xl px-4 py-1">✓</span>
+                    <span className="text-green-400 drop-shadow-lg rotate-[-12deg] border-4 border-green-400 rounded-2xl p-2"><Check size={40} strokeWidth={3} /></span>
                   </div>
                 )}
                 {hint === "left" && (
                   <div className="absolute inset-0 bg-gradient-to-r from-red-500/30 to-transparent flex items-center justify-start pl-6 pointer-events-none">
-                    <span className="text-5xl font-black text-red-400 drop-shadow-lg rotate-[12deg] border-4 border-red-400 rounded-2xl px-4 py-1">✕</span>
+                    <span className="text-red-400 drop-shadow-lg rotate-[12deg] border-4 border-red-400 rounded-2xl p-2"><X size={40} strokeWidth={3} /></span>
                   </div>
                 )}
                 {hint === "up" && (
                   <div className="absolute inset-0 bg-gradient-to-b from-blue-500/30 to-transparent flex items-start justify-center pt-4 pointer-events-none">
-                    <span className="text-5xl font-black text-blue-400 drop-shadow-lg border-4 border-blue-400 rounded-2xl px-4 py-1">↑</span>
+                    <span className="text-blue-400 drop-shadow-lg border-4 border-blue-400 rounded-2xl p-2"><ArrowUp size={40} strokeWidth={3} /></span>
                   </div>
                 )}
               </div>
@@ -725,15 +726,13 @@ export function TriageClient() {
                   <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 )}
                 {saveStatus === "saved" && (
-                  <span className="text-[10px] text-white bg-black/50 px-1.5 py-0.5 rounded-full">✓</span>
+                  <span className="text-white bg-black/50 p-1 rounded-full flex"><Check size={11} strokeWidth={3} /></span>
                 )}
               </div>
 
               {/* Affordance — tap pour voir en plein écran (Pinterest/Instagram) */}
               <div className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-                <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 1H1v4M8 1h4v4M5 12H1V8M8 12h4V8" />
-                </svg>
+                <Maximize2 size={12} strokeWidth={1.6} className="text-white/85" />
               </div>
             </div>
           </div>
@@ -746,7 +745,7 @@ export function TriageClient() {
               className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl border-2 border-red-500/40 text-red-400 hover:bg-red-500/10 active:scale-95 transition-all text-sm font-semibold"
               title="Archiver ← (touche ←)"
             >
-              <span>✕</span>
+              <X size={18} strokeWidth={2} />
               <span className="hidden sm:inline">Archiver</span>
             </button>
 
@@ -757,10 +756,7 @@ export function TriageClient() {
               className="w-14 h-14 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] active:scale-95 disabled:opacity-25 transition-all flex-shrink-0"
               title="Copier les données de l'image précédente"
             >
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="5" y="5" width="9" height="9" rx="1.5"/>
-                <path d="M3 11V3a1 1 0 011-1h8"/>
-              </svg>
+              <Copy size={18} strokeWidth={1.5} />
             </button>
 
             {/* Accept */}
@@ -770,7 +766,7 @@ export function TriageClient() {
               title="Accepter → (touche →)"
             >
               <span className="hidden sm:inline">Accepter</span>
-              <span>✓</span>
+              <Check size={18} strokeWidth={2} />
             </button>
           </div>
 
@@ -829,7 +825,7 @@ export function TriageClient() {
                 style={{ top: "calc(env(safe-area-inset-top) + 10px)", right: 10 }}
                 aria-label="Fermer"
               >
-                ✕
+                <X size={16} strokeWidth={2} />
               </button>
             </div>
           }

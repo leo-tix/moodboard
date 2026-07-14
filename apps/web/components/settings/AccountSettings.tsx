@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Check } from "lucide-react";
 import { getImageUrl } from "@/lib/storage/urls";
 import { logout } from "@/app/(app)/settings/account/actions";
 
@@ -227,7 +228,7 @@ export function AccountSettings({
             </span>
           )}
           {profileStatus === "saved" && (
-            <span className="text-[10px] text-[var(--text-tertiary)]">Enregistré ✓</span>
+            <span className="text-[10px] text-[var(--text-tertiary)] inline-flex items-center gap-1">Enregistré <Check size={11} strokeWidth={2} /></span>
           )}
         </div>
         <div>

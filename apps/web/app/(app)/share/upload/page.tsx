@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { X, Loader2 } from 'lucide-react';
 
 const SHARE_DB = 'moodboard-share';
 
@@ -97,13 +98,9 @@ export default function ShareUploadPage() {
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="w-12 h-12 rounded-full bg-[var(--bg-surface)] border border-[var(--border-default)] flex items-center justify-center">
           {error ? (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#f87171" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 6l8 8M14 6l-8 8" />
-            </svg>
+            <X size={20} strokeWidth={1.75} className="text-[#f87171]" />
           ) : (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--text-primary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
-              <path d="M10 3a7 7 0 1 1-7 7" />
-            </svg>
+            <Loader2 size={20} strokeWidth={1.75} className="text-[var(--text-primary)] animate-spin" />
           )}
         </div>
         <p className="text-sm font-medium text-[var(--text-primary)]">

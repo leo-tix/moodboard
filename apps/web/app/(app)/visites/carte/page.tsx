@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
@@ -49,9 +50,9 @@ export default async function VisitesCartePage() {
       <header className="mb-4 flex-shrink-0">
         <Link
           href="/visites"
-          className="inline-block text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+          className="inline-flex items-center gap-1 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
         >
-          ← Carnet de visite
+          <ChevronLeft size={13} strokeWidth={2} /> Carnet de visite
         </Link>
         <h1 className="text-2xl font-light text-[var(--text-primary)] mt-1">Carte des visites</h1>
       </header>

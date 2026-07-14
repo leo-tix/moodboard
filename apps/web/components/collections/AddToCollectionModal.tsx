@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { X, Check } from "lucide-react";
 
 export interface CollectionMeta {
   id: string;
@@ -116,7 +117,7 @@ export function AddToCollectionModal({
             onClick={onClose}
             className="w-9 h-9 md:w-auto md:h-auto flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors leading-none"
           >
-            ✕
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
 
@@ -146,7 +147,7 @@ export function AddToCollectionModal({
                   <span className="text-[12px] text-[var(--text-primary)] truncate">{col.name}</span>
                   <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0 ml-2">
                     {isAdded ? (
-                      <span className="text-green-400">✓ Ajouté</span>
+                      <span className="text-green-400 inline-flex items-center gap-1"><Check size={11} strokeWidth={2} /> Ajouté</span>
                     ) : isAdding ? (
                       "…"
                     ) : (
@@ -190,9 +191,9 @@ export function AddToCollectionModal({
                 </button>
                 <button
                   onClick={() => setShowCreate(false)}
-                  className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] flex items-center"
                 >
-                  ✕
+                  <X size={13} strokeWidth={2} />
                 </button>
               </motion.div>
             ) : (

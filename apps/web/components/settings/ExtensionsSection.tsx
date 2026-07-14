@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { Check } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -113,7 +114,7 @@ export function ExtensionsSection() {
                   onClick={copyToken}
                   className="shrink-0 px-3 py-2 text-xs bg-[var(--accent)] text-[#0a0a0a] font-medium rounded hover:opacity-90 transition-opacity"
                 >
-                  {tokenCopied ? "✓ Copié" : "Copier"}
+                  {tokenCopied ? <span className="inline-flex items-center gap-1"><Check size={12} strokeWidth={2} /> Copié</span> : "Copier"}
                 </button>
               </div>
               <p className="text-[10px] text-[var(--text-tertiary)]">
@@ -151,7 +152,7 @@ export function ExtensionsSection() {
         {/* Install button — shown when Chrome fires beforeinstallprompt */}
         {installed ? (
           <div className="mb-4 p-3 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
-            ✓ Application déjà installée
+            <span className="inline-flex items-center gap-1.5"><Check size={13} strokeWidth={2} /> Application déjà installée</span>
           </div>
         ) : installPrompt ? (
           <button

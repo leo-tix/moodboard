@@ -11,6 +11,7 @@ import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
 import { VisitShareButton } from "@/components/visits/VisitShareButton";
 import { buildJournalItems } from "@/lib/visits/journalItems";
+import { ChevronLeft } from "lucide-react";
 
 export const revalidate = 0;
 
@@ -110,9 +111,9 @@ export default async function VisiteDetailPage({ params }: Props) {
         <header className="mb-5">
           <Link
             href="/visites"
-            className="inline-block mb-2 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+            className="inline-flex items-center gap-1 mb-2 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
           >
-            ← Carnet de visite
+            <ChevronLeft size={13} strokeWidth={2} /> Carnet de visite
           </Link>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">{editableHeader}</div>

@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import Link from "next/link";
+import { Check, X, AlertTriangle } from "lucide-react";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 
 interface ImportResult {
@@ -112,8 +113,8 @@ export function SocialImportClient() {
 
       {/* Indicateur réseau */}
       {url && isValid && !loading && (
-        <p className="text-[10px] text-[var(--text-tertiary)] -mt-3">
-          {isPinterest ? "✓ Lien Pinterest détecté" : "⚠ Lien Instagram détecté — peut échouer si la publication est protégée"}
+        <p className="text-[10px] text-[var(--text-tertiary)] -mt-3 inline-flex items-center gap-1">
+          {isPinterest ? <><Check size={11} strokeWidth={2} /> Lien Pinterest détecté</> : <><AlertTriangle size={11} strokeWidth={2} /> Lien Instagram détecté — peut échouer si la publication est protégée</>}
         </p>
       )}
       {url && !isValid && url.startsWith("http") && (
@@ -125,7 +126,7 @@ export function SocialImportClient() {
       {/* Erreur */}
       {error && (
         <div className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-          <span className="text-red-400 text-base flex-shrink-0">✕</span>
+          <span className="text-red-400 flex-shrink-0 flex"><X size={16} strokeWidth={2} /></span>
           <div>
             <p className="text-sm text-red-400 font-medium">Import échoué</p>
             <p className="text-xs text-red-300/80 mt-0.5">{error}</p>
@@ -150,7 +151,7 @@ export function SocialImportClient() {
           )}
           <div className="flex-1 min-w-0 space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-green-400 text-sm">✓</span>
+              <span className="text-green-400 flex"><Check size={14} strokeWidth={2} /></span>
               <p className="text-xs font-medium text-[var(--text-primary)] truncate">{result.title}</p>
             </div>
             {result.author && (

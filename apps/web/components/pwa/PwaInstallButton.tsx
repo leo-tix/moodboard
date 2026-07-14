@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 
 type State = 'hidden' | 'android' | 'android-manual' | 'ios';
 
@@ -100,10 +101,5 @@ export function PwaInstallButton() {
 }
 
 function DownloadIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 1v7M3.5 5.5 6 8l2.5-2.5" />
-      <path d="M1.5 10.5h9" />
-    </svg>
-  );
+  return <Download size={12} strokeWidth={1.75} />;
 }

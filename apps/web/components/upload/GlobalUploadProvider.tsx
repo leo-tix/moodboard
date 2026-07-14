@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { X, Check, Pencil, Upload } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
@@ -249,7 +250,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       animate={{ y: 0, opacity: 1 }}
                       transition={{ delay: 0.06 }}
                     >
-                      <div className="text-5xl mb-4 opacity-20">↑</div>
+                      <div className="mb-4 opacity-20 flex justify-center"><Upload size={44} strokeWidth={1.5} /></div>
                       <p className="text-[var(--text-primary)] text-2xl font-light tracking-tight">
                         Déposez pour importer
                       </p>
@@ -291,9 +292,9 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       </p>
                       <button
                         onClick={dismiss}
-                        className="w-6 h-6 rounded-full bg-[var(--bg-surface)] hover:bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] flex items-center justify-center text-[10px] transition-colors"
+                        className="w-6 h-6 rounded-full bg-[var(--bg-surface)] hover:bg-[var(--bg-overlay)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] flex items-center justify-center transition-colors"
                       >
-                        ✕
+                        <X size={13} strokeWidth={2} />
                       </button>
                     </div>
 
@@ -328,13 +329,13 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                             {f.status === "done" && (
                               <>
                                 {/* Status badge */}
-                                <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] bg-green-500/80 text-white">
-                                  ✓
+                                <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center bg-green-500/80 text-white">
+                                  <Check size={10} strokeWidth={3} />
                                 </div>
                                 {/* Edit hover */}
                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
-                                  <span className="text-white text-[10px] opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity">
-                                    ✎
+                                  <span className="text-white opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity flex">
+                                    <Pencil size={12} strokeWidth={1.75} />
                                   </span>
                                 </div>
                               </>
@@ -426,9 +427,9 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                       </div>
                       <button
                         onClick={() => setEditingInspirationId(null)}
-                        className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2"
+                        className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors ml-2 inline-flex items-center"
                       >
-                        ✕
+                        <X size={14} strokeWidth={2} />
                       </button>
                     </div>
 

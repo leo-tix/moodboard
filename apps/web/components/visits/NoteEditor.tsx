@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
+import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlashCommand } from "./tiptap/SlashCommand";
 
@@ -163,7 +164,7 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
           <span className="absolute -top-1 right-0 text-[10px] select-none" aria-live="polite">
             {saveState === "dirty" && <span className="text-[var(--text-tertiary)]">●</span>}
             {saveState === "saving" && <span className="text-[var(--text-tertiary)] animate-pulse">●</span>}
-            {saveState === "saved" && <span className="text-[var(--accent)]">✓</span>}
+            {saveState === "saved" && <span className="text-[var(--accent)] inline-flex items-center"><Check size={12} strokeWidth={2.5} /></span>}
             {saveState === "error" && <span className="text-red-400">⚠ non sauvegardé</span>}
           </span>
         </>

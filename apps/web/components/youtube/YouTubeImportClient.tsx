@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { X, CircleCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { YouTubeMetadata } from "@/app/api/youtube/metadata/route";
@@ -338,9 +339,9 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
               </div>
               <button
                 onClick={reset}
-                className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] self-start flex-shrink-0 text-xs transition-colors"
+                className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] self-start flex-shrink-0 transition-colors"
               >
-                ✕
+                <X size={15} strokeWidth={2} />
               </button>
             </div>
 
@@ -562,7 +563,7 @@ export function YouTubeImportClient({ initialUrl }: { initialUrl?: string } = {}
             animate={{ opacity: 1, y: 0 }}
             className="py-20 flex flex-col items-center gap-5 text-center"
           >
-            <div className="text-3xl opacity-20">✓</div>
+            <div className="opacity-20 flex justify-center"><CircleCheck size={30} strokeWidth={1.5} /></div>
             <div>
               <p className="text-lg font-light text-[var(--text-primary)]">Import terminé</p>
               <p className="text-sm text-[var(--text-tertiary)] mt-1">

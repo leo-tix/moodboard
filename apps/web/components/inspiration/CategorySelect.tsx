@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { ChevronRight, ChevronUp, ChevronDown, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -201,7 +202,7 @@ export function CategorySelect({
                     <span className="opacity-60 flex-shrink-0 w-4 text-center">{cat.icon}</span>
                     <span className="truncate">{cat.name}</span>
                     {cat.subcategories.length > 0 && (
-                      <span className="ml-auto text-[10px] opacity-30 flex-shrink-0">›</span>
+                      <span className="ml-auto opacity-30 flex-shrink-0 flex"><ChevronRight size={13} strokeWidth={1.75} /></span>
                     )}
                   </button>
                 ))}
@@ -303,9 +304,9 @@ export function CategorySelect({
         </span>
         <div className="flex items-center gap-1">
           {selectedCategory && (
-            <span onClick={clear} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1">×</span>
+            <span onClick={clear} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1 flex items-center"><X size={13} strokeWidth={2} /></span>
           )}
-          <span className="text-[var(--text-tertiary)] text-[10px]">{open ? "▲" : "▼"}</span>
+          <span className="text-[var(--text-tertiary)] flex items-center">{open ? <ChevronUp size={13} strokeWidth={1.75} /> : <ChevronDown size={13} strokeWidth={1.75} />}</span>
         </div>
       </button>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef } from "react";
+import { Search } from "lucide-react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 interface SearchBarProps {
@@ -41,8 +42,8 @@ export function SearchBar({
 
   return (
     <div className="relative">
-      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] text-sm pointer-events-none">
-        ◎
+      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none flex">
+        <Search size={16} strokeWidth={1.75} />
       </span>
       <input
         type="search"

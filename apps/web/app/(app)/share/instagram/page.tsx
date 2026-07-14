@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { Share2 } from 'lucide-react';
 
 export default function ShareInstagramPage() {
   const router = useRouter();
@@ -9,11 +10,7 @@ export default function ShareInstagramPage() {
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 px-6">
       <div className="flex flex-col items-center gap-3 text-center max-w-xs">
         <div className="w-12 h-12 rounded-full bg-[var(--bg-surface)] border border-[var(--border-default)] flex items-center justify-center">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="14" height="14" rx="3" />
-            <circle cx="10" cy="10" r="3" />
-            <circle cx="14.2" cy="5.8" r="0.6" fill="var(--text-secondary)" stroke="none" />
-          </svg>
+          <Share2 size={20} strokeWidth={1.75} className="text-[var(--text-secondary)]" />
         </div>
         <p className="text-sm font-medium text-[var(--text-primary)]">
           Import automatique indisponible pour Instagram

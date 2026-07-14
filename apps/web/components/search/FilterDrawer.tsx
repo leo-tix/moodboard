@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { X, SlidersHorizontal } from "lucide-react";
 
 interface FilterDrawerProps {
   children: React.ReactNode;
@@ -29,11 +30,7 @@ export function FilterDrawer({ children, hasActiveFilters }: FilterDrawerProps) 
               : "border-[var(--border-default)] text-[var(--text-secondary)]"
           }`}
         >
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-            <line x1="1" y1="3.5" x2="12" y2="3.5"/>
-            <line x1="1" y1="6.5" x2="12" y2="6.5"/>
-            <line x1="1" y1="9.5" x2="12" y2="9.5"/>
-          </svg>
+          <SlidersHorizontal size={14} strokeWidth={1.75} />
           Filtres
           {hasActiveFilters && (
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent,#a78bfa)]" />
@@ -72,7 +69,7 @@ export function FilterDrawer({ children, hasActiveFilters }: FilterDrawerProps) 
                     className="w-9 h-9 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded-full"
                     aria-label="Fermer"
                   >
-                    ✕
+                    <X size={18} strokeWidth={2} />
                   </button>
                 </div>
               </div>

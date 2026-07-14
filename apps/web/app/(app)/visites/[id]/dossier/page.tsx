@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { FolderLab, type FolderImage } from "@/components/visits/FolderLab";
+import { ChevronLeft } from "lucide-react";
 
 export const metadata: Metadata = { title: "Partager en dossier" };
 
@@ -44,9 +45,9 @@ export default async function DossierPage({ params }: Props) {
     <div className="relative">
       <Link
         href={`/visites/${visit.id}`}
-        className="fixed top-4 left-4 z-[200] rounded-full px-3 py-1.5 text-xs bg-[#1a1a1a] text-white/80 hover:text-white border border-white/10 transition-colors"
+        className="fixed top-4 left-4 z-[200] inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs bg-[#1a1a1a] text-white/80 hover:text-white border border-white/10 transition-colors"
       >
-        ← Retour au carnet
+        <ChevronLeft size={13} strokeWidth={2} /> Retour au carnet
       </Link>
       {images.length === 0 ? (
         <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center px-6 text-center">
