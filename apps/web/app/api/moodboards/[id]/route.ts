@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { deleteFromR2 } from "@/lib/storage/r2";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -46,7 +47,18 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
+  // Récupère les storageKey des mémos audio AVANT la suppression — le
+  // cascade delete Prisma nettoie les lignes MoodboardAudio mais jamais les
+  // objets R2 sous-jacents (même filet que la suppression d'une visite,
+  // voir deleteAllAudioForVisit).
+  const audioClips = await db.moodboardAudio.findMany({
+    where: { moodboardId: id, moodboard: { userId: session.user.id } },
+    select: { storageKey: true },
+  });
+
   const res = await db.moodboard.deleteMany({ where: { id, userId: session.user.id } });
   if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  await Promise.allSettled(audioClips.map((a) => deleteFromR2(a.storageKey)));
   return NextResponse.json({ ok: true });
 }

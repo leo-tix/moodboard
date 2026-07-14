@@ -20,6 +20,11 @@ export interface CreatedAudioBlock {
   storageKey: string;
   durationSec: number | null;
   transcript: string | null;
+  /** Renvoyés uniquement par /api/moodboards/[id]/audio pour l'instant — le
+   *  carnet de visite affiche l'auteur autrement (mono-utilisateur par
+   *  visite, pas de bloc individuel). */
+  authorName?: string | null;
+  authorImage?: string | null;
 }
 
 type MemoPhase =
@@ -30,7 +35,15 @@ type MemoPhase =
   | { step: "saving" };
 
 interface VoiceMemoRecorderProps {
-  visitId: string;
+  /** Endpoint d'upload — `/api/visits/[id]/audio` ou `/api/moodboards/[id]/audio`
+   *  (généralisé 2026-07-14 pour être partagé par le carnet de visite ET les
+   *  planches moodboard, mémo vocal "unifié" entre les deux). */
+  uploadUrl: string;
+  /** File d'attente hors ligne (IndexedDB) — spécifique au carnet de visite
+   *  pour l'instant, aucun équivalent construit côté planches (édition
+   *  moodboard suppose déjà une connexion active). `null`/absent = hors
+   *  ligne affiché comme une erreur simple plutôt que mis en file. */
+  offlineQueue?: { visitId: string } | null;
   /** Feuille ouverte — l'enregistrement démarre automatiquement à l'ouverture
    *  (onboarding la toute première fois, sinon directement). */
   open: boolean;
@@ -39,16 +52,19 @@ interface VoiceMemoRecorderProps {
   /** Message transitoire (ex. mise en file hors ligne) — optionnel, le
    *  composant reste utilisable sans (l'appelant ignore juste l'info). */
   onInfo?: (message: string) => void;
+  /** Libellé du bouton de validation — "Ajouter au carnet" par défaut,
+   *  "Ajouter à la planche" côté moodboard. */
+  saveLabel?: string;
 }
 
-// Popup UNIQUE de prise de note audio du carnet — waveform réactive +
-// transcription en direct (Web Speech) + repli transcription locale
-// (Whisper WASM) + file d'attente hors ligne. Initialement propre au FAB de
-// capture (appui long), désormais partagé par TOUS les points d'entrée
-// (menu "+ Bloc", "⋯ Insérer après", pile de colonne) — demande utilisateur
-// 2026-07-14 : une seule et même expérience d'enregistrement partout, plus
-// de popover basique à côté (ancien AudioRecorderInline, supprimé).
-export function VoiceMemoRecorder({ visitId, open, onClose, onCreated, onInfo }: VoiceMemoRecorderProps) {
+// Popup UNIQUE de prise de note audio — waveform réactive + transcription en
+// direct (Web Speech) + repli transcription locale (Whisper WASM) + file
+// d'attente hors ligne (carnet de visite uniquement). Initialement propre au
+// FAB de capture du carnet (appui long), désormais partagée par TOUS les
+// points d'entrée du carnet (menu "+ Bloc", "⋯ Insérer après", pile de
+// colonne) ET par l'outil "Mémo audio" des planches moodboard (2026-07-14) —
+// une seule et même expérience d'enregistrement partout dans l'app.
+export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCreated, onInfo, saveLabel = "Ajouter au carnet" }: VoiceMemoRecorderProps) {
   const [memo, setMemo] = useState<MemoPhase>({ step: "idle" });
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [transcript, setTranscript] = useState("");
@@ -218,11 +234,18 @@ export function VoiceMemoRecorder({ visitId, open, onClose, onCreated, onInfo }:
     const cleanTranscript = transcript.trim() || undefined;
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      await enqueueCapture({ kind: "memo", visitId, blob, filename, durationSec, transcript: cleanTranscript });
-      setMemo({ step: "idle" });
-      setTranscript("");
-      onInfo?.("Mémo en attente de connexion — envoi automatique au retour du réseau.");
-      onClose();
+      if (offlineQueue) {
+        await enqueueCapture({ kind: "memo", visitId: offlineQueue.visitId, blob, filename, durationSec, transcript: cleanTranscript });
+        setMemo({ step: "idle" });
+        setTranscript("");
+        onInfo?.("Mémo en attente de connexion — envoi automatique au retour du réseau.");
+        onClose();
+      } else {
+        // Pas de file d'attente hors ligne pour ce contexte (planches) — le
+        // mémo reste dans l'aperçu, rien n'est perdu, mais pas d'envoi
+        // silencieux différé possible.
+        setError("Hors ligne — connexion requise pour enregistrer ce mémo.");
+      }
       return;
     }
 
@@ -233,7 +256,7 @@ export function VoiceMemoRecorder({ visitId, open, onClose, onCreated, onInfo }:
       fd.append("file", blob, filename);
       fd.append("durationSec", String(durationSec));
       if (cleanTranscript) fd.append("transcript", cleanTranscript);
-      const res = await fetch(`/api/visits/${visitId}/audio`, { method: "POST", body: fd });
+      const res = await fetch(uploadUrl, { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Échec de l'envoi du mémo");
@@ -242,14 +265,26 @@ export function VoiceMemoRecorder({ visitId, open, onClose, onCreated, onInfo }:
       }
       setMemo({ step: "idle" });
       setTranscript("");
-      onCreated({ id: data.id, storageKey: data.storageKey, durationSec: data.durationSec, transcript: data.transcript ?? null });
+      onCreated({
+        id: data.id,
+        storageKey: data.storageKey,
+        durationSec: data.durationSec,
+        transcript: data.transcript ?? null,
+        authorName: data.authorName ?? null,
+        authorImage: data.authorImage ?? null,
+      });
       onClose();
     } catch {
-      await enqueueCapture({ kind: "memo", visitId, blob, filename, durationSec, transcript: cleanTranscript });
-      setMemo({ step: "idle" });
-      setTranscript("");
-      onInfo?.("Réseau indisponible — mémo mis en file, envoi automatique dès que possible.");
-      onClose();
+      if (offlineQueue) {
+        await enqueueCapture({ kind: "memo", visitId: offlineQueue.visitId, blob, filename, durationSec, transcript: cleanTranscript });
+        setMemo({ step: "idle" });
+        setTranscript("");
+        onInfo?.("Réseau indisponible — mémo mis en file, envoi automatique dès que possible.");
+        onClose();
+      } else {
+        setError("Réseau indisponible — réessaie.");
+        setMemo({ step: "preview", blob, durationSec });
+      }
     }
   };
 
@@ -402,7 +437,7 @@ export function VoiceMemoRecorder({ visitId, open, onClose, onCreated, onInfo }:
                     disabled={memo.step === "saving"}
                     className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-60"
                   >
-                    {memo.step === "saving" ? "Envoi…" : "Ajouter au carnet"}
+                    {memo.step === "saving" ? "Envoi…" : saveLabel}
                   </button>
                 </div>
               </div>

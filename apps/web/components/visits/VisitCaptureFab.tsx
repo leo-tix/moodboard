@@ -320,7 +320,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
       )}
 
       <VoiceMemoRecorder
-        visitId={visitId}
+        uploadUrl={`/api/visits/${visitId}/audio`}
+        offlineQueue={{ visitId }}
         open={memoOpen}
         onClose={() => setMemoOpen(false)}
         onCreated={handleMemoCreated}

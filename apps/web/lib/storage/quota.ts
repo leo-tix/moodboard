@@ -92,13 +92,17 @@ export interface FullQuotaStatus {
 // profil (User.imageSize) est un 3e type d'objet R2 additionné séparément.
 // Chaque image écrit 2 objets R2 (original + vignette) — les deux sont comptés.
 export async function getStorageQuota(userId: string): Promise<StorageQuota> {
-  const [images, audio, user] = await Promise.all([
+  const [images, audio, moodboardAudio, user] = await Promise.all([
     db.image.aggregate({
       where: { inspiration: { userId } },
       _sum: { size: true, thumbnailSize: true },
     }),
     db.visitAudio.aggregate({
       where: { visit: { userId } },
+      _sum: { size: true },
+    }),
+    db.moodboardAudio.aggregate({
+      where: { moodboard: { userId } },
       _sum: { size: true },
     }),
     db.user.findUnique({
@@ -110,6 +114,7 @@ export async function getStorageQuota(userId: string): Promise<StorageQuota> {
     (images._sum.size ?? 0) +
     (images._sum.thumbnailSize ?? 0) +
     (audio._sum.size ?? 0) +
+    (moodboardAudio._sum.size ?? 0) +
     (user?.imageSize ?? 0);
   // storageQuotaBytes est un BigInt en base ; toutes les valeurs de quota
   // (< 2^53) tiennent dans un number JS.
@@ -133,15 +138,17 @@ export async function getStorageQuota(userId: string): Promise<StorageQuota> {
 
 // ── Vue admin : usage réel de TOUT le bucket (tous profils confondus) ──
 export async function getGlobalStorageUsed(): Promise<number> {
-  const [images, audio, users] = await Promise.all([
+  const [images, audio, moodboardAudio, users] = await Promise.all([
     db.image.aggregate({ _sum: { size: true, thumbnailSize: true } }),
     db.visitAudio.aggregate({ _sum: { size: true } }),
+    db.moodboardAudio.aggregate({ _sum: { size: true } }),
     db.user.aggregate({ _sum: { imageSize: true } }),
   ]);
   return (
     (images._sum.size ?? 0) +
     (images._sum.thumbnailSize ?? 0) +
     (audio._sum.size ?? 0) +
+    (moodboardAudio._sum.size ?? 0) +
     (users._sum.imageSize ?? 0)
   );
 }

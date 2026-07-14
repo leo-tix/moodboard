@@ -3,13 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Pause, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AudioMemoWaveform } from "@/components/audio/AudioMemoWaveform";
 
+// Résolution de décodage des pics d'amplitude (indépendante du nombre de
+// barres réellement dessinées — AudioMemoWaveform rééchantillonne).
 const BAR_COUNT = 64;
-// Moins de barres en mode compact : dans une pile de colonne (~130-150px
-// utiles après padding), les 64 barres normales + leurs gap-[2px] (126px de
-// gaps à elles seules) ne laissent plus de place réelle à la waveform une
-// fois les boutons/le temps déduits — elle s'écrasait à ~0px de large.
-const BAR_COUNT_COMPACT = 22;
 
 // Lecteur audio custom — remplace le <audio controls> natif (moche, pas de
 // waveform, pas d'avance rapide) par une vraie mini-app de lecture façon
@@ -160,9 +158,6 @@ export function AudioPlayer({
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const progress = duration > 0 ? currentTime / duration : 0;
-  const barCount = effectiveCompact ? BAR_COUNT_COMPACT : BAR_COUNT;
-  const barGap = effectiveCompact ? 1 : 2;
-  const barHeightPx = effectiveCompact ? 20 : 28;
   const playSize = effectiveCompact ? "w-6 h-6" : "w-8 h-8";
 
   return (
@@ -200,35 +195,18 @@ export function AudioPlayer({
         </button>
       )}
 
-      {/* Waveform — cliquable pour naviguer */}
+      {/* Waveform — cliquable pour naviguer. Même composant/style/comportement
+          que la waveform d'enregistrement (VoiceWaveform) — demande
+          utilisateur 2026-07-14 : lecture "réactive", identique à
+          l'enregistrement, partagée entre carnet de visite et planches. */}
       <div
-        className={cn("relative flex-1 flex items-center cursor-pointer min-w-0", effectiveCompact ? "h-5" : "h-8")}
-        style={{ gap: barGap }}
+        className={cn("relative flex-1 cursor-pointer min-w-0", effectiveCompact ? "h-5" : "h-8")}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           seekTo((e.clientX - rect.left) / rect.width);
         }}
       >
-        {(peaks ?? Array.from({ length: barCount }, () => 0.15)).slice(0, barCount).map((h, i) => {
-          const played = i / barCount < progress;
-          return (
-            <span
-              key={i}
-              className={cn(
-                "flex-1 rounded-full transition-colors",
-                // border-strong même en placeholder : border-subtle (6% alpha)
-                // était invisible sur fond sombre — la zone waveform semblait
-                // vide pendant/après un décodage lent ou échoué.
-                peaks ? (played ? "bg-[var(--text-primary)]" : "bg-[var(--border-strong)]") : "bg-[var(--border-strong)] animate-pulse"
-              )}
-              // Hauteur en PIXELS, pas en % : un pourcentage sur un enfant de
-              // flexbox peut s'effondrer à 0 sur Safari/iOS (base de calcul
-              // ambiguë) — c'était l'autre raison des waveforms invisibles
-              // sur mobile.
-              style={{ height: Math.max(2, Math.round(h * barHeightPx)) }}
-            />
-          );
-        })}
+        <AudioMemoWaveform peaks={peaks} progress={progress} playing={playing} className="w-full h-full" />
       </div>
 
       {!effectiveCompact && (

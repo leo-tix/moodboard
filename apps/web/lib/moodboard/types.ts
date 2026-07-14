@@ -118,7 +118,29 @@ export type LinearElement = CanvasElementBase & {
   endArrowhead: "none" | "arrow" | "bar";
 };
 
-export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement | StrokeElement | ShapeElement | LinearElement;
+/**
+ * Mémo vocal enregistré directement sur la planche (2026-07-14) — reprend le
+ * mécanisme du carnet de visite (VoiceMemoRecorder, AudioPlayer/waveform
+ * réactive partagée). Le storageKey/durée/transcript vivent en base
+ * (MoodboardAudio, cascade delete + purge R2 explicite) : l'élément canvas
+ * ne référence que `audioId` + la position/taille, pas les données audio
+ * elles-mêmes — cohérent avec le fait qu'un mémo est un NOUVEL upload R2
+ * (contrairement à un ImageElement, qui référence une image déjà existante
+ * de la bibliothèque).
+ */
+export type AudioElement = CanvasElementBase & {
+  type: "audio";
+  audioId: string; // MoodboardAudio.id
+  storageKey: string;
+  durationSec: number | null;
+  transcript?: string | null;
+  /** Auteur du mémo — dénormalisé au moment de la création pour l'avatar
+   *  affiché sur le bloc, sans jointure supplémentaire à l'affichage. */
+  authorName?: string | null;
+  authorImage?: string | null; // storageKey R2 de l'avatar, comme User.image
+};
+
+export type CanvasElement = ImageElement | TextElement | ColorElement | StickyElement | StrokeElement | ShapeElement | LinearElement | AudioElement;
 
 export interface MoodboardData {
   id: string;

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { useRouter } from "next/navigation";
-import { Images, ArrowLeft, ArrowRight, Ban } from "lucide-react";
+import { Images, ArrowLeft, ArrowRight, Ban, Mic } from "lucide-react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   MoodboardData,
@@ -21,6 +21,7 @@ import type {
   ShapeElement,
   LinearElement,
   LinearPoint,
+  AudioElement,
 } from "@/lib/moodboard/types";
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
 import { SharePanel } from "@/components/moodboard/SharePanel";
@@ -29,6 +30,8 @@ import { PencilLayer, type Stroke, type PencilTool, type StrokeElement, type Pen
 import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
 import { strokeToElement, eraseStroke } from "@/lib/moodboard/pencil";
+import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
+import { AudioMemoCard } from "@/components/moodboard/AudioMemoCard";
 
 interface Props {
   initialData: MoodboardData;
@@ -108,6 +111,9 @@ export function MoodboardEditor({ initialData }: Props) {
   // ── Panel visibility ──
   const [showLibrary, setShowLibrary] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  // Mémo audio (2026-07-14) — même popup d'enregistrement que le carnet de
+  // visite (VoiceMemoRecorder généralisé), voir addAudio ci-dessous.
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false);
 
   // ── Context menu ──
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -409,9 +415,21 @@ export function MoodboardEditor({ initialData }: Props) {
       return !el?.locked;
     });
     if (toDelete.length === 0) return;
+    // Un bloc audio possède un VRAI upload R2 (contrairement à une image, qui
+    // ne fait que référencer une image déjà existante de la bibliothèque) —
+    // le retirer du canvas ne suffit pas, il faut aussi purger la ligne
+    // MoodboardAudio + l'objet R2, sinon orphelin permanent (même filet que
+    // le carnet de visite, voir lib/visits/audioCleanup.ts).
+    const audioIdsToDelete = toDelete
+      .map((id) => elementsRef.current.find((e) => e.id === id))
+      .filter((el): el is AudioElement => el?.type === "audio")
+      .map((el) => el.audioId);
+    for (const audioId of audioIdsToDelete) {
+      fetch(`/api/moodboards/${initialData.id}/audio/${audioId}`, { method: "DELETE" }).catch(() => {});
+    }
     updateElements((prev) => prev.filter((el) => !toDelete.includes(el.id)));
     setSelectedIds((prev) => prev.filter((id) => !toDelete.includes(id)));
-  }, [updateElements]);
+  }, [updateElements, initialData.id]);
 
   // ── Select element ──
   const handleSelect = useCallback((id: string, shift: boolean) => {
@@ -2094,6 +2112,36 @@ export function MoodboardEditor({ initialData }: Props) {
     [getViewportCenter, updateElements, snap]
   );
 
+  // ── Add audio memo (2026-07-14) — même carte carrée partout (300×300 par
+  // défaut, redimensionnable comme tout élément du canvas). ──
+  const addAudio = useCallback(
+    (created: CreatedAudioBlock) => {
+      const { x, y } = getViewportCenter();
+      const W = 280;
+      const H = 300;
+      const el: AudioElement = {
+        id: makeId(),
+        type: "audio",
+        x: snap(x - W / 2),
+        y: snap(y - H / 2),
+        w: W,
+        h: H,
+        zIndex: ++nextZRef.current,
+        audioId: created.id,
+        storageKey: created.storageKey,
+        durationSec: created.durationSec,
+        transcript: created.transcript,
+        authorName: created.authorName,
+        authorImage: created.authorImage,
+      };
+      updateElements((prev) => [...prev, el]);
+      const nextIds = [el.id];
+      selectedIdsRef.current = nextIds;
+      setSelectedIds(nextIds);
+    },
+    [getViewportCenter, updateElements, snap]
+  );
+
   // ── Shape commit helper ──
   const commitShape = useCallback(
     (startX: number, startY: number, rawEndX: number, rawEndY: number) => {
@@ -2580,6 +2628,14 @@ export function MoodboardEditor({ initialData }: Props) {
           title="Bibliothèque d'images"
         >
           <span className="flex items-center gap-1"><Images size={13} strokeWidth={1.75} /> Biblio</span>
+        </button>
+
+        <button
+          onClick={() => setShowAudioRecorder(true)}
+          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors px-1.5 py-1 rounded flex-shrink-0"
+          title="Enregistrer un mémo audio"
+        >
+          <span className="flex items-center gap-1"><Mic size={13} strokeWidth={1.75} /> Mémo</span>
         </button>
 
         <div className="w-px h-4 bg-[var(--border-subtle)]" />
@@ -3472,6 +3528,17 @@ export function MoodboardEditor({ initialData }: Props) {
           </div>
         )}
       </div>
+
+      {/* Mémo audio — même popup d'enregistrement que le carnet de visite
+          (VoiceMemoRecorder généralisé, 2026-07-14), pas de file d'attente
+          hors ligne côté planches (édition suppose déjà une connexion). */}
+      <VoiceMemoRecorder
+        uploadUrl={`/api/moodboards/${initialData.id}/audio`}
+        open={showAudioRecorder}
+        onClose={() => setShowAudioRecorder(false)}
+        onCreated={(audio) => { addAudio(audio); setShowAudioRecorder(false); }}
+        saveLabel="Ajouter à la planche"
+      />
     </div>
   );
 }
@@ -3903,6 +3970,26 @@ function ElementContent({
         >
           {el.content}
         </div>
+      </div>
+    );
+  }
+
+  if (element.type === "audio") {
+    const el = element as AudioElement;
+    return (
+      <div
+        className="w-full h-full"
+        // Même pattern que le bloc "sticky" : un premier clic sélectionne
+        // l'élément (Rnd gère le drag), UNE FOIS sélectionné les clics
+        // passent à la carte (lecture/seek au lieu de démarrer un drag).
+        onMouseDown={(e) => { if (selected) e.stopPropagation(); }}
+      >
+        <AudioMemoCard
+          storageKey={el.storageKey}
+          durationSec={el.durationSec}
+          authorName={el.authorName}
+          authorImage={el.authorImage}
+        />
       </div>
     );
   }

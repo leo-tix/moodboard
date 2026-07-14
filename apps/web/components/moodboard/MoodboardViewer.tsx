@@ -12,8 +12,10 @@ import type {
   StrokeElement,
   ShapeElement,
   LinearElement,
+  AudioElement,
 } from "@/lib/moodboard/types";
 import { buildCachedStroke, drawCachedStroke } from "@/lib/moodboard/pencil";
+import { AudioMemoCard } from "@/components/moodboard/AudioMemoCard";
 
 interface Props {
   data: {
@@ -684,7 +686,10 @@ export function MoodboardViewer({ data }: Props) {
             .map((el) => (
               <div
                 key={el.id}
-                className="absolute pointer-events-none"
+                // Lecture seule sauf pour l'audio : play/pause + seek sur la
+                // waveform doivent rester cliquables (contrairement aux
+                // autres types, purement visuels dans le viewer).
+                className={el.type === "audio" ? "absolute pointer-events-auto" : "absolute pointer-events-none"}
                 style={{
                   left:    el.x,
                   top:     el.y,
@@ -860,6 +865,18 @@ function ViewerElement({
           {el.content}
         </p>
       </div>
+    );
+  }
+
+  if (element.type === "audio") {
+    const el = element as AudioElement;
+    return (
+      <AudioMemoCard
+        storageKey={el.storageKey}
+        durationSec={el.durationSec}
+        authorName={el.authorName}
+        authorImage={el.authorImage}
+      />
     );
   }
 

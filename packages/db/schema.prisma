@@ -266,6 +266,32 @@ model VisitAudio {
   @@map("visit_audio")
 }
 
+// Mémo vocal inséré comme bloc sur une planche moodboard (canvas) — même
+// esprit que VisitAudio, table dédiée (plutôt qu'un simple storageKey noyé
+// dans canvasData) pour bénéficier du même filet anti-orphelins R2 déjà en
+// place pour le carnet (cascade delete + purge explicite à la suppression
+// d'un bloc, voir lib/visits/audioCleanup.ts et son équivalent planches).
+// L'élément canvasData ne référence que `audioId` (+ position/taille) ; le
+// storageKey/durée/transcript vivent ici.
+model MoodboardAudio {
+  id          String    @id @default(cuid())
+  moodboardId String
+  moodboard   Moodboard @relation(fields: [moodboardId], references: [id], onDelete: Cascade)
+  storageKey  String
+  size        Int
+  durationSec Int?
+  transcript  String?
+  // Auteur du mémo (avatar affiché sur le bloc) — dénormalisé, pas de FK
+  // stricte vers User : simple traçabilité, cohérente avec le mono-owner
+  // actuel des planches (Moodboard.userId), prête pour une future
+  // collaboration sans migration supplémentaire.
+  authorId    String?
+  createdAt   DateTime  @default(now())
+
+  @@index([moodboardId])
+  @@map("moodboard_audio")
+}
+
 // Bloc de texte pur du carnet (sous-titre H3, gras/italique, listes — le
 // Titre H2 est un bloc à part, VisitTitle ci-dessous ; plus de
 // citation/image/audio intégrés, voir note ci-dessus).
@@ -523,6 +549,7 @@ model Moodboard {
   order          Int       @default(0)
   folderId       String?
   folder         MoodboardFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  audioClips     MoodboardAudio[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

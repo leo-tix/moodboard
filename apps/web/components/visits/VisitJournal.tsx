@@ -842,7 +842,8 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
 
       {/* Popup UNIQUE de prise de note audio — voir requestVoiceMemo ci-dessus */}
       <VoiceMemoRecorder
-        visitId={visitId}
+        uploadUrl={`/api/visits/${visitId}/audio`}
+        offlineQueue={{ visitId }}
         open={voiceMemoTarget !== null}
         onClose={() => setVoiceMemoTarget(null)}
         onCreated={(audio) => {
