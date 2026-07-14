@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth/current";
 import { db } from "@/lib/db";
 import { getStorageQuota, QUOTA } from "@/lib/storage/quota";
 import { ProfilesManager, type ProfileRow } from "@/components/settings/ProfilesManager";
+import { OrphanedFilesPanel } from "@/components/settings/OrphanedFilesPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,14 @@ export default async function ProfilesPage() {
           availableBytes: Math.max(0, QUOTA.MAX_STORAGE_BYTES - allocated),
         }}
       />
+
+      <div className="mt-8">
+        <h3 className="text-sm font-medium text-[var(--text-primary)] mb-1">Gestion des fichiers</h3>
+        <p className="text-xs text-[var(--text-tertiary)] mb-3">
+          Réconciliation stockage R2 — porte sur le bucket entier, tous profils confondus.
+        </p>
+        <OrphanedFilesPanel />
+      </div>
     </div>
   );
 }

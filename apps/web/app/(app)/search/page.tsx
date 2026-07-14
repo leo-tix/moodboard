@@ -204,6 +204,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           inspirations={(inspirations as InspirationGridItem[]).map((i) => ({
             ...i,
             moodboardCount: moodboardCountMap[i.id] ?? 0,
+            // Rattachée à une visite (carnet) = "utilisée", au même titre
+            // qu'une présence sur une planche (voir LibraryClient.unusedIds).
+            visitId: i.visitId ?? null,
           }))}
         />
         )

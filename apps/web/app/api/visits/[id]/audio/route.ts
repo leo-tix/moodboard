@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, deleteFromR2 } from "@/lib/storage/r2";
 import { checkUploadAllowed, checkAudioMimeType, QUOTA } from "@/lib/storage/quota";
 import { nextBlockOrder } from "@/lib/visits/blockOrder";
 import { randomUUID } from "crypto";
@@ -37,13 +37,18 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }
 
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const ext = file.type.split(";")[0].split("/")[1] ?? "webm";
+  const storageKey = `visit-audio/${randomUUID()}.${ext}`;
+
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.type.split(";")[0].split("/")[1] ?? "webm";
-    const storageKey = `visit-audio/${randomUUID()}.${ext}`;
-
     await uploadToR2(storageKey, buffer, file.type.split(";")[0]);
+  } catch (error) {
+    console.error("[VISIT AUDIO UPLOAD ERROR]", error);
+    return NextResponse.json({ error: "Erreur lors du traitement" }, { status: 500 });
+  }
 
+  try {
     const order = await nextBlockOrder(id);
     const audio = await db.visitAudio.create({
       data: { visitId: id, storageKey, size: buffer.length, durationSec, transcript, order },
@@ -57,7 +62,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       transcript: audio.transcript,
     });
   } catch (error) {
-    console.error("[VISIT AUDIO UPLOAD ERROR]", error);
+    // L'upload R2 a réussi mais la création en base a échoué (visite
+    // supprimée entre-temps, coupure DB…) : purge immédiate de l'objet R2
+    // orphelin, sinon il reste indéfiniment sans aucune ligne VisitAudio pour
+    // le référencer (voir aussi lib/storage/orphanAudio.ts, filet de
+    // sécurité pour les orphelins déjà existants).
+    await deleteFromR2(storageKey).catch(() => {});
+    console.error("[VISIT AUDIO CREATE ERROR]", error);
     return NextResponse.json({ error: "Erreur lors du traitement" }, { status: 500 });
   }
 }

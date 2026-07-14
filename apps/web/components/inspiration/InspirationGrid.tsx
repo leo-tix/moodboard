@@ -21,6 +21,10 @@ export interface InspirationGridItem {
   tags: { tag: { name: string } }[];
   /** Nombre de planches moodboard contenant cette image (affiché en badge) */
   moodboardCount?: number;
+  /** Visite à laquelle l'image est rattachée (carnet), s'il y en a une — une
+   *  image archivée rattachée à une visite est "utilisée" au même titre
+   *  qu'une image présente sur une planche (voir LibraryClient.unusedIds). */
+  visitId?: string | null;
 }
 
 interface InspirationGridProps {

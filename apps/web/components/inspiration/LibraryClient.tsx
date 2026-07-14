@@ -280,10 +280,13 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
     setSelectMode(false);
   }, []);
 
-  // IDs des images non présentes dans aucune planche (archives uniquement)
+  // IDs des images vraiment "non utilisées" (archives uniquement) : ni dans
+  // aucune planche moodboard, NI rattachées à une visite (carnet) — une image
+  // archivée présente dans un carnet reste "utilisée" au même titre qu'une
+  // planche, elle ne doit pas être proposée à la suppression en masse.
   const unusedIds = useMemo(
     () => isArchivedMode
-      ? new Set(inspirations.filter((i) => (i.moodboardCount ?? 0) === 0).map((i) => i.id))
+      ? new Set(inspirations.filter((i) => (i.moodboardCount ?? 0) === 0 && !i.visitId).map((i) => i.id))
       : new Set<string>(),
     [inspirations, isArchivedMode]
   );

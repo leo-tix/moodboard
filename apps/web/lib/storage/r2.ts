@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -56,4 +57,24 @@ export async function getSignedR2Url(
 // Construit l'URL publique d'un fichier
 export function getPublicUrl(key: string): string {
   return `${PUBLIC_URL}/${key}`;
+}
+
+// Liste tous les objets R2 sous un préfixe (pagination automatique via
+// ContinuationToken — un ListObjectsV2 ne renvoie que 1000 clés max par
+// appel). Utilisé pour la réconciliation "fichiers orphelins" (voir
+// lib/storage/orphanAudio.ts) : R2 n'a pas de notion de référence entrante,
+// il faut donc comparer sa liste d'objets à ce que la base référence.
+export async function listR2Keys(prefix: string): Promise<{ key: string; size: number }[]> {
+  const out: { key: string; size: number }[] = [];
+  let token: string | undefined;
+  do {
+    const res = await r2.send(
+      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: token }),
+    );
+    for (const obj of res.Contents ?? []) {
+      if (obj.Key) out.push({ key: obj.Key, size: obj.Size ?? 0 });
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return out;
 }
