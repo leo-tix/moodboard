@@ -432,11 +432,12 @@ reste identique au comportement actuel.
   qui compose la scène du dossier centrée sur un canvas 1080×1920 fond
   sombre (Instagram/TikTok). (L'export vidéo animé de l'original reste une
   suite possible : `MediaRecorder` sur canvas.)
-- **✅ Tags transversaux** : filtre par tags sur `/visites` (`VisitsClient`) —
-  pills des tags présents sur les images des visites ; sélection = filtre les
-  visites portant au moins un des tags (OU). Un tag relie plusieurs visites
-  (ex. #Typographie sur deux expos). `page.tsx` calcule `tagsByVisit` +
-  `allTags` via une requête `tag → inspirations → visitId`.
+- **Tags transversaux — RETIRÉ après coup (2026-07-14)** : le filtre par tags
+  sur `/visites` (pills) a bien été livré, mais **retiré à la demande de
+  l'utilisateur** : avec des dizaines de tags il saturait tout l'écran (surtout
+  mobile) avant d'afficher la moindre visite. Affichage + tuyauterie
+  (`tagsByVisit`/`allTags`) supprimés. À reproposer un jour sous une forme non
+  envahissante (ex. champ de recherche/filtre repliable) si le besoin revient.
 - Vérifié en navigateur réel (compte de test jetable, supprimé + R2 purgé) :
   génération/révocation du lien public + accès `/carnet/[token]` SANS cookies
   (200, pas de redirection login) ; folder lab (teinte, styles, export PNG
