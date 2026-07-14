@@ -108,22 +108,111 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
       transition={{ type: "spring", bounce: 0.1, duration: 0.35 }}
       className="fixed bottom-14 md:bottom-0 left-0 md:left-14 xl:left-56 right-0 z-50"
     >
-      <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border-t border-[var(--border-default)] px-4 py-3"
+      <div className="bg-[var(--bg-elevated)]/95 backdrop-blur border-t border-[var(--border-default)] rounded-t-2xl md:rounded-none px-4 pt-2 md:pt-3 pb-3"
            style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
 
-        {/* Mobile: compact header row */}
-        <div className="flex items-center justify-between mb-2 md:hidden">
-          <p className="text-sm font-medium text-[var(--text-primary)]">
-            {selectedIds.length} sélectionnée{selectedIds.length > 1 ? "s" : ""}
-          </p>
-          <button onClick={onClear} className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
-            Désélectionner
-          </button>
+        {/* ───────── Mobile : feuille verticale plein écran, pas de scroll
+            horizontal — chaque champ prend toute la largeur, gros boutons
+            tactiles. Les champs Titre/Catégorie/Tags sont MASQUÉS en mode
+            archives : aucun bouton n'y déclenche leur sauvegarde dans ce
+            mode (seuls Restaurer/Supprimer agissent), les montrer serait un
+            cul-de-sac. */}
+        <div className="md:hidden">
+          <div className="flex justify-center pb-2">
+            <div className="w-8 h-1 rounded-full bg-[var(--border-default)]" />
+          </div>
+
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {selectedIds.length} sélectionnée{selectedIds.length > 1 ? "s" : ""}
+            </p>
+            <button onClick={onClear} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
+              Désélectionner
+            </button>
+          </div>
+
+          {!isArchivedMode && (
+            <div className="flex flex-col gap-3 mb-4">
+              <div>
+                <label className={sectionLabel}>Titre (identique)</label>
+                <input
+                  className={fieldClass}
+                  placeholder="Laisser vide = inchangé"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className={sectionLabel}>Catégorie</label>
+                  {categories.length > 0 ? (
+                    <CategorySelect
+                      categories={categories}
+                      value={category}
+                      onChange={setCategory}
+                      dropUp
+                      showCreateButton
+                    />
+                  ) : (
+                    <div className={`${fieldClass} text-[var(--text-tertiary)]`}>Chargement…</div>
+                  )}
+                </div>
+                <div>
+                  <label className={sectionLabel}>Tags</label>
+                  <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2.5">
+            {isArchivedMode ? (
+              <Button onClick={restore} loading={restoring} className="w-full">
+                <span className="inline-flex items-center gap-1.5"><Undo2 size={14} strokeWidth={1.75} /> Restaurer vers triage</span>
+              </Button>
+            ) : (
+              <Button onClick={save} loading={saving} disabled={!hasPatch} className="w-full">
+                Appliquer
+              </Button>
+            )}
+
+            <div className="flex items-center justify-between gap-3 px-0.5">
+              {!isArchivedMode ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCollectionModal(true)}
+                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  ▣ Ajouter à une collection
+                </button>
+              ) : <span />}
+
+              {confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-red-400">Confirmer ?</span>
+                  <button onClick={deleteAll} disabled={deleting} className="text-xs font-medium text-red-400 hover:text-red-300">
+                    {deleting ? "…" : "Oui"}
+                  </button>
+                  <button onClick={() => setConfirmDelete(false)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+                    Non
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-xs text-[var(--text-tertiary)] hover:text-red-400 transition-colors"
+                >
+                  Supprimer tout
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-start gap-4 max-w-5xl overflow-x-auto scrollbar-none" style={{ touchAction: "pan-x" }}>
-          {/* Count + controls — desktop only */}
-          <div className="hidden md:block flex-shrink-0 pt-4">
+        {/* ───────── Desktop : rangée horizontale compacte (espace large,
+            pas besoin de scroll ni de pile verticale). ───────── */}
+        <div className="hidden md:flex items-start gap-4 max-w-5xl">
+          <div className="flex-shrink-0 pt-4">
             <p className="text-sm font-medium text-[var(--text-primary)]">
               {selectedIds.length} sélectionnée{selectedIds.length > 1 ? "s" : ""}
             </p>
@@ -135,61 +224,54 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
             </button>
           </div>
 
-          <div className="hidden md:block w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
-
-          {/* Title */}
-          <div className="w-44 flex-shrink-0">
-            <label className={sectionLabel}>Titre (identique)</label>
-            <input
-              className={fieldClass}
-              placeholder="Laisser vide = inchangé"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-
-          {/* Category — dropUp so dropdown opens upward.
-              w-44 flex-shrink-0 (comme Titre), PAS flex-1 min-w-0 : dans une
-              rangée overflow-x-auto, flex-1 + min-w-0 laisse la colonne se
-              réduire jusqu'à 0px de large dès que la rangée ne tient pas —
-              son contenu déborde alors par-dessus les colonnes voisines au
-              lieu de faire défiler la rangée horizontalement (bug remonté
-              2026-07-14, capture mobile : "Catégorie"/"Ajouter des tags" et
-              le bouton "Restaurer" superposés). Une largeur fixe rend la
-              rangée réellement scrollable comme prévu. */}
-          <div className="w-44 flex-shrink-0">
-            <label className={sectionLabel}>Catégorie</label>
-            {categories.length > 0 ? (
-              <CategorySelect
-                categories={categories}
-                value={category}
-                onChange={setCategory}
-                dropUp
-                showCreateButton
-              />
-            ) : (
-              <div className={`${fieldClass} text-[var(--text-tertiary)]`}>Chargement…</div>
-            )}
-          </div>
-
-          {/* Tags — même raisonnement que Catégorie ci-dessus */}
-          <div className="w-44 flex-shrink-0">
-            <label className={sectionLabel}>Ajouter des tags</label>
-            <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
-          </div>
-
           <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
+
+          {!isArchivedMode && (
+            <>
+              {/* Title */}
+              <div className="w-44 flex-shrink-0">
+                <label className={sectionLabel}>Titre (identique)</label>
+                <input
+                  className={fieldClass}
+                  placeholder="Laisser vide = inchangé"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
+
+              {/* Category — dropUp so dropdown opens upward */}
+              <div className="w-44 flex-shrink-0">
+                <label className={sectionLabel}>Catégorie</label>
+                {categories.length > 0 ? (
+                  <CategorySelect
+                    categories={categories}
+                    value={category}
+                    onChange={setCategory}
+                    dropUp
+                    showCreateButton
+                  />
+                ) : (
+                  <div className={`${fieldClass} text-[var(--text-tertiary)]`}>Chargement…</div>
+                )}
+              </div>
+
+              {/* Tags */}
+              <div className="w-44 flex-shrink-0">
+                <label className={sectionLabel}>Ajouter des tags</label>
+                <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
+              </div>
+
+              <div className="w-px self-stretch bg-[var(--border-subtle)] flex-shrink-0" />
+            </>
+          )}
 
           {/* Actions */}
           <div className="flex-shrink-0 flex flex-col justify-center gap-2 pt-3">
-            {/* Mode archives : Restaurer en priorité */}
-            {isArchivedMode && (
+            {isArchivedMode ? (
               <Button size="sm" onClick={restore} loading={restoring}>
                 <span className="inline-flex items-center gap-1.5"><Undo2 size={14} strokeWidth={1.75} /> Restaurer vers triage</span>
               </Button>
-            )}
-
-            {!isArchivedMode && (
+            ) : (
               <Button size="sm" onClick={save} loading={saving} disabled={!hasPatch}>
                 Appliquer
               </Button>
