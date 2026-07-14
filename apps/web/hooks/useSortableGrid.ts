@@ -34,6 +34,21 @@ import type { DragHandleProps } from "@/hooks/useDragHandle";
  */
 
 const DRAG_THRESHOLD = 6; // px avant qu'un appui ne devienne un drag (préserve le clic)
+const EDGE_ZONE = 72; // px depuis le bord haut/bas qui déclenchent l'auto-scroll
+const EDGE_MAX_SPEED = 18; // px par frame au ras du bord
+
+// Remonte jusqu'au premier ancêtre réellement scrollable (sinon la fenêtre).
+function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
+  let node = el?.parentElement ?? null;
+  while (node) {
+    const s = getComputedStyle(node);
+    if (/(auto|scroll)/.test(s.overflowY + s.overflow) && node.scrollHeight > node.clientHeight + 1) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return window;
+}
 
 export interface SortableGrid {
   /** Clé de l'item en cours de drag (null au repos). */
@@ -83,6 +98,8 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
   const pointer = useRef({ x: 0, y: 0 });
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const didDragRef = useRef(false);
+  const scrollParentRef = useRef<HTMLElement | Window | null>(null);
+  const autoScrollRAF = useRef<number | null>(null);
 
   // Écouteurs à identité stable (pour add/removeEventListener), qui délèguent à
   // des implémentations réévaluées à chaque rendu (closures sur les refs).
@@ -113,6 +130,22 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
     document.body.style.userSelect = "none";
     setOverlaySize({ w: a.rect.width, h: a.rect.height });
     setDraggingKey(a.key);
+    if (autoScrollRAF.current == null) autoScrollRAF.current = requestAnimationFrame(autoScrollTick);
+  };
+
+  // Hit-test + survol + réordonnancement à la position courante. Appelé au
+  // pointermove ET par l'auto-scroll (le contenu défile sous un pointeur immobile
+  // → la cible change, il faut re-tester).
+  const runHitAndReorder = (x: number, y: number) => {
+    const dk = draggingKeyRef.current;
+    if (!dk) return;
+    const hitEl = document.elementFromPoint(x, y);
+    optsRef.current.onHover?.(hitEl, x, y, dk);
+    const targetKey = hitEl?.closest<HTMLElement>("[data-sortable-key]")?.getAttribute("data-sortable-key") ?? null;
+    if (targetKey && targetKey !== dk && targetKey !== lastTargetRef.current) {
+      lastTargetRef.current = targetKey;
+      optsRef.current.onReorder(dk, targetKey);
+    }
   };
 
   const processMove = (e: PointerEvent) => {
@@ -120,13 +153,40 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
     if (!dk) return;
     pointer.current = { x: e.clientX, y: e.clientY };
     applyOverlayTransform();
-    const hitEl = document.elementFromPoint(e.clientX, e.clientY);
-    optsRef.current.onHover?.(hitEl, e.clientX, e.clientY, dk);
-    const targetKey = hitEl?.closest<HTMLElement>("[data-sortable-key]")?.getAttribute("data-sortable-key") ?? null;
-    if (targetKey && targetKey !== dk && targetKey !== lastTargetRef.current) {
-      lastTargetRef.current = targetKey;
-      optsRef.current.onReorder(dk, targetKey);
+    runHitAndReorder(e.clientX, e.clientY);
+  };
+
+  // Auto-scroll quand le pointeur approche du bord haut/bas du conteneur
+  // scrollable (ou de la fenêtre) — permet de déplacer un bloc vers une position
+  // hors écran. La vitesse croît à l'approche du bord.
+  const autoScrollTick = () => {
+    autoScrollRAF.current = null;
+    if (!draggingKeyRef.current) return;
+    const sp = scrollParentRef.current;
+    const y = pointer.current.y;
+    let top: number, bottom: number, scrollBy: (d: number) => void;
+    if (sp instanceof HTMLElement) {
+      const r = sp.getBoundingClientRect();
+      top = r.top; bottom = r.bottom;
+      scrollBy = (d) => { sp.scrollTop += d; };
+    } else {
+      top = 0; bottom = window.innerHeight;
+      scrollBy = (d) => window.scrollBy(0, d);
     }
+    let dy = 0;
+    if (y < top + EDGE_ZONE) dy = -EDGE_MAX_SPEED * Math.min(1, (top + EDGE_ZONE - y) / EDGE_ZONE);
+    else if (y > bottom - EDGE_ZONE) dy = EDGE_MAX_SPEED * Math.min(1, (y - (bottom - EDGE_ZONE)) / EDGE_ZONE);
+    if (dy !== 0) {
+      scrollBy(dy);
+      applyOverlayTransform();
+      runHitAndReorder(pointer.current.x, pointer.current.y);
+    }
+    autoScrollRAF.current = requestAnimationFrame(autoScrollTick);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollRAF.current != null) cancelAnimationFrame(autoScrollRAF.current);
+    autoScrollRAF.current = null;
   };
 
   const finishDrop = (dk: string) => {
@@ -160,6 +220,7 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
 
   upImpl.current = (e: PointerEvent) => {
     removeListeners();
+    stopAutoScroll();
     document.body.style.userSelect = "";
     const dk = draggingKeyRef.current;
     armedRef.current = null;
@@ -175,6 +236,7 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
 
   const startArming = (key: string, cardEl: HTMLElement | null, e: React.PointerEvent) => {
     if (!cardEl) return;
+    scrollParentRef.current = findScrollParent(cardEl);
     armedRef.current = {
       key,
       rect: cardEl.getBoundingClientRect(),
@@ -188,6 +250,7 @@ export function useSortableGrid(opts: SortableOptions): SortableGrid {
 
   useEffect(() => () => {
     removeListeners();
+    stopAutoScroll();
     document.body.style.userSelect = "";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
