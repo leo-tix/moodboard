@@ -148,8 +148,16 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
             />
           </div>
 
-          {/* Category — dropUp so dropdown opens upward */}
-          <div className="flex-1 min-w-0 max-w-xs">
+          {/* Category — dropUp so dropdown opens upward.
+              w-44 flex-shrink-0 (comme Titre), PAS flex-1 min-w-0 : dans une
+              rangée overflow-x-auto, flex-1 + min-w-0 laisse la colonne se
+              réduire jusqu'à 0px de large dès que la rangée ne tient pas —
+              son contenu déborde alors par-dessus les colonnes voisines au
+              lieu de faire défiler la rangée horizontalement (bug remonté
+              2026-07-14, capture mobile : "Catégorie"/"Ajouter des tags" et
+              le bouton "Restaurer" superposés). Une largeur fixe rend la
+              rangée réellement scrollable comme prévu. */}
+          <div className="w-44 flex-shrink-0">
             <label className={sectionLabel}>Catégorie</label>
             {categories.length > 0 ? (
               <CategorySelect
@@ -164,8 +172,8 @@ export function BatchEditBar({ selectedIds, onClear, onSaved, isArchivedMode = f
             )}
           </div>
 
-          {/* Tags */}
-          <div className="flex-1 min-w-0 max-w-xs">
+          {/* Tags — même raisonnement que Catégorie ci-dessus */}
+          <div className="w-44 flex-shrink-0">
             <label className={sectionLabel}>Ajouter des tags</label>
             <TagInput value={addTags} onChange={setAddTags} placeholder="Entrée pour valider…" />
           </div>
