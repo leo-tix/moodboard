@@ -178,8 +178,14 @@ function BottomSheet({
               </button>
             </div>
           </div>
+          {/* min-h-0 indispensable : un enfant flex-1 a par défaut
+              min-height:auto, qui l'empêche de descendre sous la hauteur de
+              SON CONTENU — sans ce reset, overflow-y-auto ne scroll jamais
+              (le parent, en overflow-hidden, tronque juste le surplus au lieu
+              de le rendre accessible). C'est ce qui rendait "Année" et les
+              champs du bas inatteignables (bug remonté 2026-07-14). */}
           <div
-            className="flex-1 overflow-y-auto p-5 space-y-4"
+            className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4"
             style={{ overscrollBehavior: "contain", touchAction: "pan-y" }}
           >
             {children}
