@@ -19,6 +19,7 @@ export default async function PublicCarnetPage({ params }: Props) {
   const visit = await db.visit.findUnique({
     where: { shareToken: token },
     include: {
+      user: { select: { name: true, image: true } },
       inspirations: {
         where: { status: "READY" },
         select: {
@@ -106,7 +107,7 @@ export default async function PublicCarnetPage({ params }: Props) {
           </div>
         )}
 
-        <VisitJournalReadOnly items={items} />
+        <VisitJournalReadOnly items={items} authorName={visit.user.name} authorImage={visit.user.image} />
 
         <footer className="mt-10 pt-6 border-t border-[var(--border-subtle)] text-center">
           <p className="text-[11px] text-[var(--text-tertiary)]">Carnet de visite partagé — Moodboard</p>

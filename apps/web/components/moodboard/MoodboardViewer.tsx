@@ -15,7 +15,7 @@ import type {
   AudioElement,
 } from "@/lib/moodboard/types";
 import { buildCachedStroke, drawCachedStroke } from "@/lib/moodboard/pencil";
-import { AudioMemoCard } from "@/components/moodboard/AudioMemoCard";
+import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
 
 interface Props {
   data: {
@@ -871,7 +871,7 @@ function ViewerElement({
   if (element.type === "audio") {
     const el = element as AudioElement;
     return (
-      <AudioMemoCard
+      <AudioBlockCard
         storageKey={el.storageKey}
         durationSec={el.durationSec}
         transcript={el.transcript}

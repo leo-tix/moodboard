@@ -64,9 +64,8 @@ export interface TranscriptKaraokeProps {
 
 // Transcription "karaoke" — le mot en cours de lecture se détache (opacité +
 // teinte accent), les mots déjà dits restent lisibles, ceux à venir sont
-// estompés. Utilisé à la fois par AudioMemoCard (planches) et le bloc audio
-// du carnet de visite, avec une mise en page adaptée à chaque contexte via
-// `scroll`.
+// estompés. Utilisé par AudioBlockCard (planches ET carnet de visite), avec
+// une mise en page adaptée à chaque contexte via `scroll`.
 export function TranscriptKaraoke({
   transcript,
   currentTime,

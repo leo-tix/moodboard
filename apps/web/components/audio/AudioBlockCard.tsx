@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Play, Pause, Mic } from "lucide-react";
+import { Play, Pause, Mic, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAudioUrl, getImageUrl } from "@/lib/storage/urls";
 import { AudioMemoWaveform } from "@/components/audio/AudioMemoWaveform";
@@ -10,27 +10,52 @@ import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
 
 const BAR_COUNT = 64;
 
-export interface AudioMemoCardProps {
+export interface AudioBlockCardProps {
   storageKey: string;
   durationSec: number | null;
   transcript?: string | null;
   authorName?: string | null;
   authorImage?: string | null;
   className?: string;
+  /** Carte contrainte à un format quasi carré (carnet de visite), plutôt que
+      de remplir tout le conteneur (planches, dimensionnée par le canvas). */
+  square?: boolean;
+  /** Transcription éditable au clic (bloc audio du carnet) — masqué sur les
+      planches, où le mémo est immuable une fois enregistré. */
+  editable?: boolean;
+  onPersistTranscript?: (text: string) => Promise<void>;
 }
 
-// Bloc mémo vocal des planches — carte sombre inspirée du "voice recorder
-// widget" fourni en référence : waveform réactive, avatar de l'auteur,
-// transcription "karaoke" qui se révèle mot par mot pendant la lecture,
-// transport minimal. Réutilise le MÊME décodage de pics + la MÊME waveform
-// (AudioMemoWaveform) que le carnet de visite (AudioPlayer.tsx).
-function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, authorImage, className }: AudioMemoCardProps) {
+// Carte mémo vocal — dégradé sombre + fin contour, inspirée du "voice
+// recorder widget" fourni en référence : waveform réactive, avatar de
+// l'auteur, transcription "karaoke" qui se révèle mot par mot pendant la
+// lecture, transport minimal. Réutilise le MÊME décodage de pics + la MÊME
+// waveform (AudioMemoWaveform) et le MÊME TranscriptKaraoke partout où un
+// mémo vocal est affiché — planches ET carnet de visite (demande
+// utilisateur 2026-07-15 : "uniformiser"/"aligner le design").
+function AudioBlockCardInner({
+  storageKey,
+  durationSec,
+  transcript,
+  authorName,
+  authorImage,
+  className,
+  square = false,
+  editable = false,
+  onPersistTranscript,
+}: AudioBlockCardProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(durationSec ?? 0);
   const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(transcript ?? "");
   const src = getAudioUrl(storageKey);
+
+  useEffect(() => {
+    if (!editing) setValue(transcript ?? "");
+  }, [transcript, editing]);
 
   // Décodage des pics d'amplitude — même logique/mêmes filets que
   // AudioPlayer.tsx (Safari ne décode pas toujours le webm/opus, le fetch
@@ -121,17 +146,28 @@ function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, a
   const progress = duration > 0 ? currentTime / duration : 0;
 
   const cleanTranscript = transcript?.trim() || null;
+  // En mode éditable, la zone de transcription reste toujours visible (même
+  // vide, avec un placeholder) pour garder une carte de hauteur stable —
+  // sur les planches (non éditable), elle ne prend de la place que si un
+  // texte existe, et la waveform récupère l'espace libre sinon.
+  const showTranscriptSlot = editable || cleanTranscript;
+
+  const commitEdit = () => {
+    setEditing(false);
+    if (value.trim() !== (transcript ?? "").trim()) onPersistTranscript?.(value).catch(() => {});
+  };
 
   return (
     <div
       className={cn(
-        "w-full h-full rounded-[20px] bg-gradient-to-b from-[#17171b] to-[#0c0c0e] border border-white/[0.08] shadow-2xl shadow-black/40 flex flex-col overflow-hidden select-none",
+        "rounded-[20px] bg-gradient-to-b from-[#17171b] to-[#0c0c0e] border border-white/[0.08] shadow-2xl shadow-black/40 flex flex-col overflow-hidden select-none",
+        square ? "w-full max-w-[300px] aspect-square" : "w-full h-full",
         className
       )}
     >
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
 
-      {/* Auteur — avatar + nom */}
+      {/* Auteur — avatar + nom, éventuellement un accès édition */}
       <div className="flex items-center gap-2 px-4 pt-4 pb-1 flex-shrink-0">
         <div className="w-6 h-6 rounded-full overflow-hidden bg-white/10 flex-shrink-0 ring-1 ring-white/10 flex items-center justify-center">
           {authorImage ? (
@@ -143,12 +179,23 @@ function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, a
             <Mic size={11} strokeWidth={1.75} className="text-white/50" />
           )}
         </div>
-        <span className="text-[11px] text-white/45 truncate tracking-wide">{authorName || "Mémo vocal"}</span>
+        <span className="text-[11px] text-white/45 truncate tracking-wide flex-1 min-w-0">{authorName || "Mémo vocal"}</span>
+        {editable && !editing && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setEditing(true)}
+            className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-white/30 hover:text-white/70 transition-colors"
+            title="Éditer la transcription"
+          >
+            <Pencil size={12} strokeWidth={1.75} />
+          </button>
+        )}
       </div>
 
       {/* Waveform — cliquable pour naviguer */}
       <div
-        className={cn("flex-shrink-0 px-4 py-2 cursor-pointer", cleanTranscript ? "h-14" : "flex-1 min-h-0")}
+        className={cn("flex-shrink-0 px-4 py-2 cursor-pointer", showTranscriptSlot ? "h-14" : "flex-1 min-h-0")}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           seekTo((e.clientX - rect.left) / rect.width);
@@ -160,26 +207,50 @@ function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, a
       {/* Transcription "karaoke" — le mot en cours de lecture se détache
           (opacité + teinte accent), les mots déjà dits restent lisibles, ceux
           à venir sont estompés. Fondu haut/bas façon téléprompteur pour un
-          rendu premium sur le texte tronqué. */}
-      {cleanTranscript && (
-        <TranscriptKaraoke
-          transcript={cleanTranscript}
-          currentTime={currentTime}
-          duration={duration}
-          playing={playing}
-          className="flex-1 min-h-0 mx-4 mt-1 mb-2"
-          fadeTop="#111114"
-          fadeBottom="#0c0c0e"
-          activeColor="#c4b5fd"
-          baseColor="#ffffff"
-        />
+          rendu premium sur le texte tronqué. En mode éditable, un clic bascule
+          en édition libre (textarea). */}
+      {showTranscriptSlot && (
+        editing ? (
+          <textarea
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={commitEdit}
+            placeholder="Transcription…"
+            className="flex-1 min-h-0 mx-4 mt-1 mb-2 bg-transparent text-[13px] leading-relaxed text-white/70 resize-none focus:outline-none placeholder:text-white/30"
+          />
+        ) : cleanTranscript ? (
+          <div
+            onClick={editable ? () => setEditing(true) : undefined}
+            className={cn("flex-1 min-h-0", editable && "cursor-text")}
+          >
+            <TranscriptKaraoke
+              transcript={cleanTranscript}
+              currentTime={currentTime}
+              duration={duration}
+              playing={playing}
+              className="h-full mx-4 mt-1 mb-2"
+              fadeTop="#111114"
+              fadeBottom="#0c0c0e"
+              activeColor="#c4b5fd"
+              baseColor="#ffffff"
+            />
+          </div>
+        ) : (
+          <p
+            onClick={() => setEditing(true)}
+            className="flex-1 min-h-0 mx-4 mt-1 mb-2 text-[13px] italic text-white/30 cursor-text"
+          >
+            Transcription vide — cliquer pour éditer
+          </p>
+        )
       )}
 
       {/* Transport minimal */}
       <div
         className={cn(
           "flex items-center gap-3 px-4 py-3 flex-shrink-0",
-          cleanTranscript && "border-t border-white/[0.06]"
+          showTranscriptSlot && "border-t border-white/[0.06]"
         )}
       >
         <button
@@ -203,10 +274,10 @@ function AudioMemoCardInner({ storageKey, durationSec, transcript, authorName, a
   );
 }
 
-export function AudioMemoCard(props: AudioMemoCardProps) {
+export function AudioBlockCard(props: AudioBlockCardProps) {
   return (
     <AudioPlayerBoundary src={getAudioUrl(props.storageKey)}>
-      <AudioMemoCardInner {...props} />
+      <AudioBlockCardInner {...props} />
     </AudioPlayerBoundary>
   );
 }

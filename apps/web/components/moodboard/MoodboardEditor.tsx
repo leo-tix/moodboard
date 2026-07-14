@@ -31,7 +31,7 @@ import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
 import { exportMoodboardAsPng } from "@/lib/moodboard/export";
 import { strokeToElement, eraseStroke } from "@/lib/moodboard/pencil";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
-import { AudioMemoCard } from "@/components/moodboard/AudioMemoCard";
+import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
 
 interface Props {
   initialData: MoodboardData;
@@ -3988,7 +3988,7 @@ function ElementContent({
         // passent à la carte (lecture/seek au lieu de démarrer un drag).
         onMouseDown={(e) => { if (selected) e.stopPropagation(); }}
       >
-        <AudioMemoCard
+        <AudioBlockCard
           storageKey={el.storageKey}
           durationSec={el.durationSec}
           transcript={el.transcript}

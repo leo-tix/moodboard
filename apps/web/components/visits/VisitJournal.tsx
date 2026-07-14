@@ -6,16 +6,15 @@ import { motion } from "framer-motion";
 import { MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus, ExternalLink, ImageOff } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { cn } from "@/lib/utils";
-import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
+import { getThumbnailUrl } from "@/lib/storage/urls";
 import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
 import { DragHandle } from "@/components/ui/DragHandle";
 import { NoteEditor } from "@/components/visits/NoteEditor";
-import { AudioPlayer } from "@/components/visits/AudioPlayer";
 import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { TitleEditor } from "@/components/visits/TitleEditor";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
-import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
-import { TranscriptKaraoke } from "@/components/audio/TranscriptKaraoke";
+import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
+import { JournalAuthorProvider, useJournalAuthor } from "@/components/visits/JournalAuthorContext";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -94,6 +93,10 @@ export type JournalItem = JournalBlock | JournalColumns | JournalEmbed;
 interface VisitJournalProps {
   visitId: string;
   initialItems: JournalItem[];
+  /** Auteur du carnet (photo affichée sur les blocs mémo vocal, alignée sur
+      le design des planches — demande utilisateur 2026-07-15). */
+  authorName?: string | null;
+  authorImage?: string | null;
 }
 
 // ── Composant ─────────────────────────────────────────────────────────────────
@@ -197,7 +200,7 @@ type BlockPickerTarget =
   | { kind: "sequence"; afterIdx: number | null }
   | { kind: "column"; columnsId: string; side: "left" | "right" };
 
-export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
+export function VisitJournal({ visitId, initialItems, authorName, authorImage }: VisitJournalProps) {
   const [items, setItems] = useState<JournalItem[]>(initialItems);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -726,6 +729,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
   }
 
   return (
+    <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
     <div>
       {/* Colonnes plafonnées à 3 : les breakpoints Tailwind sont indexés sur
           la largeur du VIEWPORT, pas du conteneur — avec la page désormais
@@ -853,6 +857,7 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
         }}
       />
     </div>
+    </JournalAuthorProvider>
   );
 }
 
@@ -1365,60 +1370,23 @@ function AudioBlockContent({
 }: {
   audio: JournalAudio;
   onPersistTranscript: (text: string) => Promise<void>;
-  /** Rendu resserré — bloc audio DANS une pile de colonne (voir AudioPlayer). */
+  /** Rendu resserré — bloc audio DANS une pile de colonne (largeur de colonne
+      déjà étroite, la carte quasi carrée s'y adapte via `w-full`). */
   compact?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(audio.transcript ?? "");
-  const [playback, setPlayback] = useState({ currentTime: 0, duration: audio.durationSec ?? 0, playing: false });
-
-  useEffect(() => {
-    if (!editing) setValue(audio.transcript ?? "");
-  }, [audio.transcript, editing]);
-
-  const cleanTranscript = audio.transcript?.trim() || null;
-
+  const author = useJournalAuthor();
   return (
-    <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
-      <AudioPlayerBoundary src={getAudioUrl(audio.storageKey)}>
-        <AudioPlayer
-          src={getAudioUrl(audio.storageKey)}
-          durationSec={audio.durationSec}
-          compact={compact}
-          onPlaybackState={setPlayback}
-        />
-      </AudioPlayerBoundary>
-      {editing ? (
-        <textarea
-          autoFocus
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={() => {
-            setEditing(false);
-            if (value.trim() !== (audio.transcript ?? "").trim()) onPersistTranscript(value).catch(() => {});
-          }}
-          rows={2}
-          placeholder="Transcription…"
-          className="w-full bg-transparent text-xs text-[var(--text-secondary)] focus:outline-none resize-none placeholder:text-[var(--text-tertiary)]"
-        />
-      ) : cleanTranscript ? (
-        <div onClick={() => setEditing(true)} className="cursor-text">
-          <TranscriptKaraoke
-            transcript={cleanTranscript}
-            currentTime={playback.currentTime}
-            duration={playback.duration}
-            playing={playback.playing}
-            scroll={false}
-            activeColor="var(--accent)"
-            baseColor="var(--text-secondary)"
-          />
-        </div>
-      ) : (
-        <p onClick={() => setEditing(true)} className="text-xs leading-relaxed cursor-text text-[var(--text-tertiary)] italic">
-          Transcription vide — cliquer pour éditer
-        </p>
-      )}
-    </div>
+    <AudioBlockCard
+      storageKey={audio.storageKey}
+      durationSec={audio.durationSec}
+      transcript={audio.transcript}
+      authorName={author.name}
+      authorImage={author.image}
+      square
+      editable
+      onPersistTranscript={onPersistTranscript}
+      className={compact ? undefined : "mx-auto"}
+    />
   );
 }
 

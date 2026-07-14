@@ -33,6 +33,7 @@ export default async function VisiteDetailPage({ params }: Props) {
   const visit = await db.visit.findFirst({
     where: { id, userId: user.id },
     include: {
+      user: { select: { name: true, image: true } },
       inspirations: {
         // Une image archivée (masquée de la bibliothèque via le triage) reste
         // visible dans le carnet — l'archivage est une action "bibliothèque
@@ -148,7 +149,7 @@ export default async function VisiteDetailPage({ params }: Props) {
         </div>
       )}
 
-      <VisitJournal visitId={visit.id} initialItems={items} />
+      <VisitJournal visitId={visit.id} initialItems={items} authorName={visit.user.name} authorImage={visit.user.image} />
 
       {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
       <VisitCaptureFab visitId={visit.id} />

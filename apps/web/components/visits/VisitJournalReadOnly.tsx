@@ -1,13 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
+import { getThumbnailUrl } from "@/lib/storage/urls";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
-import { AudioPlayer } from "@/components/visits/AudioPlayer";
-import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
-import { TranscriptKaraoke } from "@/components/audio/TranscriptKaraoke";
+import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
+import { JournalAuthorProvider, useJournalAuthor } from "@/components/visits/JournalAuthorContext";
 import type { JournalItem, JournalBlock, JournalEmbed } from "@/components/visits/VisitJournal";
 
 // Rendu LECTURE SEULE du carnet pour la page publique (Phase 5). Réutilise les
@@ -80,35 +77,21 @@ function ReadOnlyBlock({ block, compact = false }: { block: JournalBlock; compac
 }
 
 // Bloc audio en lecture seule — composant à part (plutôt qu'inline dans
-// ReadOnlyBlock) pour pouvoir utiliser useState : ReadOnlyBlock a des retours
-// anticipés avant la branche "audio" pour les autres types de bloc, ce qui
-// interdirait d'y appeler un hook directement.
+// ReadOnlyBlock) pour pouvoir utiliser le hook useJournalAuthor : ReadOnlyBlock
+// a des retours anticipés avant la branche "audio" pour les autres types de
+// bloc, ce qui interdirait d'y appeler un hook directement.
 function AudioReadOnlyBlock({ block, compact }: { block: Extract<JournalBlock, { type: "audio" }>; compact: boolean }) {
-  const [playback, setPlayback] = useState({ currentTime: 0, duration: block.durationSec ?? 0, playing: false });
-  const cleanTranscript = block.transcript?.trim() || null;
-
+  const author = useJournalAuthor();
   return (
-    <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
-      <AudioPlayerBoundary src={getAudioUrl(block.storageKey)}>
-        <AudioPlayer
-          src={getAudioUrl(block.storageKey)}
-          durationSec={block.durationSec}
-          compact={compact}
-          onPlaybackState={setPlayback}
-        />
-      </AudioPlayerBoundary>
-      {cleanTranscript && (
-        <TranscriptKaraoke
-          transcript={cleanTranscript}
-          currentTime={playback.currentTime}
-          duration={playback.duration}
-          playing={playback.playing}
-          scroll={false}
-          activeColor="var(--accent)"
-          baseColor="var(--text-secondary)"
-        />
-      )}
-    </div>
+    <AudioBlockCard
+      storageKey={block.storageKey}
+      durationSec={block.durationSec}
+      transcript={block.transcript}
+      authorName={author.name}
+      authorImage={author.image}
+      square
+      className={compact ? undefined : "mx-auto"}
+    />
   );
 }
 
@@ -190,7 +173,17 @@ function ReadOnlyItem({ item }: { item: JournalItem }) {
   return <div className={fullWidth ? "col-span-full" : undefined}><ReadOnlyBlock block={item} /></div>;
 }
 
-export function VisitJournalReadOnly({ items }: { items: JournalItem[] }) {
+export function VisitJournalReadOnly({
+  items,
+  authorName,
+  authorImage,
+}: {
+  items: JournalItem[];
+  /** Auteur du carnet — photo affichée sur les blocs mémo vocal, alignée sur
+      le design des planches (demande utilisateur 2026-07-15). */
+  authorName?: string | null;
+  authorImage?: string | null;
+}) {
   if (items.length === 0) {
     return <p className="text-sm text-[var(--text-tertiary)] py-8 text-center">Ce carnet est vide.</p>;
   }
@@ -199,10 +192,12 @@ export function VisitJournalReadOnly({ items }: { items: JournalItem[] }) {
   // réelle de max-w-3xl, donc lg:/xl: écrasaient sinon la grille à 5
   // colonnes de ~134px sur grand écran).
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-      {items.map((item) => (
-        <ReadOnlyItem key={`${item.type}-${item.id}`} item={item} />
-      ))}
-    </div>
+    <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {items.map((item) => (
+          <ReadOnlyItem key={`${item.type}-${item.id}`} item={item} />
+        ))}
+      </div>
+    </JournalAuthorProvider>
   );
 }
