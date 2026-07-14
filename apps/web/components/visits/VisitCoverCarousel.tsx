@@ -28,6 +28,7 @@ export function VisitCoverCarousel({
   backHref,
   children,
   topRight,
+  className,
 }: {
   images: CoverImage[];
   /** Titre affiché en grand sur la cover — exposition, ou lieu à défaut.
@@ -39,6 +40,8 @@ export function VisitCoverCarousel({
   children?: React.ReactNode;
   /** Slot en haut à droite de la cover (ex. bouton Partager). */
   topRight?: React.ReactNode;
+  /** Override des marges racine (ex. tuck sous une barre sticky). */
+  className?: string;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -99,7 +102,7 @@ export function VisitCoverCarousel({
   if (images.length === 0) return null;
 
   return (
-    <div className="relative -mx-4 md:-mx-6 -mt-4 md:-mt-6 mb-5 h-[38vh] md:h-[46vh] overflow-hidden">
+    <div className={cn("relative -mx-4 md:-mx-6 -mt-4 md:-mt-6 mb-5 h-[38vh] md:h-[46vh] overflow-hidden", className)}>
       <div
         ref={scrollerRef}
         className="h-full w-full flex overflow-x-auto snap-x snap-mandatory scroll-smooth"

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
@@ -10,8 +9,8 @@ import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
 import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
 import { VisitShareButton } from "@/components/visits/VisitShareButton";
+import { VisitTopBar } from "@/components/visits/VisitTopBar";
 import { buildJournalItems } from "@/lib/visits/journalItems";
-import { ChevronLeft } from "lucide-react";
 
 export const revalidate = 0;
 
@@ -100,26 +99,19 @@ export default async function VisiteDetailPage({ params }: Props) {
 
   return (
     <div className="p-4 md:p-6">
-      {/* Cover premium : le titre/lieu/date (éditables) et le bouton Partager
-          sont superposés SUR la couverture — plus de bloc d'infos dupliqué en
-          dessous (demande utilisateur 2026-07-14). */}
+      {/* Retour + Partager ancrés en haut (sticky) : accessibles pendant tout
+          le défilement du carnet (demande utilisateur 2026-07-14). */}
+      <VisitTopBar backHref="/visites">{shareButton}</VisitTopBar>
+
+      {/* Cover premium : le titre/lieu/date (éditables) superposés SUR la
+          couverture — plus de bloc d'infos dupliqué en dessous. La cover se
+          glisse SOUS la barre sticky transparente (-mt-14 = hauteur de barre). */}
       {hasCover ? (
-        <VisitCoverCarousel images={coverImages} backHref="/visites" topRight={shareButton}>
+        <VisitCoverCarousel images={coverImages} className="-mt-14 md:-mt-14">
           {editableHeader}
         </VisitCoverCarousel>
       ) : (
-        <header className="mb-5">
-          <Link
-            href="/visites"
-            className="inline-flex items-center gap-1 mb-2 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-          >
-            <ChevronLeft size={13} strokeWidth={2} /> Carnet de visite
-          </Link>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">{editableHeader}</div>
-            {shareButton}
-          </div>
-        </header>
+        <header className="mb-5">{editableHeader}</header>
       )}
 
       {(visit.address || visit.notes) && (
