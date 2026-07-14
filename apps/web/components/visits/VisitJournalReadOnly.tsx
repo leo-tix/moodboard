@@ -170,8 +170,12 @@ export function VisitJournalReadOnly({ items }: { items: JournalItem[] }) {
   if (items.length === 0) {
     return <p className="text-sm text-[var(--text-tertiary)] py-8 text-center">Ce carnet est vide.</p>;
   }
+  // Colonnes plafonnées à 3 — voir VisitJournal.tsx pour le détail (les
+  // breakpoints Tailwind sont indexés sur le viewport, pas sur la largeur
+  // réelle de max-w-3xl, donc lg:/xl: écrasaient sinon la grille à 5
+  // colonnes de ~134px sur grand écran).
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
       {items.map((item) => (
         <ReadOnlyItem key={`${item.type}-${item.id}`} item={item} />
       ))}

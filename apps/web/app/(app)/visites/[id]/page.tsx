@@ -99,16 +99,22 @@ export default async function VisiteDetailPage({ params }: Props) {
   );
 
   return (
-    <div className="p-4 md:p-6">
+    // Largeur limitée + centrée, à l'image du carnet public (carnet/[token]) —
+    // demande utilisateur 2026-07-14 : "ce sera + classe" + réduit
+    // naturellement le nombre de colonnes d'images visibles.
+    <div className="max-w-3xl mx-auto p-4 md:p-6">
       {/* Retour + Partager ancrés en haut (sticky) : accessibles pendant tout
           le défilement du carnet (demande utilisateur 2026-07-14). */}
       <VisitTopBar backHref="/visites">{shareButton}</VisitTopBar>
 
       {/* Cover premium : le titre/lieu/date (éditables) superposés SUR la
-          couverture — plus de bloc d'infos dupliqué en dessous. La cover se
-          glisse SOUS la barre sticky transparente (-mt-14 = hauteur de barre). */}
+          couverture — plus de bloc d'infos dupliqué en dessous. Détachée des
+          bords + coins arrondis (demande utilisateur 2026-07-14, "+ classe") —
+          seul le tuck vertical sous la barre sticky transparente (-mt-14 =
+          hauteur de barre) est conservé, l'édge-to-edge horizontal (mx) du
+          composant est annulé ici. */}
       {hasCover ? (
-        <VisitCoverCarousel images={coverImages} className="-mt-14 md:-mt-14">
+        <VisitCoverCarousel images={coverImages} className="-mt-14 md:-mt-14 mx-0 md:mx-0 rounded-2xl">
           {editableHeader}
         </VisitCoverCarousel>
       ) : (

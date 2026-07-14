@@ -726,7 +726,12 @@ export function VisitJournal({ visitId, initialItems }: VisitJournalProps) {
 
   return (
     <div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      {/* Colonnes plafonnées à 3 : les breakpoints Tailwind sont indexés sur
+          la largeur du VIEWPORT, pas du conteneur — avec la page désormais
+          limitée à max-w-3xl (~720px de contenu), lg:/xl: continuaient de
+          s'activer sur grand écran et écrasaient la grille à 5 colonnes de
+          ~134px, illisible (retour utilisateur 2026-07-14). */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {items.map((item, idx) => (
           <JournalItemBlock
             key={keyOf(item)}
