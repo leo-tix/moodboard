@@ -5,12 +5,31 @@ import { Play, Pause, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const BAR_COUNT = 64;
+// Moins de barres en mode compact : dans une pile de colonne (~130-150px
+// utiles après padding), les 64 barres normales + leurs gap-[2px] (126px de
+// gaps à elles seules) ne laissent plus de place réelle à la waveform une
+// fois les boutons/le temps déduits — elle s'écrasait à ~0px de large.
+const BAR_COUNT_COMPACT = 22;
 
 // Lecteur audio custom — remplace le <audio controls> natif (moche, pas de
 // waveform, pas d'avance rapide) par une vraie mini-app de lecture façon
 // Journal/Notion : waveform réelle (décodée via Web Audio API depuis le
 // fichier), clic pour naviguer, ±15s, play/pause, temps écoulé/total.
-export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: number | null }) {
+//
+// `compact` : rendu resserré pour les contextes étroits (bloc audio dans une
+// pile de colonne, 2 colonnes sur mobile — largeur utile ~125-140px). Les
+// boutons ±15s (48px+gaps à eux seuls) et l'affichage "0:00 / 0:00" (64px
+// fixes) ne laissaient sinon aucune place à la waveform, qui s'écrasait ou
+// débordait de la carte (retour utilisateur 2026-07-14).
+export function AudioPlayer({
+  src,
+  durationSec,
+  compact = false,
+}: {
+  src: string;
+  durationSec?: number | null;
+  compact?: boolean;
+}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -120,45 +139,57 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const progress = duration > 0 ? currentTime / duration : 0;
+  const barCount = compact ? BAR_COUNT_COMPACT : BAR_COUNT;
+  const barGap = compact ? 1 : 2;
+  const barHeightPx = compact ? 20 : 28;
+  const playSize = compact ? "w-6 h-6" : "w-8 h-8";
 
   return (
-    <div className="flex items-center gap-2 flex-1 min-w-0">
+    <div className={cn("flex items-center flex-1 min-w-0", compact ? "gap-1" : "gap-2")}>
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
 
       <button
         type="button"
         onMouseDown={(e) => e.preventDefault()}
         onClick={togglePlay}
-        className="w-8 h-8 flex-shrink-0 rounded-full bg-[var(--text-primary)] text-[var(--bg-base)] flex items-center justify-center hover:opacity-90 transition-opacity"
+        className={cn(playSize, "flex-shrink-0 rounded-full bg-[var(--text-primary)] text-[var(--bg-base)] flex items-center justify-center hover:opacity-90 transition-opacity")}
         title={playing ? "Pause" : "Lecture"}
       >
         {playing ? (
-          <Pause size={14} strokeWidth={0} fill="currentColor" />
+          <Pause size={compact ? 11 : 14} strokeWidth={0} fill="currentColor" />
         ) : (
-          <Play size={14} strokeWidth={0} fill="currentColor" style={{ marginLeft: 1 }} />
+          <Play size={compact ? 11 : 14} strokeWidth={0} fill="currentColor" style={{ marginLeft: 1 }} />
         )}
       </button>
 
-      <button
-        type="button"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => skip(-15)}
-        className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-        title="Reculer de 15s"
-      >
-        <RotateCcw size={15} strokeWidth={1.8} />
-      </button>
+      {/* ±15s — masqués en compact : dans une pile de colonne (~125-140px
+          utiles), ces deux boutons + leurs gaps ne laissaient plus de place
+          réelle à la waveform, qui s'écrasait ou débordait de la carte
+          (retour utilisateur 2026-07-14). Le tap-pour-naviguer sur la
+          waveform reste disponible, c'est le geste principal de toute façon. */}
+      {!compact && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => skip(-15)}
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+          title="Reculer de 15s"
+        >
+          <RotateCcw size={15} strokeWidth={1.8} />
+        </button>
+      )}
 
       {/* Waveform — cliquable pour naviguer */}
       <div
-        className="relative flex-1 h-8 flex items-center gap-[2px] cursor-pointer min-w-0"
+        className={cn("relative flex-1 flex items-center cursor-pointer min-w-0", compact ? "h-5" : "h-8")}
+        style={{ gap: barGap }}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           seekTo((e.clientX - rect.left) / rect.width);
         }}
       >
-        {(peaks ?? Array.from({ length: BAR_COUNT }, () => 0.15)).map((h, i) => {
-          const played = i / BAR_COUNT < progress;
+        {(peaks ?? Array.from({ length: barCount }, () => 0.15)).slice(0, barCount).map((h, i) => {
+          const played = i / barCount < progress;
           return (
             <span
               key={i}
@@ -172,26 +203,37 @@ export function AudioPlayer({ src, durationSec }: { src: string; durationSec?: n
               // Hauteur en PIXELS, pas en % : un pourcentage sur un enfant de
               // flexbox peut s'effondrer à 0 sur Safari/iOS (base de calcul
               // ambiguë) — c'était l'autre raison des waveforms invisibles
-              // sur mobile. 28px = h-8 (32px) moins un peu de respiration.
-              style={{ height: Math.max(2, Math.round(h * 28)) }}
+              // sur mobile.
+              style={{ height: Math.max(2, Math.round(h * barHeightPx)) }}
             />
           );
         })}
       </div>
 
-      <button
-        type="button"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => skip(15)}
-        className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-        title="Avancer de 15s"
-      >
-        <RotateCw size={15} strokeWidth={1.8} />
-      </button>
+      {!compact && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => skip(15)}
+          className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+          title="Avancer de 15s"
+        >
+          <RotateCw size={15} strokeWidth={1.8} />
+        </button>
+      )}
 
-      <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0 tabular-nums w-16 text-right">
-        {fmt(currentTime)} / {fmt(duration)}
-      </span>
+      {/* Temps : en compact, juste le total (identité du clip) — la valeur
+          courante change à chaque frame de lecture et un libellé "0:12/1:34"
+          fixe à 64px ne rentrait plus une fois la waveform déduite. */}
+      {compact ? (
+        <span className="text-[9px] text-[var(--text-tertiary)] flex-shrink-0 tabular-nums">
+          {fmt(playing ? currentTime : duration)}
+        </span>
+      ) : (
+        <span className="text-[10px] text-[var(--text-tertiary)] flex-shrink-0 tabular-nums w-16 text-right">
+          {fmt(currentTime)} / {fmt(duration)}
+        </span>
+      )}
     </div>
   );
 }

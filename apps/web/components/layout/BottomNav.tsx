@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, type LucideIcon } from "lucide-react";
+import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, Check, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TriageBadge } from "@/components/triage/TriageBadge";
+import { compressImageForUpload } from "@/lib/image/clientResize";
 
 // 5 slots (4 items ici + le bouton "Plus" ajouté séparément dans le JSX) avec
 // le "+" en position centrale (index 2 sur 5 : 2 items avant, Recherche +
@@ -28,15 +29,102 @@ const MORE_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/settings/account", label: "Compte",   icon: CircleUser },
 ];
 
+const LONG_PRESS_MS = 450;
+
+type CaptureState = "idle" | "uploading" | "done" | "error";
+
 export function BottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // ── Appui long sur "+" → appareil photo direct (capture d'inspiration "sur
+  // le vif", sans quitter la page courante) — même esprit "friction zéro" que
+  // le FAB de capture des visites, mais SANS visite à rattacher : la photo
+  // rejoint directement la bibliothèque de triage. Un tap court garde le
+  // comportement existant (navigation vers /upload). ──
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const longPressFired = useRef(false);
+  const [capture, setCapture] = useState<CaptureState>("idle");
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+  }, []);
+
+  // Auto-effacement du statut "envoyée" / de l'erreur.
+  useEffect(() => {
+    if (capture !== "done" && capture !== "error") return;
+    const t = window.setTimeout(() => { setCapture("idle"); setCaptureError(null); }, capture === "error" ? 3500 : 1600);
+    return () => window.clearTimeout(t);
+  }, [capture]);
+
+  const onPlusPointerDown = () => {
+    longPressFired.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      longPressFired.current = true;
+      navigator.vibrate?.(15);
+      setMoreOpen(false);
+      cameraInputRef.current?.click();
+    }, LONG_PRESS_MS);
+  };
+  const onPlusPointerUpOrLeave = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+  };
+  // Empêche la navigation vers /upload si l'appui long a déjà déclenché la
+  // caméra — sinon un simple relâchement de doigt après le seuil ouvrirait
+  // AUSSI la page /upload en plus de l'appareil photo.
+  const onPlusClick = (e: React.MouseEvent) => {
+    if (longPressFired.current) { e.preventDefault(); return; }
+    setMoreOpen(false);
+  };
+
+  const handleCameraCapture = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    setCapture("uploading");
+    setCaptureError(null);
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new Error("Hors ligne — réessaie une fois connecté.");
+      }
+      const compressed = await compressImageForUpload(file);
+      const fd = new FormData();
+      fd.append("file", compressed);
+      const res = await fetch("/api/upload/image", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Échec de l'envoi");
+      setCapture("done");
+      // La bibliothèque/le triage peuvent déjà être affichés dans un autre
+      // onglet ou après un retour en arrière — un refresh discret les tient
+      // à jour sans forcer de navigation (capture "sur le vif" = on ne quitte
+      // pas la page courante).
+      router.refresh();
+    } catch (err) {
+      setCaptureError(err instanceof Error ? err.message : "Échec de l'envoi");
+      setCapture("error");
+    } finally {
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+    }
+  };
 
   // Le bouton "Plus" est actif si on est sur une de ses destinations
   const moreActive = MORE_ITEMS.some((item) => pathname.startsWith(item.href));
 
   return (
     <>
+      {/* Appareil photo natif — pas de galerie ici (capture="environment"
+          force la prise de vue), déclenché uniquement par l'appui long. */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => handleCameraCapture(e.target.files)}
+      />
+
       {/* Bottom sheet "Plus" */}
       <AnimatePresence>
         {moreOpen && (
@@ -85,6 +173,26 @@ export function BottomNav() {
         )}
       </AnimatePresence>
 
+      {/* Toast capture caméra (erreur / confirmation) */}
+      {(capture === "error" || capture === "done") && (
+        <div className="fixed inset-x-4 z-[65] bottom-16 md:hidden">
+          <div
+            className={cn(
+              "rounded-lg border px-3 py-2 text-xs shadow-xl flex items-center gap-2",
+              capture === "error"
+                ? "bg-[var(--bg-elevated)] border-red-500/30 text-red-400"
+                : "bg-[var(--bg-elevated)] border-[var(--border-default)] text-[var(--text-secondary)]"
+            )}
+          >
+            {capture === "done" ? (
+              <span className="inline-flex items-center gap-1.5"><Check size={13} strokeWidth={2.5} className="text-[var(--accent,#a78bfa)]" /> Photo ajoutée — à trier</span>
+            ) : (
+              <span className="flex-1">{captureError}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <nav
         className="fixed bottom-0 inset-x-0 z-[60] md:hidden bg-[var(--bg-base)]/95 backdrop-blur-md border-t border-[var(--border-subtle)]"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -101,18 +209,30 @@ export function BottomNav() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={() => setMoreOpen(false)}
-                  className="flex-1 flex items-center justify-center"
+                  onPointerDown={onPlusPointerDown}
+                  onPointerUp={onPlusPointerUpOrLeave}
+                  onPointerLeave={onPlusPointerUpOrLeave}
+                  onPointerCancel={onPlusPointerUpOrLeave}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onClick={onPlusClick}
+                  title="Ajouter (appui long : appareil photo)"
+                  className="flex-1 flex items-center justify-center select-none"
+                  style={{ WebkitTouchCallout: "none" }}
                 >
                   <span
                     className={cn(
                       "w-9 h-9 rounded-full flex items-center justify-center transition-colors border",
                       isActive
                         ? "bg-[var(--text-primary)] text-[var(--bg-base)] border-transparent"
-                        : "border-[var(--border-default)] text-[var(--text-secondary)]"
+                        : "border-[var(--border-default)] text-[var(--text-secondary)]",
+                      capture === "uploading" && "opacity-70"
                     )}
                   >
-                    <item.icon size={20} strokeWidth={2} />
+                    {capture === "uploading" ? (
+                      <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <item.icon size={20} strokeWidth={2} />
+                    )}
                   </span>
                 </Link>
               );

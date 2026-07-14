@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { getThumbnailUrl, getAudioUrl } from "@/lib/storage/urls";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { AudioPlayer } from "@/components/visits/AudioPlayer";
@@ -14,7 +15,7 @@ import type { JournalItem, JournalBlock, JournalEmbed } from "@/components/visit
 
 const TITLE_STYLE = "font-serif text-3xl md:text-4xl font-semibold tracking-tight leading-[1.1] text-[var(--text-primary)]";
 
-function ReadOnlyBlock({ block }: { block: JournalBlock }) {
+function ReadOnlyBlock({ block, compact = false }: { block: JournalBlock; compact?: boolean }) {
   if (block.type === "title") {
     return <h2 className={TITLE_STYLE}>{block.content}</h2>;
   }
@@ -36,10 +37,14 @@ function ReadOnlyBlock({ block }: { block: JournalBlock }) {
   }
 
   if (block.type === "audio") {
+    // compact : bloc DANS une pile de 2 colonnes (même raisonnement que
+    // l'éditeur, voir AudioPlayer.tsx et VisitJournal.tsx) — sans lui, les
+    // boutons ±15s + le libellé de temps fixe ne laissaient plus de place
+    // à la waveform dans une colonne mobile étroite.
     return (
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2 space-y-1.5">
+      <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
         <AudioPlayerBoundary src={getAudioUrl(block.storageKey)}>
-          <AudioPlayer src={getAudioUrl(block.storageKey)} durationSec={block.durationSec} />
+          <AudioPlayer src={getAudioUrl(block.storageKey)} durationSec={block.durationSec} compact={compact} />
         </AudioPlayerBoundary>
         {block.transcript && (
           <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{block.transcript}</p>
@@ -143,12 +148,12 @@ function ReadOnlyItem({ item }: { item: JournalItem }) {
       <div className="col-span-full grid grid-cols-2 gap-3">
         <div className="space-y-3">
           {item.left.map((b) => (
-            <ReadOnlyBlock key={`${b.type}-${b.id}`} block={b} />
+            <ReadOnlyBlock key={`${b.type}-${b.id}`} block={b} compact />
           ))}
         </div>
         <div className="space-y-3">
           {item.right.map((b) => (
-            <ReadOnlyBlock key={`${b.type}-${b.id}`} block={b} />
+            <ReadOnlyBlock key={`${b.type}-${b.id}`} block={b} compact />
           ))}
         </div>
       </div>

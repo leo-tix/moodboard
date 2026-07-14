@@ -1444,9 +1444,12 @@ function EditableImageTitle({
 function AudioBlockContent({
   audio,
   onPersistTranscript,
+  compact = false,
 }: {
   audio: JournalAudio;
   onPersistTranscript: (text: string) => Promise<void>;
+  /** Rendu resserré — bloc audio DANS une pile de colonne (voir AudioPlayer). */
+  compact?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(audio.transcript ?? "");
@@ -1456,9 +1459,9 @@ function AudioBlockContent({
   }, [audio.transcript, editing]);
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-3 py-2 space-y-1.5">
+    <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-1.5", compact ? "px-2 py-1.5" : "px-3 py-2")}>
       <AudioPlayerBoundary src={getAudioUrl(audio.storageKey)}>
-        <AudioPlayer src={getAudioUrl(audio.storageKey)} durationSec={audio.durationSec} />
+        <AudioPlayer src={getAudioUrl(audio.storageKey)} durationSec={audio.durationSec} compact={compact} />
       </AudioPlayerBoundary>
       {editing ? (
         <textarea
@@ -1816,7 +1819,7 @@ function ColumnStackItem({
         </div>
       )}
       {block.type === "audio" && (
-        <AudioBlockContent audio={block} onPersistTranscript={(t) => onPersistAudioTranscript(block.id, t)} />
+        <AudioBlockContent audio={block} onPersistTranscript={(t) => onPersistAudioTranscript(block.id, t)} compact />
       )}
       <div className="absolute top-1 right-1 z-10">{menu}</div>
       <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1 right-1 z-10 opacity-0 group-hover/item:opacity-100" title="Glisser" />
