@@ -1535,7 +1535,12 @@ function ColumnStack({
         </button>
       )}
       {picker === "menu" && (
-        <div className="absolute inset-x-0 top-0 z-20 flex flex-col items-stretch gap-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] p-2">
+        // Largeur fixe + centrage indépendant de l'ancêtre : quand la pile est
+        // VIDE, le "+" rond vit dans un conteneur flex centré qui se réduit à
+        // la taille de son contenu — une fois le bouton masqué (menu ouvert),
+        // ce conteneur s'effondre à ~0px et `inset-x-0` écrasait le menu en
+        // une bande verticale illisible (bug remonté 2026-07-14).
+        <div className="absolute left-1/2 -translate-x-1/2 top-0 z-20 w-44 flex flex-col items-stretch gap-1 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] p-2">
           <button onClick={() => { onFillWithNew("title"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Heading size={13} strokeWidth={1.75} /> Titre</button>
           <button onClick={() => { onFillWithNew("note"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Pilcrow size={13} strokeWidth={1.75} /> Texte</button>
           <button onClick={() => { onFillWithNew("quote"); setPicker("closed"); }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"><Quote size={13} strokeWidth={1.75} /> Citation</button>
@@ -1545,7 +1550,11 @@ function ColumnStack({
         </div>
       )}
       {picker === "image" && (
-        <div className="absolute inset-x-0 top-0 z-20 p-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] max-h-48 overflow-y-auto">
+        // w-44 (pas plus large) : sur mobile, la colonne GAUCHE est proche du
+        // bord d'écran — un panneau plus large centré sur le déclencheur
+        // dépasserait à gauche du viewport (mesuré : centre ~99px, marge de
+        // sécurité ~89px de chaque côté).
+        <div className="absolute left-1/2 -translate-x-1/2 top-0 z-20 w-44 p-2 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-default)] max-h-48 overflow-y-auto">
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Images de la visite</p>
             <button onClick={() => setPicker("closed")} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center"><X size={14} strokeWidth={2} /></button>
@@ -1572,7 +1581,7 @@ function ColumnStack({
         </div>
       )}
       {picker === "audio" && (
-        <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center">
+        <div className="absolute left-1/2 -translate-x-1/2 top-0 z-20">
           <AudioRecorderInline
             visitId={visitId}
             onClose={() => setPicker("closed")}
