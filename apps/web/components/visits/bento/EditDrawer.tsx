@@ -3,16 +3,20 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { TitleEditor } from "@/components/visits/TitleEditor";
 import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
+import { FormatPicker } from "@/components/visits/bento/FormatPicker";
+import type { TileSpan } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 interface EditDrawerProps {
   tile: BentoTile | null;
   onClose: () => void;
+  onSetSpan: (tile: BentoTile, span: TileSpan) => void;
+  onDelete: (tile: BentoTile) => void;
   onSaveNote: (id: string, html: string) => void;
   onPersistNote: (id: string, html: string) => Promise<void>;
   onSaveTitle: (id: string, text: string) => void;
@@ -25,13 +29,16 @@ interface EditDrawerProps {
 }
 
 // Panneau d'édition — spec §2.3 : un clic sur une tuile ouvre un panneau
-// latéral (desktop) / bottom sheet (mobile, sous `sm:`), les champs mettent
-// à jour l'état en temps réel. Une seule instance, montée par VisitJournal,
-// contenu affiché conditionné par `tile.type` (le mémo audio n'y passe
-// jamais — il édite son transcript via son propre crayon inline).
+// latéral (desktop) / bottom sheet (mobile). Point d'entrée UNIQUE pour tout
+// ce qui concerne une tuile : son format, son contenu, sa suppression. Les
+// tuiles elles-mêmes ne portent plus qu'un bouton "Modifier" (audit
+// 2026-07-17 : 3 contrôles flottants sur une tuile de 165px en mobile
+// masquaient le contenu, et le format se réglait via un cycle invisible).
 export function EditDrawer({
   tile,
   onClose,
+  onSetSpan,
+  onDelete,
   onSaveNote,
   onPersistNote,
   onSaveTitle,
@@ -42,14 +49,32 @@ export function EditDrawer({
   onSaveEmbed,
   onSaveMap,
 }: EditDrawerProps) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Le panneau coulisse depuis le BAS en bottom sheet (mobile) et depuis la
+  // DROITE en panneau latéral (desktop) — Framer ne sait pas conditionner ses
+  // valeurs d'animation par media query, d'où ce matchMedia (même pattern que
+  // AudioPlayer.tsx pour `compact`).
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   useEffect(() => {
     if (!tile) return;
+    setConfirmDelete(false);
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [tile, onClose]);
 
   if (typeof document === "undefined") return null;
+
+  const offscreen = isMobile ? { y: "100%" } : { x: "100%" };
 
   return createPortal(
     <AnimatePresence>
@@ -64,86 +89,123 @@ export function EditDrawer({
             onClick={onClose}
           />
           <motion.div
-            // `y` en pourcentage ("100%") se convertit en px à partir de la
-            // hauteur du panneau au moment du mount — mais cette hauteur est
-            // encore intrinsèque/dynamique ici (contenu variable : textarea
-            // qui s'auto-redimensionne juste après le montage). Le calcul se
-            // fige sur une valeur obsolète et le panneau restait bloqué hors
-            // écran sur mobile (bug constaté 2026-07-17). Un décalage fixe en
-            // px n'a pas ce problème.
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 24 }}
-            transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
-            className="fixed z-[81] inset-x-0 bottom-0 rounded-t-2xl sm:rounded-t-none sm:inset-x-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-[380px] bg-[var(--bg-elevated)] border-t sm:border-t-0 sm:border-l border-[var(--border-default)] shadow-2xl flex flex-col"
-            style={{ maxHeight: "min(80vh, 640px)" }}
+            initial={offscreen}
+            animate={{ x: 0, y: 0 }}
+            exit={offscreen}
+            transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
+            className={[
+              "fixed z-[81] bg-[var(--bg-elevated)] border-[var(--border-default)] shadow-2xl flex flex-col",
+              // Mobile : bottom sheet plafonné à 80vh (le contenu défile).
+              "inset-x-0 bottom-0 max-h-[80vh] rounded-t-2xl border-t",
+              // Desktop : panneau latéral PLEINE HAUTEUR. Le plafond de hauteur
+              // du bottom sheet écrasait sinon top-0/bottom-0 et laissait un
+              // panneau flottant de 576px collé en haut à droite (audit
+              // 2026-07-17).
+              "sm:inset-x-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-[380px] sm:max-h-none sm:rounded-t-none sm:border-t-0 sm:border-l",
+            ].join(" ")}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] flex-shrink-0">
               <p className="text-sm font-medium text-[var(--text-primary)]">{DRAWER_TITLES[tile.type]}</p>
-              <button onClick={onClose} className="w-7 h-7 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Fermer">
+              <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" aria-label="Fermer">
                 <X size={16} strokeWidth={2} />
               </button>
             </div>
 
-            <div className="p-4 overflow-y-auto flex-1">
-              {tile.content.type === "note" && (
-                <NoteEditor
-                  key={tile.id}
-                  content={tile.content.content}
-                  editable
-                  onBlurSave={(html) => onSaveNote(tile.id, html)}
-                  onAutoSave={(html) => onPersistNote(tile.id, html)}
-                  placeholder="Écris…"
-                />
-              )}
-              {tile.content.type === "title" && (
-                <TitleEditor
-                  key={tile.id}
-                  content={tile.content.content}
-                  editable
-                  onBlurSave={(text) => onSaveTitle(tile.id, text)}
-                  onAutoSave={(text) => onPersistTitle(tile.id, text)}
-                  placeholder="Titre…"
-                />
-              )}
-              {tile.content.type === "quote" && (
-                <QuoteEditor
-                  key={tile.id}
-                  content={tile.content.content}
-                  editable
-                  onBlurSave={(text) => onSaveQuote(tile.id, text)}
-                  onAutoSave={(text) => onPersistQuote(tile.id, text)}
-                  placeholder="Citation…"
-                />
-              )}
-              {tile.content.type === "image" && (
-                <ImageForm
-                  key={tile.id}
-                  title={tile.content.title}
-                  author={tile.content.author ?? ""}
-                  year={tile.content.year ?? null}
-                  onSave={(title, author, year) => onSaveImage(tile.id, title, author, year)}
-                />
-              )}
-              {tile.content.type === "embed" && tile.content.kind === "LINK" && (
-                <EmbedForm
-                  key={tile.id}
-                  title={tile.content.title ?? ""}
-                  description={tile.content.description ?? ""}
-                  onSave={(title, description) => onSaveEmbed(tile.id, title, description)}
-                />
-              )}
-              {tile.content.type === "embed" && tile.content.kind === "YOUTUBE" && (
-                <p className="text-xs text-[var(--text-tertiary)]">Pas de champ éditable pour une vidéo YouTube — supprime et réajoute pour changer le lien.</p>
-              )}
-              {tile.content.type === "map" && (
-                <MapForm
-                  key={tile.id}
-                  locationName={tile.content.locationName}
-                  latitude={tile.content.latitude}
-                  longitude={tile.content.longitude}
-                  onSave={(name, lat, lng) => onSaveMap(tile.id, name, lat, lng)}
-                />
+            <div className="p-4 overflow-y-auto flex-1 space-y-5">
+              <FormatPicker type={tile.type} current={{ w: tile.w, h: tile.h }} onChange={(span) => onSetSpan(tile, span)} />
+
+              <div className="space-y-1.5">
+                {tile.content.type === "note" && (
+                  <NoteEditor
+                    key={tile.id}
+                    content={tile.content.content}
+                    editable
+                    onBlurSave={(html) => onSaveNote(tile.id, html)}
+                    onAutoSave={(html) => onPersistNote(tile.id, html)}
+                    placeholder="Écris…"
+                  />
+                )}
+                {tile.content.type === "title" && (
+                  <TitleEditor
+                    key={tile.id}
+                    content={tile.content.content}
+                    editable
+                    onBlurSave={(text) => onSaveTitle(tile.id, text)}
+                    onAutoSave={(text) => onPersistTitle(tile.id, text)}
+                    placeholder="Titre…"
+                  />
+                )}
+                {tile.content.type === "quote" && (
+                  <QuoteEditor
+                    key={tile.id}
+                    content={tile.content.content}
+                    editable
+                    onBlurSave={(text) => onSaveQuote(tile.id, text)}
+                    onAutoSave={(text) => onPersistQuote(tile.id, text)}
+                    placeholder="Citation…"
+                  />
+                )}
+                {tile.content.type === "image" && (
+                  <ImageForm
+                    key={tile.id}
+                    title={tile.content.title}
+                    author={tile.content.author ?? ""}
+                    year={tile.content.year ?? null}
+                    onSave={(title, author, year) => onSaveImage(tile.id, title, author, year)}
+                  />
+                )}
+                {tile.content.type === "embed" && tile.content.kind === "LINK" && (
+                  <EmbedForm
+                    key={tile.id}
+                    title={tile.content.title ?? ""}
+                    description={tile.content.description ?? ""}
+                    onSave={(title, description) => onSaveEmbed(tile.id, title, description)}
+                  />
+                )}
+                {tile.content.type === "embed" && tile.content.kind === "YOUTUBE" && (
+                  <p className="text-xs text-[var(--text-tertiary)]">Vidéo YouTube — supprime et réajoute la tuile pour changer le lien.</p>
+                )}
+                {tile.content.type === "audio" && (
+                  <p className="text-xs text-[var(--text-tertiary)]">Mémo vocal — la transcription s&apos;édite directement sur la tuile (icône crayon).</p>
+                )}
+                {tile.content.type === "map" && (
+                  <MapForm
+                    key={tile.id}
+                    locationName={tile.content.locationName}
+                    latitude={tile.content.latitude}
+                    longitude={tile.content.longitude}
+                    onSave={(name, lat, lng) => onSaveMap(tile.id, name, lat, lng)}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Suppression — en pied de panneau, avec confirmation : le geste
+                est destructif et il n'y a pas d'annulation (audit 2026-07-17). */}
+            <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex-shrink-0">
+              {confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { onDelete(tile); onClose(); }}
+                    className="flex-1 px-3 py-2 text-xs rounded-lg bg-red-500/90 text-white hover:bg-red-500 transition-colors"
+                  >
+                    {tile.type === "image" ? "Retirer du carnet" : "Supprimer définitivement"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="px-3 py-2 text-xs rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg text-red-400 hover:bg-[var(--bg-surface)] transition-colors"
+                >
+                  <Trash2 size={13} strokeWidth={1.75} />
+                  {tile.type === "image" ? "Retirer du carnet" : "Supprimer"}
+                </button>
               )}
             </div>
           </motion.div>
@@ -155,7 +217,7 @@ export function EditDrawer({
 }
 
 const DRAWER_TITLES: Record<BentoTile["type"], string> = {
-  image: "Cartel de l'image",
+  image: "Image",
   note: "Texte",
   title: "Titre",
   quote: "Citation",
@@ -188,7 +250,7 @@ function ImageForm({
         <input value={a} onChange={(e) => setA(e.target.value)} onBlur={() => onSave(t, a, y)} className={inputClass} />
       </Field>
       <Field label="Année">
-        <input value={y} onChange={(e) => setY(e.target.value.replace(/[^0-9]/g, ""))} onBlur={() => onSave(t, a, y)} className={inputClass} />
+        <input value={y} onChange={(e) => setY(e.target.value.replace(/[^0-9]/g, ""))} onBlur={() => onSave(t, a, y)} className={inputClass} inputMode="numeric" />
       </Field>
     </div>
   );

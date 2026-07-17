@@ -21,12 +21,29 @@ export const WIDGET_SPANS: Record<JournalTileType, TileSpan[]> = {
   note: [{ w: 2, h: 1 }, { w: 2, h: 2 }, { w: 1, h: 1 }],
   title: [{ w: 2, h: 1 }, { w: 1, h: 1 }],
   quote: [{ w: 2, h: 1 }, { w: 2, h: 2 }, { w: 1, h: 1 }],
-  // AudioBlockCard est déjà pensé carré (voir AudioBlockCard.tsx `square`).
-  audio: [{ w: 1, h: 1 }, { w: 2, h: 2 }],
+  // AudioBlockCard est déjà pensé carré (voir AudioBlockCard.tsx `square`),
+  // mais en 1x1 sur mobile la transcription n'a plus qu'une poignée de pixels
+  // — 2x1 reste proposé comme format confortable (audit 2026-07-17).
+  audio: [{ w: 1, h: 1 }, { w: 2, h: 1 }, { w: 2, h: 2 }],
   // YouTube veut du 16:9 large — pas de format 1x1/1x2.
   embed: [{ w: 2, h: 2 }, { w: 2, h: 1 }],
   map: [{ w: 2, h: 1 }, { w: 2, h: 2 }],
 };
+
+// Libellés du sélecteur de format (EditDrawer) — l'ancien bouton de
+// redimensionnement cyclait à l'aveugle sur ces formats sans jamais les
+// nommer ni les montrer ("comment sélectionner le format ?", retour
+// utilisateur 2026-07-17).
+export const SPAN_LABELS: Record<string, string> = {
+  "1x1": "Carré",
+  "2x1": "Large",
+  "1x2": "Haut",
+  "2x2": "Grand",
+};
+
+export function spanLabel(w: 1 | 2, h: 1 | 2): string {
+  return SPAN_LABELS[`${w}x${h}`] ?? `${w}×${h}`;
+}
 
 export const DEFAULT_SPAN: Record<JournalTileType, TileSpan> = {
   image: { w: 1, h: 1 },

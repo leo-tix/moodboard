@@ -7,7 +7,7 @@ import { EditDrawer } from "@/components/visits/bento/EditDrawer";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
-import { DEFAULT_SPAN, nextSpan, tileKey } from "@/lib/visits/bentoSpans";
+import { DEFAULT_SPAN, tileKey, type TileSpan } from "@/lib/visits/bentoSpans";
 import type { BentoTile, JournalTileType } from "@/lib/visits/bentoTypes";
 
 // ── Carnet de visite — grille modulaire façon Bento.me (2026-07-15) ─────────
@@ -29,7 +29,11 @@ const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
 
 export function VisitJournal({ visitId, initialTiles, authorName, authorImage }: VisitJournalProps) {
   const [tiles, setTiles] = useState<BentoTile[]>(initialTiles);
-  const [editingTile, setEditingTile] = useState<BentoTile | null>(null);
+  // On mémorise la CLÉ de la tuile en cours d'édition, pas l'objet : le
+  // panneau doit refléter les changements en direct (format, contenu) plutôt
+  // que la copie figée au moment du clic.
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const editingTile = tiles.find((t) => tileKey(t) === editingKey) ?? null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [voiceMemoOpen, setVoiceMemoOpen] = useState(false);
 
@@ -92,7 +96,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     const next = [...tiles, tile];
     setTiles(next);
     persistLayout(next);
-    setEditingTile(tile);
+    setEditingKey(tileKey(tile));
   };
 
   const handleAudioCreated = (created: CreatedAudioBlock) => {
@@ -169,18 +173,19 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     const next = tiles.filter((t) => tileKey(t) !== tileKey(tile));
     setTiles(next);
     persistLayout(next);
-    if (editingTile && tileKey(editingTile) === tileKey(tile)) setEditingTile(null);
+    if (editingKey === tileKey(tile)) setEditingKey(null);
     if (tile.type === "image") {
+      // Non destructif : l'image est seulement détachée de la visite et
+      // retourne dans la bibliothèque (voir la route /inspirations/[id]).
       await fetch(`/api/visits/${visitId}/inspirations/${tile.id}`, { method: "DELETE" }).catch(() => {});
     } else {
       await fetch(`/api/visits/${visitId}/${DELETE_ROUTE[tile.type]}/${tile.id}`, { method: "DELETE" }).catch(() => {});
     }
   };
 
-  // ── Redimensionnement ────────────────────────────────────────────────────
+  // ── Format ───────────────────────────────────────────────────────────────
 
-  const handleResize = (tile: BentoTile) => {
-    const span = nextSpan(tile.type, { w: tile.w, h: tile.h });
+  const setSpan = (tile: BentoTile, span: TileSpan) => {
     const next = tiles.map((t) => (tileKey(t) === tileKey(tile) ? { ...t, w: span.w, h: span.h } : t));
     setTiles(next);
     persistLayout(next);
@@ -271,9 +276,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         tiles={tiles}
         editable
         sortable={sortable}
-        onOpenEdit={setEditingTile}
-        onResize={handleResize}
-        onDelete={handleDelete}
+        selectedKey={editingKey}
+        onOpenEdit={(tile) => setEditingKey(tileKey(tile))}
         onPersistAudioTranscript={persistAudioTranscript}
         onAddClick={() => setPickerOpen(true)}
       />
@@ -298,7 +302,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
       <EditDrawer
         tile={editingTile}
-        onClose={() => setEditingTile(null)}
+        onClose={() => setEditingKey(null)}
+        onSetSpan={setSpan}
+        onDelete={handleDelete}
         onSaveNote={saveNote}
         onPersistNote={persistNote}
         onSaveTitle={saveTitle}
