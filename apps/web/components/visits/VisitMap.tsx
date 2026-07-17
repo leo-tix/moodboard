@@ -11,13 +11,22 @@ interface VisitMapProps {
   label?: string;
   /** Vignette mise en avant dans le pin (même style que la carte cumulée) — à défaut, simple point. */
   thumbnailKey?: string | null;
+  /** Niveau de zoom Leaflet. 15 ≈ la rue ; plus bas = plus de contexte alentour. */
+  zoom?: number;
+  /**
+   * `false` : carte décorative, non manipulable (ni glisser, ni zoom, ni
+   * contrôles). Utilisé par la tuile bento du carnet — s'y ajoutait sinon un
+   * conflit de geste (le pan de Leaflet luttait avec le drag de la tuile) et
+   * les boutons +/− encombraient une vignette de 200px de haut.
+   */
+  interactive?: boolean;
   className?: string;
 }
 
 // Mini-carte Leaflet + tuiles CARTO dark (assorties au thème sombre).
 // Leaflet est importé dynamiquement dans useEffect : il touche `window`
 // au chargement et casserait le rendu SSR sinon.
-export function VisitMap({ latitude, longitude, label, thumbnailKey, className }: VisitMapProps) {
+export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, interactive = true, className }: VisitMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
 
@@ -30,10 +39,13 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, className }
 
       const map = L.map(containerRef.current, {
         center: [latitude, longitude],
-        zoom: 15,
+        zoom,
         zoomControl: false,
         scrollWheelZoom: false, // ne pas voler le scroll de la page
-        dragging: true,
+        dragging: interactive,
+        touchZoom: interactive,
+        doubleClickZoom: interactive,
+        keyboard: interactive,
         attributionControl: true,
       });
       mapRef.current = map;
@@ -64,9 +76,9 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, className }
             iconAnchor: [7, 7],
           });
       const marker = L.marker([latitude, longitude], { icon }).addTo(map);
-      if (label) marker.bindPopup(label);
+      if (label && interactive) marker.bindPopup(label);
 
-      L.control.zoom({ position: "bottomright" }).addTo(map);
+      if (interactive) L.control.zoom({ position: "bottomright" }).addTo(map);
     })();
 
     return () => {
@@ -74,7 +86,7 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, className }
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [latitude, longitude, label, thumbnailKey]);
+  }, [latitude, longitude, label, thumbnailKey, zoom, interactive]);
 
   return (
     <div

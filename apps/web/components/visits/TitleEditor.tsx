@@ -20,7 +20,11 @@ interface TitleEditorProps {
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 const AUTOSAVE_DEBOUNCE_MS = 800;
-const TITLE_STYLE = "font-serif text-3xl md:text-4xl font-semibold tracking-tight leading-[1.1]";
+// Ce champ ne vit plus que dans le panneau d'édition du carnet (~348px de
+// large) depuis le passage à la grille bento : à text-4xl, un titre un peu
+// long s'y étalait sur une dizaine de lignes. text-2xl reste nettement
+// "titre" tout en restant confortable à éditer (audit 2026-07-17).
+const TITLE_STYLE = "font-serif text-2xl font-semibold tracking-tight leading-[1.15]";
 
 export function TitleEditor({ content, editable, onBlurSave, onAutoSave, placeholder, className }: TitleEditorProps) {
   const [value, setValue] = useState(content);

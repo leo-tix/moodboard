@@ -16,6 +16,27 @@ export interface ImageNavItem {
   thumbnailKey: string | null;
 }
 
+// Échelle typographique par format de tuile. Un titre rendu à la même petite
+// taille quel que soit son format se perdait dans une tuile de 200px de haut
+// (18px = 14% de la tuile) au lieu de la structurer (retour utilisateur
+// 2026-07-17 : "mauvaise taille pour les titres"). La coupe (line-clamp) est
+// indispensable ici : le texte étant centré verticalement, un titre long
+// débordait des deux côtés à la fois et venait toucher les bords (mesuré :
+// 196px de texte dans une tuile de 200px au format 1x1).
+const TITLE_BY_SPAN: Record<string, string> = {
+  "1x1": "text-xl leading-tight line-clamp-4",
+  "2x1": "text-3xl leading-[1.15] line-clamp-3",
+  "1x2": "text-2xl leading-tight line-clamp-[8]",
+  "2x2": "text-4xl leading-[1.1] line-clamp-5",
+};
+
+const QUOTE_BY_SPAN: Record<string, string> = {
+  "1x1": "text-sm line-clamp-5",
+  "2x1": "text-base line-clamp-4",
+  "1x2": "text-sm line-clamp-[9]",
+  "2x2": "text-lg line-clamp-[8]",
+};
+
 interface TileContentProps {
   tile: BentoTile;
   /** true = carnet en édition (transcript audio éditable, image cliquable vers la bibliothèque) ; false = lecture seule (carnet public, sans session). */
@@ -98,7 +119,13 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
   if (tile.content.type === "title") {
     return (
       <div className="w-full h-full flex items-center px-4 py-3 bg-[var(--bg-elevated)]">
-        <p className={cn("font-serif font-semibold text-[var(--text-primary)] leading-tight", tile.h === 2 ? "text-2xl" : "text-lg")}>
+        <p
+          className={cn(
+            "font-serif font-semibold text-[var(--text-primary)] tracking-tight hyphens-auto break-words",
+            TITLE_BY_SPAN[`${tile.w}x${tile.h}`]
+          )}
+          lang="fr"
+        >
           {tile.content.content || <span className="text-[var(--text-tertiary)] italic font-sans text-sm">Titre vide</span>}
         </p>
       </div>
@@ -107,8 +134,11 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
 
   if (tile.content.type === "quote") {
     return (
-      <div className="w-full h-full flex items-center px-4 py-3 border-l-2 border-[var(--accent)] bg-[var(--bg-elevated)]">
-        <p className={cn("italic text-[var(--text-secondary)] leading-relaxed", tile.h === 2 ? "text-base" : "text-sm")}>
+      <div className="w-full h-full flex items-center gap-3 px-4 py-3 bg-[var(--bg-elevated)]">
+        {/* Filet de citation en élément à part : posé en `border-l` sur la
+            tuile, il était rogné par les coins arrondis (rounded-[20px]). */}
+        <span className="w-0.5 self-stretch flex-shrink-0 rounded-full bg-[var(--accent)]" aria-hidden />
+        <p className={cn("italic text-[var(--text-secondary)] leading-relaxed hyphens-auto break-words", QUOTE_BY_SPAN[`${tile.w}x${tile.h}`])} lang="fr">
           {tile.content.content || <span className="text-[var(--text-tertiary)] not-italic">Citation vide</span>}
         </p>
       </div>
@@ -118,11 +148,13 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
   if (tile.content.type === "note") {
     return (
       <div className="w-full h-full overflow-hidden px-4 py-3 bg-[var(--bg-elevated)]">
-        {/* `line-clamp` est inopérant ici : `.note-prose` (globals.css) impose
-            son propre `display`, ce qui neutralise le `display:-webkit-box`
-            dont -webkit-line-clamp a besoin (audit 2026-07-17). Un fondu en
-            bas coupe proprement le texte trop long, indépendamment du display,
-            et sans dépendre du nombre de lignes. */}
+        {/* Fondu plutôt que `line-clamp` (qui fonctionne pourtant ici) : une
+            note est de la prose multi-blocs (h3 + paragraphes + listes) aux
+            hauteurs de ligne hétérogènes, donc aucun nombre de lignes fixe ne
+            tombe juste — il couperait trop tôt sur un texte simple et trop
+            tard sur un sous-titre. Le masque s'arrête pile au bord de la
+            tuile, quel que soit le contenu, et signale la suite par
+            l'estompement. */}
         <div
           className="note-prose text-sm leading-relaxed h-full overflow-hidden"
           style={{
