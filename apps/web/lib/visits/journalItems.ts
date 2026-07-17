@@ -1,9 +1,15 @@
-import type { JournalItem, JournalBlock } from "@/components/visits/VisitJournal";
+import type { JournalItem, JournalBlock } from "@/lib/visits/legacyJournalTypes";
+import { DEFAULT_SPAN, type JournalTile } from "@/lib/visits/bentoSpans";
+import type { BentoTile, JournalTileContent } from "@/lib/visits/bentoTypes";
 
 // Construit la séquence de blocs du carnet (façon Notion) à partir des 6 tables
 // de blocs d'une visite. Extrait de la page de détail pour être réutilisé par la
 // page publique read-only (Phase 5) — même logique de fusion/tri/claim, une
 // seule source de vérité.
+//
+// NOTE (2026-07-15) : buildJournalItems() ne sert plus qu'au script de
+// migration one-shot vers la grille bento (voir buildBentoLayout ci-dessous,
+// désormais la source de vérité pour l'éditeur et le carnet public).
 
 export interface JournalSourceVisit {
   inspirations: {
@@ -111,4 +117,78 @@ export function buildJournalItems(visit: JournalSourceVisit): JournalItem[] {
 
   merged.sort((a, b) => a.order - b.order || a.createdAt.getTime() - b.createdAt.getTime());
   return merged.map((m) => m.item);
+}
+
+// ── Grille bento (2026-07-15) ────────────────────────────────────────────────
+
+export interface BentoSourceVisit {
+  journalLayout: unknown; // Json — JournalTile[], validé/filtré ici
+  inspirations: JournalSourceVisit["inspirations"];
+  noteBlocks: JournalSourceVisit["noteBlocks"];
+  titleBlocks: JournalSourceVisit["titleBlocks"];
+  quoteBlocks: JournalSourceVisit["quoteBlocks"];
+  audioClips: JournalSourceVisit["audioClips"];
+  embeds: JournalSourceVisit["embeds"];
+  mapBlocks: { id: string; locationName: string; latitude: number; longitude: number }[];
+}
+
+// Résout Visit.journalLayout (position/format) vers son contenu réel, table
+// par table — remplace buildJournalItems() comme source de vérité pour
+// l'éditeur (VisitJournal) et le carnet public (VisitJournalReadOnly).
+export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
+  const content = new Map<string, JournalTileContent>();
+  visit.inspirations.forEach((i) => {
+    content.set(`image-${i.id}`, {
+      type: "image",
+      id: i.id,
+      title: i.title,
+      author: i.author,
+      year: i.year,
+      thumbnailKey: i.images[0]?.thumbnailKey ?? null,
+      width: i.images[0]?.width ?? null,
+      height: i.images[0]?.height ?? null,
+    });
+  });
+  visit.noteBlocks.forEach((n) => content.set(`note-${n.id}`, { type: "note", id: n.id, content: n.content }));
+  visit.titleBlocks.forEach((t) => content.set(`title-${t.id}`, { type: "title", id: t.id, content: t.content }));
+  visit.quoteBlocks.forEach((q) => content.set(`quote-${q.id}`, { type: "quote", id: q.id, content: q.content }));
+  visit.audioClips.forEach((a) =>
+    content.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript }),
+  );
+  visit.embeds.forEach((e) =>
+    content.set(`embed-${e.id}`, {
+      type: "embed",
+      id: e.id,
+      kind: e.kind,
+      url: e.url,
+      title: e.title,
+      description: e.description,
+      image: e.image,
+      siteName: e.siteName,
+    }),
+  );
+  visit.mapBlocks.forEach((m) =>
+    content.set(`map-${m.id}`, { type: "map", id: m.id, locationName: m.locationName, latitude: m.latitude, longitude: m.longitude }),
+  );
+
+  const layout: JournalTile[] = Array.isArray(visit.journalLayout) ? (visit.journalLayout as JournalTile[]) : [];
+  const seen = new Set<string>();
+  const resolved: BentoTile[] = [];
+  for (const tile of layout) {
+    const key = `${tile.type}-${tile.id}`;
+    const c = content.get(key);
+    if (!c) continue; // référence obsolète (contenu supprimé) — abandonnée silencieusement, même filet que resolveStack ci-dessus
+    seen.add(key);
+    resolved.push({ ...tile, content: c });
+  }
+  // Filet de sécurité : un bloc créé dont l'ajout à journalLayout aurait
+  // échoué (PATCH réseau perdu juste après la création du contenu) resterait
+  // sinon invisible pour toujours — on l'ajoute en fin de grille avec son
+  // format par défaut plutôt que de le faire disparaître silencieusement.
+  for (const [key, c] of content) {
+    if (seen.has(key)) continue;
+    const span = DEFAULT_SPAN[c.type];
+    resolved.push({ type: c.type, id: c.id, w: span.w, h: span.h, content: c });
+  }
+  return resolved;
 }

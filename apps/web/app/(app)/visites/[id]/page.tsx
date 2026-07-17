@@ -10,7 +10,7 @@ import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
 import { VisitShareButton } from "@/components/visits/VisitShareButton";
 import { VisitTopBar } from "@/components/visits/VisitTopBar";
-import { buildJournalItems } from "@/lib/visits/journalItems";
+import { buildBentoLayout } from "@/lib/visits/journalItems";
 
 export const revalidate = 0;
 
@@ -57,16 +57,16 @@ export default async function VisiteDetailPage({ params }: Props) {
       titleBlocks: true,
       quoteBlocks: true,
       audioClips: true,
-      columnBlocks: true,
       embeds: true,
+      mapBlocks: true,
     },
   });
 
   if (!visit) notFound();
 
-  // Fusion des 6 tables de blocs dans une seule séquence de carnet façon Notion
+  // Résout Visit.journalLayout vers son contenu réel — grille bento
   // (logique partagée avec la page publique, voir lib/visits/journalItems.ts).
-  const items = buildJournalItems(visit);
+  const tiles = buildBentoLayout(visit);
 
   const hasMap = visit.latitude !== null && visit.longitude !== null;
 
@@ -149,7 +149,7 @@ export default async function VisiteDetailPage({ params }: Props) {
         </div>
       )}
 
-      <VisitJournal visitId={visit.id} initialItems={items} authorName={visit.user.name} authorImage={visit.user.image} />
+      <VisitJournal visitId={visit.id} initialTiles={tiles} authorName={visit.user.name} authorImage={visit.user.image} />
 
       {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
       <VisitCaptureFab visitId={visit.id} />

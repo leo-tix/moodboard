@@ -1,1669 +1,314 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { motion } from "framer-motion";
-import { MoreHorizontal, ArrowUp, ArrowDown, FilePlus, ArrowLeftRight, X, Trash2, Plus, ExternalLink, ImageOff } from "lucide-react";
-import { parseYouTubeId } from "@/lib/visits/linkPreview";
-import { cn } from "@/lib/utils";
-import { getThumbnailUrl } from "@/lib/storage/urls";
-import { useSortableGrid, type SortableGrid } from "@/hooks/useSortableGrid";
-import { DragHandle } from "@/components/ui/DragHandle";
-import { NoteEditor } from "@/components/visits/NoteEditor";
-import { QuoteEditor } from "@/components/visits/QuoteEditor";
-import { TitleEditor } from "@/components/visits/TitleEditor";
-import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
-import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
-import { JournalAuthorProvider, useJournalAuthor } from "@/components/visits/JournalAuthorContext";
+import { useSortableGrid } from "@/hooks/useSortableGrid";
+import { BentoGrid } from "@/components/visits/bento/BentoGrid";
+import { EditDrawer } from "@/components/visits/bento/EditDrawer";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
+import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
+import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
+import { DEFAULT_SPAN, nextSpan, tileKey } from "@/lib/visits/bentoSpans";
+import type { BentoTile, JournalTileType } from "@/lib/visits/bentoTypes";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-// Carnet façon Notion : chaque bloc est PUR (un seul type). Le bloc "2
-// colonnes" est le seul bloc composite — il compose deux PILES de blocs purs
-// existants côte à côte (voir schema.prisma pour le détail du modèle).
-
-export interface JournalImage {
-  type: "image";
-  id: string; // inspirationId
-  title: string;
-  /** Artiste / auteur de l'œuvre — légende typographique du bloc Œuvre */
-  author: string | null;
-  year: number | null;
-  thumbnailKey: string | null;
-  width: number | null;
-  height: number | null;
-}
-
-export interface JournalNote {
-  type: "note";
-  id: string; // visitNoteId
-  content: string;
-}
-
-export interface JournalTitle {
-  type: "title";
-  id: string; // visitTitleId
-  content: string;
-}
-
-export interface JournalQuote {
-  type: "quote";
-  id: string; // visitQuoteId
-  content: string;
-}
-
-export interface JournalAudio {
-  type: "audio";
-  id: string; // visitAudioId
-  storageKey: string;
-  durationSec: number | null;
-  transcript: string | null;
-}
-
-/** Bloc pur, seul type admissible dans une pile de colonnes. */
-export type JournalBlock = JournalImage | JournalNote | JournalTitle | JournalQuote | JournalAudio;
-
-export interface JournalColumns {
-  type: "columns";
-  id: string; // visitColumnsId
-  /** Piles ordonnées — plusieurs blocs à la suite dans un même côté (ex. Titre puis Texte puis Audio). */
-  left: JournalBlock[];
-  right: JournalBlock[];
-}
-
-/**
- * Bloc "lien externe" (kind LINK, carte d'aperçu Open Graph) ou "embed
- * YouTube" (kind YOUTUBE, iframe). Bloc TOP-LEVEL uniquement — pas admissible
- * dans une pile de colonnes (donc absent de JournalBlock), au même titre que
- * le bloc "2 colonnes".
- */
-export interface JournalEmbed {
-  type: "embed";
-  id: string; // visitEmbedId
-  kind: "LINK" | "YOUTUBE";
-  url: string;
-  title: string | null;
-  description: string | null;
-  image: string | null;
-  siteName: string | null;
-}
-
-export type JournalItem = JournalBlock | JournalColumns | JournalEmbed;
+// ── Carnet de visite — grille modulaire façon Bento.me (2026-07-15) ─────────
+// Remplace l'ancien système de blocs empilés + colonnes par une grille dense
+// à tuiles de format fixe (1x1/2x1/1x2/2x2), drag & drop, poignée de
+// redimensionnement (cycle les formats), édition via panneau latéral
+// (EditDrawer). Voir apps/web/lib/visits/bentoSpans.ts et bentoTypes.ts.
 
 interface VisitJournalProps {
   visitId: string;
-  initialItems: JournalItem[];
-  /** Auteur du carnet (photo affichée sur les blocs mémo vocal, alignée sur
-      le design des planches — demande utilisateur 2026-07-15). */
+  initialTiles: BentoTile[];
+  /** Auteur du carnet (photo affichée sur les blocs mémo vocal, alignée sur le design des planches). */
   authorName?: string | null;
   authorImage?: string | null;
 }
 
-// ── Composant ─────────────────────────────────────────────────────────────────
-// Carnet de visite : séquence ordonnée de blocs purs (image/texte/titre/
-// citation/audio/2 colonnes — voir types ci-dessus).
-// - Grille responsive ; seule l'image reste une cellule de grille, les autres
-//   types occupent toute la largeur (col-span-full)
-// - Réordonnancement : overlay flottant + fantôme (souris n'importe où sur le
-//   bloc, tactile via poignée dédiée — voir useSortableGrid) + ↑/↓ dans le
-//   menu ⋯ de chaque bloc en alternative. Les blocs imbriqués dans une
-//   colonne sont draguables au même titre que les blocs top-level : les
-//   déposer sur une pile de colonne les y ajoute, sur un bloc top-level les
-//   en fait ressortir à cet endroit précis.
+const TEXT_ROUTE: Record<"note" | "title" | "quote", string> = { note: "notes", title: "titles", quote: "quotes" };
+const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
 
-const REF_TYPE: Record<JournalBlock["type"], "IMAGE" | "TEXT" | "TITLE" | "QUOTE" | "AUDIO"> = {
-  image: "IMAGE",
-  note: "TEXT",
-  title: "TITLE",
-  quote: "QUOTE",
-  audio: "AUDIO",
-};
+export function VisitJournal({ visitId, initialTiles, authorName, authorImage }: VisitJournalProps) {
+  const [tiles, setTiles] = useState<BentoTile[]>(initialTiles);
+  const [editingTile, setEditingTile] = useState<BentoTile | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [voiceMemoOpen, setVoiceMemoOpen] = useState(false);
 
-const keyOf = (item: { type: string; id: string }) => `${item.type}-${item.id}`;
-
-// ── Localisation d'un bloc dans l'arbre (top-level ou imbriqué) ──────────────
-// Fonctions pures, réutilisées par toutes les opérations de déplacement
-// (drag, boutons ↑/↓, sortir/réclamer) pour ne jamais dupliquer la logique de
-// recherche/retrait/insertion.
-
-type Loc = { kind: "top"; index: number } | { kind: "column"; columnsId: string; side: "left" | "right"; index: number };
-
-function locateBlock(items: JournalItem[], key: string): Loc | null {
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    if (keyOf(it) === key) return { kind: "top", index: i };
-    if (it.type === "columns") {
-      const li = it.left.findIndex((b) => keyOf(b) === key);
-      if (li !== -1) return { kind: "column", columnsId: it.id, side: "left", index: li };
-      const ri = it.right.findIndex((b) => keyOf(b) === key);
-      if (ri !== -1) return { kind: "column", columnsId: it.id, side: "right", index: ri };
-    }
-  }
-  return null;
-}
-
-function getBlockAtLoc(items: JournalItem[], loc: Loc): JournalItem | undefined {
-  if (loc.kind === "top") return items[loc.index];
-  const col = items.find((it) => it.type === "columns" && it.id === loc.columnsId) as JournalColumns | undefined;
-  return col?.[loc.side][loc.index];
-}
-
-function removeAtLoc(items: JournalItem[], loc: Loc): JournalItem[] {
-  if (loc.kind === "top") {
-    const next = [...items];
-    next.splice(loc.index, 1);
-    return next;
-  }
-  return items.map((it) => {
-    if (it.type === "columns" && it.id === loc.columnsId) {
-      const arr = [...it[loc.side]];
-      arr.splice(loc.index, 1);
-      return { ...it, [loc.side]: arr };
-    }
-    return it;
-  });
-}
-
-// Patch le contenu d'un bloc "réclamable" (note/titre/citation/audio/image),
-// qu'il soit au top-level de la séquence ou imbriqué dans une pile de colonnes.
-function patchClaimable<T extends JournalBlock>(
-  items: JournalItem[],
-  type: T["type"],
-  id: string,
-  patch: Partial<T>,
-): JournalItem[] {
-  return items.map((it) => {
-    if (it.type === "columns") {
-      let changed = false;
-      const patchSide = (side: JournalBlock[]) =>
-        side.map((b) => {
-          if (b.type === type && b.id === id) {
-            changed = true;
-            return { ...b, ...patch } as JournalBlock;
-          }
-          return b;
-        });
-      const left = patchSide(it.left);
-      const right = patchSide(it.right);
-      return changed ? { ...it, left, right } : it;
-    }
-    if (it.type === type && it.id === id) return { ...it, ...patch } as JournalItem;
-    return it;
-  });
-}
-
-// Cible de la pop-up de choix de type de bloc — soit une insertion top-level
-// (fin de carnet ou "⋯ Insérer un bloc après" un item précis), soit le
-// remplissage d'un slot vide d'une pile de colonnes. Un seul état pilote la
-// pop-up UNIQUE (BlockTypeModal), quel que soit le point d'entrée.
-type BlockPickerTarget =
-  | { kind: "sequence"; afterIdx: number | null }
-  | { kind: "column"; columnsId: string; side: "left" | "right" };
-
-export function VisitJournal({ visitId, initialItems, authorName, authorImage }: VisitJournalProps) {
-  const [items, setItems] = useState<JournalItem[]>(initialItems);
-  const [menuIdx, setMenuIdx] = useState<number | null>(null);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [blockPicker, setBlockPicker] = useState<BlockPickerTarget | null>(null);
-  const openBlockPicker = (target: BlockPickerTarget) => {
-    setMenuIdx(null);
-    setBlockPicker(target);
-  };
-  // Popup UNIQUE de prise de note audio (waveform + transcription en direct),
-  // partagée par tous les points d'entrée du carnet (menu "+", "⋯ Insérer
-  // après", pile de colonne) — demande utilisateur 2026-07-14 : plus de
-  // popover basique séparé selon d'où on ajoute l'audio. `onCreated` est
-  // lié dynamiquement à l'appelant courant (insertion top-level à un index
-  // donné, ou remplissage d'une pile de colonne précise).
-  const [voiceMemoTarget, setVoiceMemoTarget] = useState<{ onCreated: (a: CreatedAudioBlock) => void } | null>(null);
-  const requestVoiceMemo = (onCreated: (a: CreatedAudioBlock) => void) => {
-    setMenuIdx(null);
-    setBlockPicker(null);
-    setVoiceMemoTarget({ onCreated });
-  };
-  const menuRef = useRef<HTMLDivElement>(null);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-
-  // Resynchronise avec les données serveur quand elles changent — sans ça,
-  // le `router.refresh()` déclenché après une capture FAB (photo ou mémo
-  // vocal) rechargeait bien le payload RSC mais ce state, initialisé une
-  // seule fois au mount, l'ignorait : il fallait recharger la page à la main
-  // pour voir apparaître le nouvel élément.
-  const initialItemsRef = useRef(initialItems);
+  // Resynchronise si le serveur renvoie de nouvelles données (ex. capture
+  // photo/mémo depuis VisitCaptureFab, qui fait un router.refresh() après
+  // upload plutôt que de manipuler l'état local de ce composant).
+  const isFirstSync = useRef(true);
   useEffect(() => {
-    if (initialItemsRef.current !== initialItems) {
-      initialItemsRef.current = initialItems;
-      setItems(initialItems);
-    }
-  }, [initialItems]);
+    setTiles(initialTiles);
+    // Filet de sécurité de buildBentoLayout : un bloc créé hors de ce
+    // composant (FAB, rejeu offline) atterrit en fin de grille avec son
+    // format par défaut, mais SANS entrée dans Visit.journalLayout tant que
+    // personne ne l'a persisté — on l'adopte silencieusement ici pour que le
+    // filet n'ait plus besoin de s'activer au prochain chargement.
+    if (isFirstSync.current) { isFirstSync.current = false; return; }
+    persistLayout(initialTiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTiles]);
 
-  useEffect(() => {
-    if (menuIdx === null) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuIdx(null);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, [menuIdx]);
-
-  // ── Persistance de l'ordre top-level ──
-  const persistOrder = (list: JournalItem[]) => {
-    fetch(`/api/visits/${visitId}/reorder`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: list.map((item, i) => ({ type: item.type, id: item.id, order: i })),
-      }),
-    }).catch(() => {});
-  };
-
-  // Remplace intégralement les deux piles d'UNE colonne (l'API fait un
-  // remplacement complet, pas un patch incrémental — plus simple et sans
-  // risque de désync entre client/serveur sur des tableaux ordonnés).
-  const persistColumnsSides = (columnsId: string, list: JournalItem[]) => {
-    const col = list.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
-    if (!col) return;
-    fetch(`/api/visits/${visitId}/columns/${columnsId}`, {
+  const persistLayout = (list: BentoTile[]) => {
+    fetch(`/api/visits/${visitId}/layout`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        left: col.left.map((b) => ({ type: REF_TYPE[b.type], id: b.id })),
-        right: col.right.map((b) => ({ type: REF_TYPE[b.type], id: b.id })),
-      }),
+      body: JSON.stringify({ layout: list.map((t) => ({ type: t.type, id: t.id, w: t.w, h: t.h })) }),
     }).catch(() => {});
   };
 
-  const moveItem = (from: number, to: number) => {
-    if (to < 0 || to >= items.length || from === to) return;
-    const next = [...items];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    setItems(next);
-    persistOrder(next);
-  };
-
-  // Réordonne un bloc À L'INTÉRIEUR d'une même pile de colonne (boutons
-  // ↑/↓ du menu d'un bloc imbriqué — "switcher de position").
-  const moveWithinColumn = (columnsId: string, side: "left" | "right", from: number, to: number) => {
-    const col = itemsRef.current.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
-    if (!col || to < 0 || to >= col[side].length || from === to) return;
-    const arr = [...col[side]];
-    const [moved] = arr.splice(from, 1);
-    arr.splice(to, 0, moved);
-    const next = itemsRef.current.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: arr } : it));
-    setItems(next);
-    persistColumnsSides(columnsId, next);
-  };
-
-  // Échange intégralement les deux piles d'une colonne (bouton "⇄").
-  const switchColumnSides = (columnsId: string) => {
-    const next = itemsRef.current.map((it) =>
-      it.type === "columns" && it.id === columnsId ? { ...it, left: it.right, right: it.left } : it,
-    );
-    setItems(next);
-    persistColumnsSides(columnsId, next);
-  };
-
-  // Déplace un bloc (top-level ou imbriqué) dans la pile d'une colonne — à
-  // la fin de la pile ciblée. Utilisé par le drag (drop sur une pile) et par
-  // la réclamation directe (image/nouveau bloc/audio créés dans un slot).
-  const moveBlockToColumn = (fromLoc: Loc, block: JournalBlock, columnsId: string, side: "left" | "right") => {
-    const withoutBlock = removeAtLoc(itemsRef.current, fromLoc);
-    const next = withoutBlock.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: [...it[side], block] } : it));
-    setItems(next);
-    if (fromLoc.kind === "top") persistOrder(next);
-    persistColumnsSides(columnsId, next);
-    if (fromLoc.kind === "column" && fromLoc.columnsId !== columnsId) persistColumnsSides(fromLoc.columnsId, next);
-  };
-
-  // Sort un bloc imbriqué vers la séquence plate, à une position précise
-  // (drag sur un bloc top-level cible) — "redéplacer" un bloc de colonne.
-  const moveBlockToTop = (fromLoc: Loc & { kind: "column" }, block: JournalBlock, targetIndex: number) => {
-    const withoutBlock = removeAtLoc(itemsRef.current, fromLoc);
-    const next = [...withoutBlock];
-    next.splice(Math.min(targetIndex, next.length), 0, block);
-    setItems(next);
-    persistOrder(next);
-    persistColumnsSides(fromLoc.columnsId, next);
-  };
-
-  // Survol d'une pile de colonne pendant un drag — juste un indice visuel
-  // (anneau de surbrillance), mis à jour seulement quand la cible change
-  // réellement (pas à chaque pixel, voir la leçon "Maximum update depth
-  // exceeded" du drag & drop bibliothèque — ne jamais lever la position brute
-  // d'un geste continu dans le state).
-  const [dropHoverKey, setDropHoverKey] = useState<string | null>(null);
-  const dropHoverRef = useRef<string | null>(null);
-
-  // ── Réordonnancement (overlay + fantôme, voir useSortableGrid) ──
-  // Le bloc dragué est cloné dans un overlay flottant qui suit le pointeur ;
-  // le fantôme et ses voisins se réorganisent proprement via `layout` de
-  // Framer. `data-sortable-key` = clé (type+id) du bloc — posée aussi bien
-  // sur les blocs top-level que sur les blocs imbriqués dans une colonne,
-  // qui participent donc au MÊME système de drag. Chaque pile de colonne
-  // expose `data-drop-key="columns:<id>:<slot>"` — déposer un bloc dessus
-  // l'y ajoute (à la fin de la pile) au lieu de le réordonner.
   const sortable = useSortableGrid({
     onReorder: (draggedKey, targetKey) => {
-      // Réordonnancement EN DIRECT limité au niveau top-level (un drag
-      // impliquant un bloc imbriqué ne bouge rien tant qu'on n'a pas relâché
-      // — voir onDrop pour la résolution finale, y compris entre/vers des
-      // colonnes).
-      setItems((prev) => {
-        const from = prev.findIndex((it) => keyOf(it) === draggedKey);
-        const to = prev.findIndex((it) => keyOf(it) === targetKey);
-        if (from === -1 || to === -1 || from === to) return prev;
+      setTiles((prev) => {
+        const from = prev.findIndex((t) => tileKey(t) === draggedKey);
+        const to = prev.findIndex((t) => tileKey(t) === targetKey);
+        if (from === -1 || to === -1) return prev;
         const next = [...prev];
         const [moved] = next.splice(from, 1);
         next.splice(to, 0, moved);
         return next;
       });
     },
-    onHover: (hitEl) => {
-      const key = hitEl?.closest<HTMLElement>("[data-drop-key]")?.getAttribute("data-drop-key") ?? null;
-      if (key !== dropHoverRef.current) {
-        dropHoverRef.current = key;
-        setDropHoverKey(key);
-      }
-    },
-    onDrop: (hitEl, _x, _y, draggedKey) => {
-      dropHoverRef.current = null;
-      setDropHoverKey(null);
-
-      const loc = locateBlock(itemsRef.current, draggedKey);
-      if (!loc) {
-        persistOrder(itemsRef.current);
-        return;
-      }
-      const draggedBlock = getBlockAtLoc(itemsRef.current, loc);
-      if (!draggedBlock || draggedBlock.type === "columns" || draggedBlock.type === "embed") {
-        // Colonnes et blocs lien/embed restent top-level : ils ne s'imbriquent
-        // jamais dans une colonne. Le réordonnancement top-level a déjà été géré
-        // en direct par onReorder.
-        persistOrder(itemsRef.current);
-        return;
-      }
-
-      // 1) Cible = une pile de colonne (vide ou non) → on y ajoute le bloc.
-      const zoneEl = hitEl?.closest<HTMLElement>("[data-drop-key]");
-      const [, zoneColumnsId, zoneSide] = (zoneEl?.getAttribute("data-drop-key") ?? "").split(":");
-      if (zoneColumnsId && (zoneSide === "left" || zoneSide === "right")) {
-        if (loc.kind === "column" && loc.columnsId === zoneColumnsId && loc.side === zoneSide) {
-          persistOrder(itemsRef.current); // déjà dans cette pile
-          return;
-        }
-        moveBlockToColumn(loc, draggedBlock, zoneColumnsId, zoneSide);
-        return;
-      }
-
-      // 2) Cible = un bloc top-level précis → on ressort juste après lui
-      //    (utile pour "redéplacer" un bloc de colonne à un endroit choisi).
-      const blockEl = hitEl?.closest<HTMLElement>("[data-sortable-key]");
-      const targetKey = blockEl?.getAttribute("data-sortable-key");
-      if (targetKey && targetKey !== draggedKey) {
-        const targetLoc = locateBlock(itemsRef.current, targetKey);
-        if (targetLoc?.kind === "top") {
-          if (loc.kind === "top") {
-            persistOrder(itemsRef.current); // déjà géré en direct par onReorder
-            return;
-          }
-          moveBlockToTop(loc, draggedBlock, targetLoc.index);
-          return;
-        }
-      }
-
-      // 3) Aucune cible reconnue : un bloc issu d'une colonne "sort"
-      //    simplement en fin de séquence plate (comportement de secours).
-      if (loc.kind === "column") {
-        moveBlockToTop(loc, draggedBlock, itemsRef.current.length);
-        return;
-      }
-      persistOrder(itemsRef.current);
+    onDrop: () => {
+      // `tiles` a déjà été réordonné en direct par onReorder pendant le
+      // drag — il ne reste qu'à persister l'état final.
+      persistLayout(tiles);
     },
   });
 
-  const draggedItem = sortable.draggingKey
-    ? (getBlockAtLoc(items, locateBlock(items, sortable.draggingKey) ?? { kind: "top", index: -1 }) ?? null)
-    : null;
+  // ── Création ──────────────────────────────────────────────────────────────
 
-  // Proposées pour remplir une pile "Image" de colonnes — seules les images
-  // encore au top-level (non déjà réclamées) sont candidates.
-  const visitImages: JournalImage[] = items.filter((it): it is JournalImage => it.type === "image");
-
-  // Chaque type "simple" (créé vide, réclamable) a son propre endpoint REST
-  // mais la même forme { content } — un seul mapping pour les fonctions qui
-  // en ont besoin.
-  const ENDPOINT_BY_TYPE = { note: "notes", title: "titles", quote: "quotes", audio: "audio", embed: "embeds" } as const;
-
-  // ── Création de bloc (titre / texte / citation / colonnes) ──
-  const createBlock = async (afterIdx: number | null, type: "note" | "title" | "quote" | "columns") => {
-    setMenuIdx(null);
-    const insertAt = afterIdx === null ? items.length : afterIdx + 1;
-    const endpoint = type === "columns" ? "columns" : ENDPOINT_BY_TYPE[type];
-    const body = type === "columns" ? {} : { content: "" };
-    const res = await fetch(`/api/visits/${visitId}/${endpoint}`, {
+  const addTextTile = async (type: "title" | "note" | "quote") => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/${TEXT_ROUTE[type]}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) return;
+      body: JSON.stringify({ content: "" }),
+    }).catch(() => null);
+    if (!res?.ok) return;
     const created = await res.json();
-    const newItem: JournalItem =
-      type === "columns" ? { type: "columns", id: created.id, left: [], right: [] } : { type, id: created.id, content: "" };
-    const next = [...items];
-    next.splice(insertAt, 0, newItem);
-    setItems(next);
-    persistOrder(next);
-    if (type !== "columns") setEditingKey(`${type}-${created.id}`);
+    const span = DEFAULT_SPAN[type];
+    const tile: BentoTile = { type, id: created.id, w: span.w, h: span.h, content: { type, id: created.id, content: "" } };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+    setEditingTile(tile);
   };
 
-  const insertAudioBlock = (afterIdx: number | null, created: CreatedAudioBlock) => {
-    setMenuIdx(null);
-    const insertAt = afterIdx === null ? items.length : afterIdx + 1;
-    const next = [...items];
-    next.splice(insertAt, 0, {
+  const handleAudioCreated = (created: CreatedAudioBlock) => {
+    setVoiceMemoOpen(false);
+    const span = DEFAULT_SPAN.audio;
+    const tile: BentoTile = {
       type: "audio",
       id: created.id,
-      storageKey: created.storageKey,
-      durationSec: created.durationSec,
-      transcript: created.transcript,
-    });
-    setItems(next);
-    persistOrder(next);
+      w: span.w,
+      h: span.h,
+      content: { type: "audio", id: created.id, storageKey: created.storageKey, durationSec: created.durationSec, transcript: created.transcript ?? null },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
   };
 
-  // `content` d'une note est du HTML (Tiptap) — on ne peut pas juger de la
-  // vacuité avec un simple `.trim()` (un doc vide sérialise en "<p></p>").
-  const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
-
-  // Persistance PENDANT la frappe (auto-save debouncé) — ne ferme pas
-  // l'éditeur et ne supprime jamais (un bloc momentanément vide en cours de
-  // frappe ne doit pas s'autodétruire).
-  const persistNote = async (noteId: string, html: string) => {
-    setItems((prev) => patchClaimable<JournalNote>(prev, "note", noteId, { content: html }));
-    const res = await fetch(`/api/visits/${visitId}/notes/${noteId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: html }),
-    }).catch(() => null);
-    if (!res?.ok) throw new Error("save failed");
-  };
-
-  const saveNote = async (noteId: string, html: string) => {
-    setEditingKey(null);
-    if (isEmptyHtml(html)) {
-      deleteBlock("note", noteId);
-      return;
-    }
-    await persistNote(noteId, html).catch(() => {});
-  };
-
-  const persistTitle = async (titleId: string, text: string) => {
-    setItems((prev) => patchClaimable<JournalTitle>(prev, "title", titleId, { content: text }));
-    const res = await fetch(`/api/visits/${visitId}/titles/${titleId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: text }),
-    }).catch(() => null);
-    if (!res?.ok) throw new Error("save failed");
-  };
-
-  const saveTitle = async (titleId: string, text: string) => {
-    setEditingKey(null);
-    if (!text.trim()) {
-      deleteBlock("title", titleId);
-      return;
-    }
-    await persistTitle(titleId, text).catch(() => {});
-  };
-
-  const persistQuote = async (quoteId: string, text: string) => {
-    setItems((prev) => patchClaimable<JournalQuote>(prev, "quote", quoteId, { content: text }));
-    const res = await fetch(`/api/visits/${visitId}/quotes/${quoteId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: text }),
-    }).catch(() => null);
-    if (!res?.ok) throw new Error("save failed");
-  };
-
-  const saveQuote = async (quoteId: string, text: string) => {
-    setEditingKey(null);
-    if (!text.trim()) {
-      deleteBlock("quote", quoteId);
-      return;
-    }
-    await persistQuote(quoteId, text).catch(() => {});
-  };
-
-  const persistAudioTranscript = async (audioId: string, transcript: string) => {
-    setItems((prev) => patchClaimable<JournalAudio>(prev, "audio", audioId, { transcript }));
-    const res = await fetch(`/api/visits/${visitId}/audio/${audioId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transcript }),
-    }).catch(() => null);
-    if (!res?.ok) throw new Error("save failed");
-  };
-
-  // Supprime un bloc pur (texte/titre/citation/audio) ou un bloc lien/embed, où
-  // qu'il soit (le serveur nettoie lui-même toute colonne qui le réclamait).
-  const deleteBlock = async (type: "note" | "title" | "quote" | "audio" | "embed", id: string) => {
-    setMenuIdx(null);
-    const loc = locateBlock(itemsRef.current, `${type}-${id}`);
-    const next = loc ? removeAtLoc(itemsRef.current, loc) : itemsRef.current.filter((it) => !(it.type === type && it.id === id));
-    setItems(next);
-    await fetch(`/api/visits/${visitId}/${ENDPOINT_BY_TYPE[type]}/${id}`, { method: "DELETE" }).catch(() => {});
-  };
-
-  // Retire une image DU CARNET sans la supprimer : elle repart dans la
-  // bibliothèque (visitId=null côté serveur). Non destructif — choix produit
-  // 2026-07-14 (cohérent avec "supprimer un bloc = retirer la référence ici").
-  const detachImage = async (imageId: string) => {
-    setMenuIdx(null);
-    const loc = locateBlock(itemsRef.current, `image-${imageId}`);
-    const next = loc ? removeAtLoc(itemsRef.current, loc) : itemsRef.current;
-    setItems(next);
-    if (loc?.kind === "column") persistColumnsSides(loc.columnsId, next);
-    else persistOrder(next);
-    await fetch(`/api/visits/${visitId}/inspirations/${imageId}`, { method: "DELETE" }).catch(() => {});
-  };
-
-  // Crée un bloc lien externe (LINK) ou embed YouTube (YOUTUBE). Le serveur
-  // récupère les métadonnées (Open Graph / oEmbed) et renvoie le bloc complet.
-  const createEmbed = async (afterIdx: number | null, kind: "LINK" | "YOUTUBE", url: string) => {
-    setMenuIdx(null);
-    const insertAt = afterIdx === null ? items.length : afterIdx + 1;
+  const handleSelectEmbed = async (kind: "LINK" | "YOUTUBE", url: string) => {
+    setPickerOpen(false);
     const res = await fetch(`/api/visits/${visitId}/embeds`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, url }),
-    });
-    if (!res.ok) return;
-    const c = await res.json();
-    const newItem: JournalItem = {
+    }).catch(() => null);
+    if (!res?.ok) return;
+    const created = await res.json();
+    const span = DEFAULT_SPAN.embed;
+    const tile: BentoTile = {
       type: "embed",
-      id: c.id,
-      kind: c.kind,
-      url: c.url,
-      title: c.title ?? null,
-      description: c.description ?? null,
-      image: c.image ?? null,
-      siteName: c.siteName ?? null,
+      id: created.id,
+      w: span.w,
+      h: span.h,
+      content: { type: "embed", id: created.id, kind: created.kind, url: created.url, title: created.title, description: created.description, image: created.image, siteName: created.siteName },
     };
-    const next = [...items];
-    next.splice(insertAt, 0, newItem);
-    setItems(next);
-    persistOrder(next);
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
   };
 
-  // ── Colonnes CRUD ──
-  // Supprime le conteneur "2 colonnes" — tous les blocs qu'il réclamait (des
-  // deux piles) redeviennent autonomes en fin de séquence plate (pas de
-  // perte de contenu).
-  const deleteColumns = async (columnsId: string) => {
-    setMenuIdx(null);
-    const col = itemsRef.current.find((it) => it.type === "columns" && it.id === columnsId) as JournalColumns | undefined;
-    const next = [
-      ...itemsRef.current.filter((it) => !(it.type === "columns" && it.id === columnsId)),
-      ...(col ? [...col.left, ...col.right] : []),
-    ];
-    setItems(next);
-    persistOrder(next);
-    await fetch(`/api/visits/${visitId}/columns/${columnsId}`, { method: "DELETE" }).catch(() => {});
-  };
-
-  // Ajoute un bloc DÉJÀ EXISTANT (créé côté API) à la fin d'une pile.
-  const appendToColumn = (columnsId: string, side: "left" | "right", block: JournalBlock) => {
-    const next = itemsRef.current.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: [...it[side], block] } : it));
-    setItems(next);
-    persistColumnsSides(columnsId, next);
-  };
-
-  // Retire un bloc précis d'une pile sans le supprimer : il redevient un
-  // bloc autonome en fin de séquence plate ("sortir").
-  const unclaimBlock = (columnsId: string, side: "left" | "right", block: JournalBlock) => {
-    const loc = locateBlock(itemsRef.current, keyOf(block));
-    if (!loc || loc.kind !== "column") return;
-    const withoutBlock = removeAtLoc(itemsRef.current, loc);
-    const next = [...withoutBlock, block];
-    setItems(next);
-    persistOrder(next);
-    persistColumnsSides(columnsId, next);
-  };
-
-  // Ajoute une image déjà attachée à la visite à la fin d'une pile.
-  const fillWithImage = (columnsId: string, side: "left" | "right", image: JournalImage) => {
-    const withoutImg = itemsRef.current.filter((it) => !(it.type === "image" && it.id === image.id));
-    const next = withoutImg.map((it) => (it.type === "columns" && it.id === columnsId ? { ...it, [side]: [...it[side], image] } : it));
-    setItems(next);
-    persistColumnsSides(columnsId, next);
-  };
-
-  // Crée un nouveau bloc titre/texte/citation côté API puis l'ajoute à la
-  // fin d'une pile.
-  const fillWithNew = async (columnsId: string, side: "left" | "right", type: "note" | "title" | "quote") => {
-    const res = await fetch(`/api/visits/${visitId}/${ENDPOINT_BY_TYPE[type]}`, {
+  const handleSelectMap = async (locationName: string, latitude: number, longitude: number) => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/map`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: "" }),
-    });
-    if (!res.ok) return;
+      body: JSON.stringify({ locationName, latitude, longitude }),
+    }).catch(() => null);
+    if (!res?.ok) return;
     const created = await res.json();
-    const block = { type, id: created.id, content: "" } as JournalBlock;
-    appendToColumn(columnsId, side, block);
-    setEditingKey(`${type}-${created.id}`);
+    const span = DEFAULT_SPAN.map;
+    const tile: BentoTile = {
+      type: "map",
+      id: created.id,
+      w: span.w,
+      h: span.h,
+      content: { type: "map", id: created.id, locationName: created.locationName, latitude: created.latitude, longitude: created.longitude },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
   };
 
-  // Ajoute un clip audio tout juste enregistré (déjà créé côté API par
-  // AudioRecorderInline) à la fin d'une pile.
-  const fillWithAudio = (columnsId: string, side: "left" | "right", created: CreatedAudioBlock) => {
-    const block: JournalAudio = { type: "audio", id: created.id, storageKey: created.storageKey, durationSec: created.durationSec, transcript: created.transcript };
-    appendToColumn(columnsId, side, block);
+  // ── Suppression ───────────────────────────────────────────────────────────
+
+  const DELETE_ROUTE: Record<Exclude<JournalTileType, "image">, string> = {
+    note: "notes",
+    title: "titles",
+    quote: "quotes",
+    audio: "audio",
+    embed: "embeds",
+    map: "map",
   };
 
-  // ── Dispatch de la pop-up BlockTypeModal (voir `blockPicker` ci-dessus) ──
-  // Un seul appelant (la pop-up) pour les deux cibles possibles (séquence
-  // top-level ou slot de colonne) — évite de dupliquer 5 fois la branche
-  // if/else "sequence vs column" à chaque type de bloc.
-  const handleBlockTypeSelect = (type: "title" | "note" | "quote") => {
-    if (!blockPicker) return;
-    if (blockPicker.kind === "sequence") createBlock(blockPicker.afterIdx, type);
-    else fillWithNew(blockPicker.columnsId, blockPicker.side, type);
-    setBlockPicker(null);
-  };
-  const handleAudioPick = () => {
-    if (!blockPicker) return;
-    const target = blockPicker;
-    setBlockPicker(null);
-    if (target.kind === "sequence") requestVoiceMemo((a) => insertAudioBlock(target.afterIdx, a));
-    else requestVoiceMemo((a) => fillWithAudio(target.columnsId, target.side, a));
-  };
-  const handleEmbedSelect = (kind: "LINK" | "YOUTUBE", url: string) => {
-    if (blockPicker?.kind === "sequence") createEmbed(blockPicker.afterIdx, kind, url);
-    setBlockPicker(null);
-  };
-  const handleColumnsSelect = () => {
-    if (blockPicker?.kind === "sequence") createBlock(blockPicker.afterIdx, "columns");
-    setBlockPicker(null);
-  };
-  const handleImageSelect = (image: JournalImage) => {
-    if (blockPicker?.kind === "column") fillWithImage(blockPicker.columnsId, blockPicker.side, image);
-    setBlockPicker(null);
+  const handleDelete = async (tile: BentoTile) => {
+    const next = tiles.filter((t) => tileKey(t) !== tileKey(tile));
+    setTiles(next);
+    persistLayout(next);
+    if (editingTile && tileKey(editingTile) === tileKey(tile)) setEditingTile(null);
+    if (tile.type === "image") {
+      await fetch(`/api/visits/${visitId}/inspirations/${tile.id}`, { method: "DELETE" }).catch(() => {});
+    } else {
+      await fetch(`/api/visits/${visitId}/${DELETE_ROUTE[tile.type]}/${tile.id}`, { method: "DELETE" }).catch(() => {});
+    }
   };
 
-  // ── Titre d'image (cartel) ── édition inline au clic, PATCH direct sur
-  // l'Inspiration (pas un bloc du carnet — le titre appartient à l'image
-  // elle-même, partagé avec la bibliothèque).
-  const saveImageTitle = async (imageId: string, title: string) => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    setItems((prev) => patchClaimable<JournalImage>(prev, "image", imageId, { title: trimmed }));
-    await fetch(`/api/inspirations/${imageId}`, {
+  // ── Redimensionnement ────────────────────────────────────────────────────
+
+  const handleResize = (tile: BentoTile) => {
+    const span = nextSpan(tile.type, { w: tile.w, h: tile.h });
+    const next = tiles.map((t) => (tileKey(t) === tileKey(tile) ? { ...t, w: span.w, h: span.h } : t));
+    setTiles(next);
+    persistLayout(next);
+  };
+
+  // ── Édition de texte (drawer) ────────────────────────────────────────────
+
+  const patchTileContent = (type: JournalTileType, id: string, patch: Record<string, unknown>) => {
+    setTiles((prev) => prev.map((t) => (t.type === type && t.id === id ? ({ ...t, content: { ...t.content, ...patch } } as BentoTile) : t)));
+  };
+
+  const persistNote = async (id: string, html: string) => {
+    patchTileContent("note", id, { content: html });
+    await fetch(`/api/visits/${visitId}/notes/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: html }) }).catch(() => { throw new Error("save failed"); });
+  };
+  const saveNote = (id: string, html: string) => {
+    if (isEmptyHtml(html)) {
+      const tile = tiles.find((t) => t.type === "note" && t.id === id);
+      if (tile) handleDelete(tile);
+      return;
+    }
+    persistNote(id, html).catch(() => {});
+  };
+
+  const persistTitle = async (id: string, text: string) => {
+    patchTileContent("title", id, { content: text });
+    await fetch(`/api/visits/${visitId}/titles/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text }) }).catch(() => { throw new Error("save failed"); });
+  };
+  const saveTitle = (id: string, text: string) => {
+    if (!text.trim()) {
+      const tile = tiles.find((t) => t.type === "title" && t.id === id);
+      if (tile) handleDelete(tile);
+      return;
+    }
+    persistTitle(id, text).catch(() => {});
+  };
+
+  const persistQuote = async (id: string, text: string) => {
+    patchTileContent("quote", id, { content: text });
+    await fetch(`/api/visits/${visitId}/quotes/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text }) }).catch(() => { throw new Error("save failed"); });
+  };
+  const saveQuote = (id: string, text: string) => {
+    if (!text.trim()) {
+      const tile = tiles.find((t) => t.type === "quote" && t.id === id);
+      if (tile) handleDelete(tile);
+      return;
+    }
+    persistQuote(id, text).catch(() => {});
+  };
+
+  const persistAudioTranscript = async (audioId: string, transcript: string) => {
+    patchTileContent("audio", audioId, { transcript });
+    const res = await fetch(`/api/visits/${visitId}/audio/${audioId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript }) }).catch(() => null);
+    if (!res?.ok) throw new Error("save failed");
+  };
+
+  const saveImage = (id: string, title: string, author: string, year: string) => {
+    const trimmedTitle = title.trim() || "Sans titre";
+    const y = year ? parseInt(year, 10) : null;
+    patchTileContent("image", id, { title: trimmedTitle, author: author.trim() || null, year: y });
+    const body: Record<string, unknown> = { title: trimmedTitle };
+    if (author.trim()) body.author = author.trim();
+    if (y) body.year = y;
+    fetch(`/api/inspirations/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+  };
+
+  const saveEmbed = (id: string, title: string, description: string) => {
+    patchTileContent("embed", id, { title: title.trim() || null, description: description.trim() || null });
+    fetch(`/api/visits/${visitId}/embeds/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: trimmed }),
+      body: JSON.stringify({ title: title.trim() || null, description: description.trim() || null }),
     }).catch(() => {});
   };
 
-  // ── Rendu ──
-  if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="text-[var(--text-tertiary)] text-sm">Aucune image dans cette visite</p>
-        <button
-          onClick={() => createBlock(null, "note")}
-          className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          + Ajouter un bloc
-        </button>
-      </div>
-    );
-  }
+  const saveMap = (id: string, locationName: string, latitude: number, longitude: number) => {
+    patchTileContent("map", id, { locationName, latitude, longitude });
+    fetch(`/api/visits/${visitId}/map/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locationName, latitude, longitude }),
+    }).catch(() => {});
+  };
 
   return (
     <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
-    <div>
-      {/* Colonnes plafonnées à 3 : les breakpoints Tailwind sont indexés sur
-          la largeur du VIEWPORT, pas du conteneur — avec la page désormais
-          limitée à max-w-3xl (~720px de contenu), lg:/xl: continuaient de
-          s'activer sur grand écran et écrasaient la grille à 5 colonnes de
-          ~134px, illisible (retour utilisateur 2026-07-14). */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {items.map((item, idx) => (
-          <JournalItemBlock
-            key={keyOf(item)}
-            item={item}
-            idx={idx}
-            total={items.length}
-            editingKey={editingKey}
-            setEditingKey={setEditingKey}
-            menuOpen={menuIdx === idx}
-            menuRef={menuIdx === idx ? menuRef : undefined}
-            onToggleMenu={() => setMenuIdx(menuIdx === idx ? null : idx)}
-            onMoveUp={() => { setMenuIdx(null); moveItem(idx, idx - 1); }}
-            onMoveDown={() => { setMenuIdx(null); moveItem(idx, idx + 1); }}
-            onOpenInsertMenu={() => openBlockPicker({ kind: "sequence", afterIdx: idx })}
-            onDeleteBlock={deleteBlock}
-            onDeleteColumns={deleteColumns}
-            onDetachImage={detachImage}
-            onSaveNote={saveNote}
-            onPersistNote={persistNote}
-            onSaveTitle={saveTitle}
-            onPersistTitle={persistTitle}
-            onSaveQuote={saveQuote}
-            onPersistQuote={persistQuote}
-            onPersistAudioTranscript={persistAudioTranscript}
-            onSaveImageTitle={saveImageTitle}
-            onMoveWithinColumn={moveWithinColumn}
-            onSwitchColumnSides={switchColumnSides}
-            onUnclaimBlock={unclaimBlock}
-            onOpenColumnPicker={(columnsId, side) => openBlockPicker({ kind: "column", columnsId, side })}
-            sortable={sortable}
-            isDragging={sortable.draggingKey === keyOf(item)}
-            dropHoverKey={dropHoverKey}
-            visitImages={visitImages}
-          />
-        ))}
-      </div>
+      <BentoGrid
+        tiles={tiles}
+        editable
+        sortable={sortable}
+        onOpenEdit={setEditingTile}
+        onResize={handleResize}
+        onDelete={handleDelete}
+        onPersistAudioTranscript={persistAudioTranscript}
+        onAddClick={() => setPickerOpen(true)}
+      />
 
-      {/* Clone flottant suivant le pointeur pendant le drag (voir useSortableGrid) */}
-      {draggedItem && (
-        <div ref={sortable.overlayRef} style={sortable.overlayStyle}>
-          {draggedItem.type === "image" ? (
-            <div className="w-full h-full rounded-md overflow-hidden bg-[var(--bg-surface)] shadow-2xl shadow-black/50 rotate-[1.5deg]">
-              {draggedItem.thumbnailKey && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={getThumbnailUrl(draggedItem.thumbnailKey)} alt={draggedItem.title} className="w-full h-full object-cover" draggable={false} />
-              )}
-            </div>
-          ) : (
-            <div className="w-full h-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3 shadow-2xl shadow-black/50 rotate-[1deg] overflow-hidden">
-              <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap line-clamp-4">
-                {draggedItem.type === "columns"
-                  ? "2 colonnes"
-                  : draggedItem.type === "embed"
-                    ? draggedItem.title || draggedItem.url
-                    : "content" in draggedItem
-                      ? draggedItem.content
-                      : draggedItem.transcript}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Fin de carnet : sur DESKTOP, zone quasi invisible façon Notion qui se
-          révèle au survol/focus. Sur TACTILE (pas de survol), un vrai bouton
-          visible "+ Ajouter un bloc" — sinon impossible d'ajouter du texte au
-          doigt. Le raccourci clavier "/" a été retiré (retour utilisateur
-          2026-07-14) : redondant maintenant que la pop-up de choix
-          (BlockTypeModal) est centrale et systématiquement au même endroit,
-          quel que soit le point d'entrée. */}
-      {/* Marge basse : le FAB de capture (VisitCaptureFab, fixe, centré en
-          bas) est affiché sur TOUS les viewports, pas seulement tactile
-          (`bottom-6` desktop, `bottom-[4.5rem+safe-area]` mobile) — la marge
-          était réservée à `pointer-coarse:` (tactile) uniquement, donc un
-          utilisateur desktop à la souris n'avait aucun dégagement : une fois
-          défilé en bas, ce bouton finissait sous le FAB, qui interceptait le
-          clic (menu galerie/micro/photo au lieu d'ouvrir le choix de bloc —
-          lu comme "impossible de créer un bloc", retour 2026-07-14). */}
-      <div className="mt-2 relative mb-32 md:mb-24">
-        <button
-          type="button"
-          onClick={() => openBlockPicker({ kind: "sequence", afterIdx: null })}
-          className="w-full min-h-[3rem] rounded-lg px-4 text-sm text-[var(--text-tertiary)] transition-opacity cursor-text flex items-center gap-2
-                     opacity-0 hover:opacity-70 focus-visible:opacity-70
-                     pointer-coarse:opacity-100 pointer-coarse:border pointer-coarse:border-dashed pointer-coarse:border-[var(--border-default)] pointer-coarse:justify-center"
-        >
-          <Plus size={16} strokeWidth={1.75} />
-          <span className="pointer-coarse:hidden">Cliquer pour ajouter un bloc…</span>
-          <span className="hidden pointer-coarse:inline">Ajouter un bloc</span>
-        </button>
-      </div>
-
-      {/* Pop-up UNIQUE de choix de type de bloc — centrée + voile flouté,
-          identique mobile/desktop, pour tous les points d'entrée (bouton
-          "+" ci-dessus, "⋯ Insérer un bloc après", "+" d'un slot de colonne
-          vide) — voir `blockPicker` et BlockTypeModal.tsx. */}
-      {blockPicker && (
+      {pickerOpen && (
         <BlockTypeModal
-          onClose={() => setBlockPicker(null)}
-          onSelectSimple={handleBlockTypeSelect}
-          onSelectAudio={handleAudioPick}
-          onSelectEmbed={blockPicker.kind === "sequence" ? handleEmbedSelect : undefined}
-          onSelectColumns={blockPicker.kind === "sequence" ? handleColumnsSelect : undefined}
-          onSelectImage={blockPicker.kind === "column" ? handleImageSelect : undefined}
-          visitImages={visitImages}
+          onClose={() => setPickerOpen(false)}
+          onSelectSimple={addTextTile}
+          onSelectAudio={() => { setPickerOpen(false); setVoiceMemoOpen(true); }}
+          onSelectEmbed={handleSelectEmbed}
+          onSelectMap={handleSelectMap}
         />
       )}
 
-      {/* Popup UNIQUE de prise de note audio — voir requestVoiceMemo ci-dessus */}
       <VoiceMemoRecorder
         uploadUrl={`/api/visits/${visitId}/audio`}
         offlineQueue={{ visitId }}
-        open={voiceMemoTarget !== null}
-        onClose={() => setVoiceMemoTarget(null)}
-        onCreated={(audio) => {
-          voiceMemoTarget?.onCreated(audio);
-          setVoiceMemoTarget(null);
-        }}
+        open={voiceMemoOpen}
+        onClose={() => setVoiceMemoOpen(false)}
+        onCreated={handleAudioCreated}
       />
-    </div>
+
+      <EditDrawer
+        tile={editingTile}
+        onClose={() => setEditingTile(null)}
+        onSaveNote={saveNote}
+        onPersistNote={persistNote}
+        onSaveTitle={saveTitle}
+        onPersistTitle={persistTitle}
+        onSaveQuote={saveQuote}
+        onPersistQuote={persistQuote}
+        onSaveImage={saveImage}
+        onSaveEmbed={saveEmbed}
+        onSaveMap={saveMap}
+      />
     </JournalAuthorProvider>
-  );
-}
-
-// Vignette d'une carte de lien : se masque si l'image ne charge pas (404,
-// anti-hotlink…) pour éviter l'icône d'image brisée. `no-referrer` contourne
-// les protections anti-hotlink basées sur le Referer.
-function LinkCardThumb({ src }: { src: string }) {
-  const [ok, setOk] = useState(true);
-  if (!ok) return null;
-  return (
-    <div className="w-28 sm:w-40 flex-shrink-0 bg-[var(--bg-surface)]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        onError={() => setOk(false)}
-        className="w-full h-full object-cover"
-      />
-    </div>
-  );
-}
-
-// ── Bloc individuel ───────────────────────────────────────────────────────────
-// Composant séparé du parent, dispatche sur les 5 types de blocs purs.
-
-function JournalItemBlock({
-  item,
-  idx,
-  total,
-  editingKey,
-  setEditingKey,
-  menuOpen,
-  menuRef,
-  onToggleMenu,
-  onMoveUp,
-  onMoveDown,
-  onOpenInsertMenu,
-  onDeleteBlock,
-  onDeleteColumns,
-  onDetachImage,
-  onSaveNote,
-  onPersistNote,
-  onSaveTitle,
-  onPersistTitle,
-  onSaveQuote,
-  onPersistQuote,
-  onPersistAudioTranscript,
-  onSaveImageTitle,
-  onMoveWithinColumn,
-  onSwitchColumnSides,
-  onUnclaimBlock,
-  onOpenColumnPicker,
-  sortable,
-  isDragging,
-  dropHoverKey,
-  visitImages,
-}: {
-  item: JournalItem;
-  idx: number;
-  total: number;
-  editingKey: string | null;
-  setEditingKey: (key: string | null) => void;
-  menuOpen: boolean;
-  menuRef?: React.RefObject<HTMLDivElement | null>;
-  onToggleMenu: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onOpenInsertMenu: () => void;
-  onDeleteBlock: (type: "note" | "title" | "quote" | "audio" | "embed", id: string) => void;
-  onDeleteColumns: (id: string) => void;
-  onDetachImage: (id: string) => void;
-  onSaveNote: (id: string, content: string) => void;
-  onPersistNote: (id: string, content: string) => Promise<void>;
-  onSaveTitle: (id: string, content: string) => void;
-  onPersistTitle: (id: string, content: string) => Promise<void>;
-  onSaveQuote: (id: string, content: string) => void;
-  onPersistQuote: (id: string, content: string) => Promise<void>;
-  onPersistAudioTranscript: (id: string, transcript: string) => Promise<void>;
-  onSaveImageTitle: (id: string, title: string) => void;
-  onMoveWithinColumn: (columnsId: string, side: "left" | "right", from: number, to: number) => void;
-  onSwitchColumnSides: (columnsId: string) => void;
-  onUnclaimBlock: (columnsId: string, side: "left" | "right", block: JournalBlock) => void;
-  onOpenColumnPicker: (columnsId: string, side: "left" | "right") => void;
-  sortable: SortableGrid;
-  isDragging: boolean;
-  dropHoverKey: string | null;
-  visitImages: JournalImage[];
-}) {
-  const sortableKey = keyOf(item);
-  const isVisualBlock = item.type === "image" || item.type === "audio" || item.type === "columns" || item.type === "embed";
-
-  const itemMenu = (
-    <div className="relative" ref={menuOpen ? menuRef : undefined}>
-      <button
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleMenu(); }}
-        className={cn(
-          "w-9 h-9 md:w-6 md:h-6 flex items-center justify-center rounded-full text-sm md:text-xs transition-all",
-          isVisualBlock
-            ? "bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
-            : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] opacity-0 group-hover/note:opacity-100 pointer-coarse:opacity-100"
-        )}
-        title="Options"
-      >
-        <MoreHorizontal size={16} strokeWidth={2} />
-      </button>
-      {menuOpen && (
-        <div
-          className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        >
-          <button
-            onClick={onMoveUp}
-            disabled={idx === 0}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
-          >
-            <ArrowUp size={13} strokeWidth={1.75} /> Monter
-          </button>
-          <button
-            onClick={onMoveDown}
-            disabled={idx === total - 1}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors"
-          >
-            <ArrowDown size={13} strokeWidth={1.75} /> Descendre
-          </button>
-          <button
-            onClick={onOpenInsertMenu}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-          >
-            <FilePlus size={13} strokeWidth={1.75} /> Insérer un bloc après
-          </button>
-          {(item.type === "note" || item.type === "title" || item.type === "quote" || item.type === "audio" || item.type === "embed") && (
-            <button
-              onClick={() => onDeleteBlock(item.type, item.id)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-            >
-              <Trash2 size={13} strokeWidth={1.75} /> Supprimer
-            </button>
-          )}
-          {/* Image : suppression NON destructive — on la retire du carnet, elle
-              reste dans la bibliothèque (choix produit 2026-07-14). */}
-          {item.type === "image" && (
-            <button
-              onClick={() => onDetachImage(item.id)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] border-t border-[var(--border-subtle)] transition-colors"
-            >
-              <ImageOff size={13} strokeWidth={1.75} /> Retirer du carnet
-            </button>
-          )}
-          {item.type === "columns" && (
-            <>
-              <button
-                onClick={() => onSwitchColumnSides(item.id)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-              >
-                <ArrowLeftRight size={13} strokeWidth={1.75} /> Échanger gauche/droite
-              </button>
-              <button
-                onClick={() => onDeleteColumns(item.id)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors"
-              >
-                <Trash2 size={13} strokeWidth={1.75} /> Supprimer les colonnes
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
-  // Pendant le drag, les blocs pleine largeur se réduisent à une fine barre
-  // d'insertion : sinon un gros bloc pousse toutes les images à chaque
-  // micro-déplacement et il devient impossible de viser. Le clone flottant
-  // (rendu par le parent) reste le bloc complet.
-  const ghostBar = (
-    <motion.div layout className="col-span-full py-1">
-      <div className="h-1.5 rounded-full bg-[var(--text-primary)]/40" />
-    </motion.div>
-  );
-
-  if (item.type === "note" || item.type === "title" || item.type === "quote") {
-    const key = keyOf(item);
-    const isEditing = editingKey === key;
-    const dragBindings = isEditing ? {} : { ...sortable.getContainerProps(sortableKey) };
-    if (isDragging) return ghostBar;
-    return (
-      <motion.div
-        layout
-        {...dragBindings}
-        // Design "table de montage" (Phase 2) : les blocs texte flottent sur
-        // le fond noir, structurés par les marges seules — plus de bordure ni
-        // de fond gris permanent. Le fond n'apparaît qu'au survol (affordance
-        // d'édition) et pendant l'édition (délimite la zone de saisie).
-        className={cn(
-          "col-span-full rounded-lg px-4 py-3 transition-colors relative group/note",
-          isEditing ? "bg-[var(--bg-surface)]" : "hover:bg-white/[0.03]"
-        )}
-      >
-        <div
-          className="flex items-start gap-2"
-          onClick={() => { if (!isEditing && !sortable.wasDragging()) setEditingKey(key); }}
-        >
-          {item.type === "note" && (
-            <NoteEditor
-              content={item.content}
-              editable={isEditing}
-              onBlurSave={(html) => onSaveNote(item.id, html)}
-              onAutoSave={(html) => onPersistNote(item.id, html)}
-              placeholder="Note vide — cliquer pour éditer"
-            />
-          )}
-          {item.type === "title" && (
-            <TitleEditor
-              content={item.content}
-              editable={isEditing}
-              onBlurSave={(text) => onSaveTitle(item.id, text)}
-              onAutoSave={(text) => onPersistTitle(item.id, text)}
-              placeholder="Titre vide — cliquer pour éditer"
-            />
-          )}
-          {item.type === "quote" && (
-            <QuoteEditor
-              content={item.content}
-              editable={isEditing}
-              onBlurSave={(text) => onSaveQuote(item.id, text)}
-              onAutoSave={(text) => onPersistQuote(item.id, text)}
-              placeholder="Citation vide — cliquer pour éditer"
-            />
-          )}
-          {itemMenu}
-          {!isEditing && (
-            <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5" title="Glisser pour réordonner" />
-          )}
-        </div>
-      </motion.div>
-    );
-  }
-
-  if (item.type === "audio") {
-    if (isDragging) return ghostBar;
-    return (
-      <motion.div layout {...sortable.getContainerProps(sortableKey)} className="col-span-full relative group">
-        <AudioBlockContent audio={item} onPersistTranscript={(t) => onPersistAudioTranscript(item.id, t)} />
-        <div className="absolute top-2 right-2 z-10">{itemMenu}</div>
-        <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
-      </motion.div>
-    );
-  }
-
-  if (item.type === "columns") {
-    const isAnyNestedEditing = [...item.left, ...item.right].some(
-      (b) => (b.type === "note" || b.type === "title" || b.type === "quote") && editingKey === keyOf(b),
-    );
-    const dragBindings = isAnyNestedEditing ? {} : { ...sortable.getContainerProps(sortableKey) };
-    if (isDragging) return ghostBar;
-    return (
-      <motion.div layout {...dragBindings} className="col-span-full relative group py-1">
-        <div className="grid grid-cols-2 gap-3">
-          <ColumnStack
-            columnsId={item.id}
-            side="left"
-            blocks={item.left}
-            editingKey={editingKey}
-            setEditingKey={setEditingKey}
-            onSaveNote={onSaveNote}
-            onPersistNote={onPersistNote}
-            onSaveTitle={onSaveTitle}
-            onPersistTitle={onPersistTitle}
-            onSaveQuote={onSaveQuote}
-            onPersistQuote={onPersistQuote}
-            onPersistAudioTranscript={onPersistAudioTranscript}
-            onDeleteBlock={onDeleteBlock}
-            onMoveWithin={(from, to) => onMoveWithinColumn(item.id, "left", from, to)}
-            onUnclaim={(block) => onUnclaimBlock(item.id, "left", block)}
-            onOpenPicker={() => onOpenColumnPicker(item.id, "left")}
-            dropHoverKey={dropHoverKey}
-            sortable={sortable}
-          />
-          <ColumnStack
-            columnsId={item.id}
-            side="right"
-            blocks={item.right}
-            editingKey={editingKey}
-            setEditingKey={setEditingKey}
-            onSaveNote={onSaveNote}
-            onPersistNote={onPersistNote}
-            onSaveTitle={onSaveTitle}
-            onPersistTitle={onPersistTitle}
-            onSaveQuote={onSaveQuote}
-            onPersistQuote={onPersistQuote}
-            onPersistAudioTranscript={onPersistAudioTranscript}
-            onDeleteBlock={onDeleteBlock}
-            onMoveWithin={(from, to) => onMoveWithinColumn(item.id, "right", from, to)}
-            onUnclaim={(block) => onUnclaimBlock(item.id, "right", block)}
-            onOpenPicker={() => onOpenColumnPicker(item.id, "right")}
-            dropHoverKey={dropHoverKey}
-            sortable={sortable}
-          />
-        </div>
-        <div className="absolute -top-1 right-1.5 z-10">{itemMenu}</div>
-        <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute -bottom-1 right-1.5 z-10" title="Glisser pour réordonner" />
-      </motion.div>
-    );
-  }
-
-  // ── Bloc lien externe (carte d'aperçu Open Graph) / embed YouTube (iframe) ──
-  if (item.type === "embed") {
-    if (isDragging) return ghostBar;
-    const domain = (() => {
-      try { return new URL(item.url).hostname.replace(/^www\./, ""); } catch { return item.url; }
-    })();
-    const videoId = item.kind === "YOUTUBE" ? parseYouTubeId(item.url) : null;
-    return (
-      <motion.div layout {...sortable.getContainerProps(sortableKey)} className="col-span-full relative group py-1">
-        {item.kind === "YOUTUBE" ? (
-          <div className="rounded-lg overflow-hidden bg-black" style={{ aspectRatio: "16 / 9" }}>
-            {videoId ? (
-              <iframe
-                src={`https://www.youtube-nocookie.com/embed/${videoId}`}
-                title={item.title ?? "YouTube"}
-                className="w-full h-full"
-                loading="lazy"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)] text-xs">Vidéo indisponible</div>
-            )}
-          </div>
-        ) : (
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            // Un drag qui vient de se terminer ne doit pas ouvrir le lien.
-            onClick={(e) => { if (sortable.wasDragging()) e.preventDefault(); }}
-            className="flex items-stretch gap-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] overflow-hidden hover:border-[var(--border-default)] transition-colors"
-          >
-            <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center gap-1">
-              <p className="text-sm font-medium text-[var(--text-primary)] line-clamp-1">{item.title || domain}</p>
-              {item.description && (
-                <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-snug">{item.description}</p>
-              )}
-              <p className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
-                <ExternalLink size={11} strokeWidth={1.75} /> {item.siteName || domain}
-              </p>
-            </div>
-            {item.image && <LinkCardThumb src={item.image} />}
-          </a>
-        )}
-        <div className="absolute top-2 right-2 z-10">{itemMenu}</div>
-        <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-2 right-2 z-10" title="Glisser pour réordonner" />
-      </motion.div>
-    );
-  }
-
-  // ── Bloc Œuvre : image + légende typographique automatique (Titre /
-  // Artiste · Année) tirée des métadonnées de l'inspiration — façon cartel
-  // de musée, esprit "table de montage" du plan Phase 2.
-  const ar = item.width && item.height ? item.width / item.height : 1;
-  return (
-    <motion.div
-      layout
-      {...sortable.getContainerProps(sortableKey)}
-      className={cn("group relative", isDragging && "opacity-40")}
-    >
-      <div
-        className={cn(
-          // Surtout PAS `transition-all` : Framer pilote `transform` à la main
-          // pendant l'animation `layout`, et un `transition: all` CSS ré-anime
-          // ce même transform en parallèle → conflit, saccades. On se limite
-          // à la couleur.
-          "relative rounded-md overflow-hidden bg-[var(--bg-surface)] transition-colors"
-        )}
-        style={{ aspectRatio: ar }}
-      >
-        <Link
-          href={`/library/${item.id}`}
-          className="absolute inset-0"
-          draggable={false}
-          onContextMenu={(e) => e.preventDefault()}
-          style={{ WebkitTouchCallout: "none" }}
-          onClick={(e) => {
-            if (sortable.wasDragging()) { e.preventDefault(); return; }
-            // Contexte de navigation pour la visionneuse (←/→) — sans ça, ouvrir
-            // une image du carnet retombait sur le repli "toute la bibliothèque"
-            // de GalleryStrip, au lieu de ne parcourir que les images de CETTE
-            // visite.
-            try {
-              const context = {
-                items: visitImages.map((img) => ({
-                  id: img.id,
-                  title: img.title,
-                  thumbnailKey: img.thumbnailKey,
-                })),
-              };
-              sessionStorage.setItem("moodboard:libraryNav", JSON.stringify(context));
-            } catch {
-              // sessionStorage unavailable
-            }
-          }}
-        >
-          {item.thumbnailKey ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={getThumbnailUrl(item.thumbnailKey)}
-              alt={item.title}
-              loading="lazy"
-              draggable={false}
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-[var(--text-tertiary)] text-xs">—</span>
-            </div>
-          )}
-        </Link>
-        <div className="absolute top-1.5 right-1.5 z-10">{itemMenu}</div>
-        <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1.5 right-1.5 z-10" title="Glisser pour réordonner" />
-      </div>
-
-      {/* Cartel — masqué s'il n'y a rien d'autre qu'un nom de fichier généré */}
-      <div className="mt-1.5 px-0.5 min-h-[1rem]">
-        <EditableImageTitle
-          title={item.title}
-          onSave={(title) => onSaveImageTitle(item.id, title)}
-          className="text-[12px] leading-snug text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors"
-        />
-        {(item.author || item.year) && (
-          <p className="text-[11px] text-[var(--text-tertiary)] italic mt-0.5 truncate">
-            {item.author}
-            {item.author && item.year ? " · " : ""}
-            {item.year ?? ""}
-          </p>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Titre d'une image (cartel) éditable au clic ──────────────────────────────
-// Le titre appartient à l'Inspiration elle-même (partagé avec la
-// bibliothèque), pas au carnet — édition inline directe, pas de vocabulaire
-// ●/✓ (sauvegarde immédiate au blur, pas d'auto-save pendant la frappe).
-
-function EditableImageTitle({
-  title,
-  onSave,
-  className,
-}: {
-  title: string;
-  onSave: (title: string) => void;
-  className?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(title);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!editing) setValue(title);
-  }, [title, editing]);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [editing]);
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") inputRef.current?.blur();
-          if (e.key === "Escape") { setValue(title); setEditing(false); }
-        }}
-        onBlur={() => {
-          setEditing(false);
-          const trimmed = value.trim();
-          if (trimmed && trimmed !== title) onSave(trimmed);
-        }}
-        className={cn(className, "w-full bg-transparent border-b border-[var(--border-default)] focus:outline-none focus:border-[var(--text-primary)]")}
-      />
-    );
-  }
-
-  return (
-    <p
-      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditing(true); }}
-      className={cn(className, "line-clamp-2 cursor-text")}
-      title="Cliquer pour éditer le titre"
-    >
-      {title}
-    </p>
-  );
-}
-
-// ── Bloc audio (waveform + transcription éditable) ──────────────────────────
-// Partagé par le rendu top-level et par une pile de colonne.
-
-function AudioBlockContent({
-  audio,
-  onPersistTranscript,
-  compact = false,
-}: {
-  audio: JournalAudio;
-  onPersistTranscript: (text: string) => Promise<void>;
-  /** Rendu resserré — bloc audio DANS une pile de colonne (largeur de colonne
-      déjà étroite, la carte quasi carrée s'y adapte via `w-full`). */
-  compact?: boolean;
-}) {
-  const author = useJournalAuthor();
-  return (
-    <AudioBlockCard
-      storageKey={audio.storageKey}
-      durationSec={audio.durationSec}
-      transcript={audio.transcript}
-      authorName={author.name}
-      authorImage={author.image}
-      square
-      editable
-      onPersistTranscript={onPersistTranscript}
-      className={compact ? undefined : "mx-auto"}
-    />
-  );
-}
-
-// ── Pile d'un côté de colonne ─────────────────────────────────────────────────
-// Rend la liste ordonnée des blocs purs qui occupent ce côté ("titre puis
-// texte puis audio" par exemple), plus une affordance "+" en bas pour en
-// ajouter d'autres. Toute la pile expose `data-drop-key` (y compris non
-// vide) pour rester une cible de drag valide.
-
-function ColumnStack({
-  columnsId,
-  side,
-  blocks,
-  editingKey,
-  setEditingKey,
-  onSaveNote,
-  onPersistNote,
-  onSaveTitle,
-  onPersistTitle,
-  onSaveQuote,
-  onPersistQuote,
-  onPersistAudioTranscript,
-  onDeleteBlock,
-  onMoveWithin,
-  onUnclaim,
-  onOpenPicker,
-  dropHoverKey,
-  sortable,
-}: {
-  columnsId: string;
-  side: "left" | "right";
-  blocks: JournalBlock[];
-  editingKey: string | null;
-  setEditingKey: (key: string | null) => void;
-  onSaveNote: (id: string, content: string) => void;
-  onPersistNote: (id: string, content: string) => Promise<void>;
-  onSaveTitle: (id: string, content: string) => void;
-  onPersistTitle: (id: string, content: string) => Promise<void>;
-  onSaveQuote: (id: string, content: string) => void;
-  onPersistQuote: (id: string, content: string) => Promise<void>;
-  onPersistAudioTranscript: (id: string, transcript: string) => Promise<void>;
-  onDeleteBlock: (type: "note" | "title" | "quote" | "audio", id: string) => void;
-  onMoveWithin: (from: number, to: number) => void;
-  onUnclaim: (block: JournalBlock) => void;
-  /** Ouvre la pop-up centrale BlockTypeModal, scopée à ce slot de colonne. */
-  onOpenPicker: () => void;
-  dropHoverKey: string | null;
-  sortable: SortableGrid;
-}) {
-  const dropKey = `columns:${columnsId}:${side}`;
-  const isDropHover = dropHoverKey === dropKey;
-
-  const adder = (
-    <button
-      type="button"
-      onClick={onOpenPicker}
-      className={cn(
-        "flex items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors",
-        blocks.length === 0 ? "w-8 h-8 rounded-full text-lg" : "w-full py-2 text-xs border border-dashed border-[var(--border-default)]"
-      )}
-    >
-      {blocks.length === 0 ? "+" : "+ Ajouter"}
-    </button>
-  );
-
-  return (
-    <div data-drop-key={dropKey} className={cn("space-y-1.5 rounded-lg transition-colors", isDropHover && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-base)]")}>
-      {blocks.length === 0 && (
-        <div className="relative min-h-[6rem] rounded-lg border border-dashed border-[var(--border-default)] flex items-center justify-center">
-          {adder}
-          {isDropHover && (
-            <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] text-[var(--text-primary)]">
-              Déposer ici
-            </span>
-          )}
-        </div>
-      )}
-      {blocks.map((block, i) => (
-        <ColumnStackItem
-          key={keyOf(block)}
-          block={block}
-          idx={i}
-          total={blocks.length}
-          editingKey={editingKey}
-          setEditingKey={setEditingKey}
-          onSaveNote={onSaveNote}
-          onPersistNote={onPersistNote}
-          onSaveTitle={onSaveTitle}
-          onPersistTitle={onPersistTitle}
-          onSaveQuote={onSaveQuote}
-          onPersistQuote={onPersistQuote}
-          onPersistAudioTranscript={onPersistAudioTranscript}
-          onDeleteBlock={onDeleteBlock}
-          onMoveUp={() => onMoveWithin(i, i - 1)}
-          onMoveDown={() => onMoveWithin(i, i + 1)}
-          onUnclaim={() => onUnclaim(block)}
-          sortable={sortable}
-          isDragging={sortable.draggingKey === keyOf(block)}
-        />
-      ))}
-      {blocks.length > 0 && adder}
-    </div>
-  );
-}
-
-// ── Bloc imbriqué dans une pile de colonne ───────────────────────────────────
-// Wrapper autour du contenu (même rendu que top-level pour chaque type),
-// avec son propre petit menu ↑/↓/✕/Supprimer et sa propre poignée de drag —
-// participe au même système de drag que les blocs top-level (voir
-// useSortableGrid dans VisitJournal).
-
-function ColumnStackItem({
-  block,
-  idx,
-  total,
-  editingKey,
-  setEditingKey,
-  onSaveNote,
-  onPersistNote,
-  onSaveTitle,
-  onPersistTitle,
-  onSaveQuote,
-  onPersistQuote,
-  onPersistAudioTranscript,
-  onDeleteBlock,
-  onMoveUp,
-  onMoveDown,
-  onUnclaim,
-  sortable,
-  isDragging,
-}: {
-  block: JournalBlock;
-  idx: number;
-  total: number;
-  editingKey: string | null;
-  setEditingKey: (key: string | null) => void;
-  onSaveNote: (id: string, content: string) => void;
-  onPersistNote: (id: string, content: string) => Promise<void>;
-  onSaveTitle: (id: string, content: string) => void;
-  onPersistTitle: (id: string, content: string) => Promise<void>;
-  onSaveQuote: (id: string, content: string) => void;
-  onPersistQuote: (id: string, content: string) => Promise<void>;
-  onPersistAudioTranscript: (id: string, transcript: string) => Promise<void>;
-  onDeleteBlock: (type: "note" | "title" | "quote" | "audio", id: string) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onUnclaim: () => void;
-  sortable: SortableGrid;
-  isDragging: boolean;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const sortableKey = keyOf(block);
-  const editingThis = editingKey === sortableKey;
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, [menuOpen]);
-
-  if (isDragging) {
-    return <div className="h-8 rounded-md bg-[var(--text-primary)]/10 border border-dashed border-[var(--text-primary)]/30" />;
-  }
-
-  // `stopPropagation` sur le pointerdown : sans ça, l'événement remonte
-  // jusqu'au conteneur "2 colonnes" englobant (qui a lui aussi un
-  // onPointerDown de drag, pour se réordonner lui-même parmi les blocs
-  // top-level) et ÉCRASE l'armement du drag de CE bloc imbriqué — le drag
-  // démarré finit par déplacer la colonne entière au lieu du bloc visé.
-  const containerProps = sortable.getContainerProps(sortableKey);
-  const dragBindings = editingThis
-    ? {}
-    : {
-        ...containerProps,
-        onPointerDown: (e: React.PointerEvent) => {
-          e.stopPropagation();
-          containerProps.onPointerDown(e);
-        },
-      };
-
-  const menu = (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen((v) => !v); }}
-        className="w-6 h-6 rounded-full bg-black/50 text-white/90 flex items-center justify-center opacity-0 group-hover/item:opacity-100 transition-opacity"
-        title="Options"
-      >
-        <MoreHorizontal size={14} strokeWidth={2} />
-      </button>
-      {menuOpen && (
-        <div
-          className="absolute right-0 top-full mt-1 z-30 w-40 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button onClick={() => { setMenuOpen(false); onMoveUp(); }} disabled={idx === 0} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
-            <ArrowUp size={13} strokeWidth={1.75} /> Monter
-          </button>
-          <button onClick={() => { setMenuOpen(false); onMoveDown(); }} disabled={idx === total - 1} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] disabled:opacity-30 transition-colors">
-            <ArrowDown size={13} strokeWidth={1.75} /> Descendre
-          </button>
-          <button onClick={() => { setMenuOpen(false); onUnclaim(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
-            <X size={13} strokeWidth={1.75} /> Retirer de la colonne
-          </button>
-          {block.type !== "image" && (
-            <button onClick={() => { setMenuOpen(false); onDeleteBlock(block.type, block.id); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-red-400 hover:bg-[var(--bg-surface)] border-t border-[var(--border-subtle)] transition-colors">
-              <Trash2 size={13} strokeWidth={1.75} /> Supprimer
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <motion.div layout {...dragBindings} className="relative group/item rounded-lg overflow-hidden">
-      {block.type === "image" && (
-        <div
-          // Plafond de hauteur : sans lui, une image portrait (aspect-ratio
-          // très petit) s'étire sur toute la largeur de la colonne et peut
-          // devenir bien plus haute que le contenu de l'autre côté (texte,
-          // citation…) — object-cover recadre proprement au-delà.
-          className="rounded-lg overflow-hidden bg-[var(--bg-surface)] max-h-80"
-          style={{ aspectRatio: block.width && block.height ? block.width / block.height : 1 }}
-        >
-          {block.thumbnailKey && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={getThumbnailUrl(block.thumbnailKey)} alt={block.title} className="w-full h-full object-cover" />
-          )}
-        </div>
-      )}
-      {block.type === "note" && (
-        <div className="px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors" onClick={() => !editingThis && setEditingKey(`note-${block.id}`)}>
-          <NoteEditor
-            content={block.content}
-            editable={editingThis}
-            onBlurSave={(html) => onSaveNote(block.id, html)}
-            onAutoSave={(html) => onPersistNote(block.id, html)}
-            placeholder="Note vide — cliquer pour éditer"
-          />
-        </div>
-      )}
-      {block.type === "title" && (
-        <div className="px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors" onClick={() => !editingThis && setEditingKey(`title-${block.id}`)}>
-          <TitleEditor
-            content={block.content}
-            editable={editingThis}
-            onBlurSave={(text) => onSaveTitle(block.id, text)}
-            onAutoSave={(text) => onPersistTitle(block.id, text)}
-            placeholder="Titre vide — cliquer pour éditer"
-          />
-        </div>
-      )}
-      {block.type === "quote" && (
-        <div className="px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors" onClick={() => !editingThis && setEditingKey(`quote-${block.id}`)}>
-          <QuoteEditor
-            content={block.content}
-            editable={editingThis}
-            onBlurSave={(text) => onSaveQuote(block.id, text)}
-            onAutoSave={(text) => onPersistQuote(block.id, text)}
-            placeholder="Citation vide — cliquer pour éditer"
-          />
-        </div>
-      )}
-      {block.type === "audio" && (
-        <AudioBlockContent audio={block} onPersistTranscript={(t) => onPersistAudioTranscript(block.id, t)} compact />
-      )}
-      <div className="absolute top-1 right-1 z-10">{menu}</div>
-      <DragHandle {...sortable.getHandleProps(sortableKey)} className="absolute bottom-1 right-1 z-10 opacity-0 group-hover/item:opacity-100" title="Glisser" />
-    </motion.div>
   );
 }

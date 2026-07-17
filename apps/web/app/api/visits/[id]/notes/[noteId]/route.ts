@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { unclaimBlockFromAllColumns } from "@/lib/visits/columnsUtil";
 
 interface Params { params: Promise<{ id: string; noteId: string }> }
 
@@ -54,6 +53,5 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   }
 
   await db.visitNote.delete({ where: { id: noteId } });
-  await unclaimBlockFromAllColumns(id, "TEXT", noteId);
   return NextResponse.json({ ok: true });
 }

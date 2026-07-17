@@ -222,10 +222,36 @@ model Visit {
   titleBlocks  VisitTitle[]
   columnBlocks VisitColumns[]
   embeds       VisitEmbed[]
+  mapBlocks    VisitMapBlock[]
+  // Grille modulaire façon Bento.me (2026-07-15) — ordre/position/format de
+  // chaque tuile du carnet. Remplace les colonnes `order`/`visitOrder`
+  // dispersées sur chaque table de contenu comme source de vérité pour
+  // l'affichage (colonnes conservées, désormais inertes). Tableau de
+  // `{type, id, w, h}` — voir apps/web/lib/visits/bentoSpans.ts. Contenu réel
+  // toujours dans VisitNote/VisitQuote/VisitAudio/Inspiration/VisitEmbed/
+  // VisitMapBlock ; ce champ ne porte que la mise en page.
+  journalLayout Json @default("[]")
 
   @@index([visitDate])
   @@index([userId])
   @@map("visits")
+}
+
+// Bloc carte (localisation) par tuile du carnet — nouveau dans le système
+// bento (2026-07-15), distinct de Visit.latitude/longitude/address qui reste
+// la géoloc GLOBALE de la visite (carte de couverture). Réutilise le même
+// géocodage Photon (PlaceAutocomplete.tsx) et le rendu Leaflet (VisitMap.tsx).
+model VisitMapBlock {
+  id           String   @id @default(cuid())
+  visitId      String
+  visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  locationName String
+  latitude     Float
+  longitude    Float
+  createdAt    DateTime @default(now())
+
+  @@index([visitId])
+  @@map("visit_map_blocks")
 }
 
 // ── Carnet façon Notion (2026-07-13) ────────────────────────────────────────

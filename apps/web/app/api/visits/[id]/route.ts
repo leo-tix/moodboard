@@ -4,7 +4,6 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { deleteAllAudioForVisit } from "@/lib/visits/audioCleanup";
 import { nextBlockOrder } from "@/lib/visits/blockOrder";
-import { unclaimBlocksFromAllColumns } from "@/lib/visits/columnsUtil";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -74,10 +73,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       where: { id: { in: removeInspirationIds }, visitId: id, userId },
       data: { visitId: null },
     });
-    // Une image détachée de la visite ne peut plus rester réclamée par une
-    // colonne de son carnet (sans ça la colonne pointerait vers une image
-    // qui n'appartient plus à cette visite).
-    await unclaimBlocksFromAllColumns(id, "IMAGE", removeInspirationIds);
   }
 
   return NextResponse.json(visit);

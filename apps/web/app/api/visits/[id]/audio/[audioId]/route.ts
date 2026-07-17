@@ -3,7 +3,6 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { deleteFromR2 } from "@/lib/storage/r2";
-import { unclaimBlockFromAllColumns } from "@/lib/visits/columnsUtil";
 
 interface Params { params: Promise<{ id: string; audioId: string }> }
 
@@ -46,6 +45,5 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   await db.visitAudio.delete({ where: { id: audioId } });
   await deleteFromR2(audio.storageKey).catch(() => {});
-  await unclaimBlockFromAllColumns(id, "AUDIO", audioId);
   return NextResponse.json({ ok: true });
 }

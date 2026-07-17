@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { buildJournalItems } from "@/lib/visits/journalItems";
+import { buildBentoLayout } from "@/lib/visits/journalItems";
 import { VisitJournalReadOnly } from "@/components/visits/VisitJournalReadOnly";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitMap } from "@/components/visits/VisitMap";
@@ -40,8 +40,8 @@ export default async function PublicCarnetPage({ params }: Props) {
       titleBlocks: true,
       quoteBlocks: true,
       audioClips: true,
-      columnBlocks: true,
       embeds: true,
+      mapBlocks: true,
     },
   });
 
@@ -49,7 +49,7 @@ export default async function PublicCarnetPage({ params }: Props) {
   // Lien expiré → 404 (même comportement que le partage des planches).
   if (visit.shareExpiry && visit.shareExpiry < new Date()) notFound();
 
-  const items = buildJournalItems(visit);
+  const tiles = buildBentoLayout(visit);
   const hasMap = visit.latitude !== null && visit.longitude !== null;
 
   const orderedInspirations = [...visit.inspirations].sort(
@@ -107,7 +107,7 @@ export default async function PublicCarnetPage({ params }: Props) {
           </div>
         )}
 
-        <VisitJournalReadOnly items={items} authorName={visit.user.name} authorImage={visit.user.image} />
+        <VisitJournalReadOnly tiles={tiles} authorName={visit.user.name} authorImage={visit.user.image} />
 
         <footer className="mt-10 pt-6 border-t border-[var(--border-subtle)] text-center">
           <p className="text-[11px] text-[var(--text-tertiary)]">Carnet de visite partagé — Moodboard</p>
