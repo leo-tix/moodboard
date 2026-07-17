@@ -57,11 +57,19 @@ export function BentoTile({ tile, editable, sortable, isDragging, onOpenEdit, on
 
       {editable && !isDragging && (
         <>
-          <div className="absolute top-2 right-2 z-20 opacity-0 group-hover/tile:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+          {/* opacity-0 + group-hover ne se déclenche jamais au tactile (pas de
+              survol) — pointer-coarse:opacity-100 garde ces contrôles
+              TOUJOURS visibles sur mobile/tablette, hover-révélés seulement à
+              la souris (bug constaté 2026-07-17 : poignées invisibles et donc
+              inutilisables sur téléphone). */}
+          <div
+            className="absolute top-2 right-2 z-20 opacity-0 group-hover/tile:opacity-100 pointer-coarse:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="w-6 h-6 rounded-full bg-black/55 text-white/90 flex items-center justify-center"
+              className="w-7 h-7 rounded-full bg-black/55 text-white/90 flex items-center justify-center"
               title="Options"
             >
               <MoreHorizontal size={14} strokeWidth={2} />
@@ -83,13 +91,18 @@ export function BentoTile({ tile, editable, sortable, isDragging, onOpenEdit, on
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onResize?.(); }}
-            className="absolute bottom-2 right-2 z-20 w-6 h-6 rounded-md bg-black/55 text-white/80 flex items-center justify-center opacity-0 group-hover/tile:opacity-100 transition-opacity"
+            className="absolute bottom-2 right-2 z-20 w-7 h-7 rounded-md bg-black/55 text-white/80 flex items-center justify-center opacity-0 group-hover/tile:opacity-100 pointer-coarse:opacity-100 transition-opacity"
             title="Changer le format"
           >
-            <Maximize2 size={12} strokeWidth={2} />
+            <Maximize2 size={13} strokeWidth={2} />
           </button>
 
-          <DragHandle {...sortable!.getHandleProps(key)} className="absolute bottom-2 left-2 z-20 opacity-0 group-hover/tile:opacity-100 transition-opacity" title="Glisser pour réordonner" />
+          {/* DragHandle est déjà `hidden pointer-coarse:flex` en soi (réservée
+              au tactile — la souris saisit le corps de la carte n'importe où,
+              voir useSortableGrid) : pas de hover à ajouter par-dessus, sinon
+              elle resterait invisible sur mobile pour la même raison que
+              ci-dessus. */}
+          <DragHandle {...sortable!.getHandleProps(key)} className="absolute bottom-2 left-2 z-20" title="Glisser pour réordonner" />
         </>
       )}
     </motion.div>

@@ -51,7 +51,11 @@ export function MobileFormatBar({ editor }: { editor: Editor }) {
 
   return createPortal(
     <div
-      className="fixed inset-x-0 z-[80] flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border-t border-[var(--border-default)] shadow-[0_-4px_16px_rgba(0,0,0,0.25)]"
+      // z-[90] : au-dessus du panneau d'édition bento (EditDrawer, z-[81])
+      // depuis lequel cette barre s'ouvre désormais (bloc "Texte" en tuile) —
+      // sinon le panneau masquait la barre de formatage pendant la frappe
+      // sur mobile (bug constaté 2026-07-17).
+      className="fixed inset-x-0 z-[90] flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-elevated)] border-t border-[var(--border-default)] shadow-[0_-4px_16px_rgba(0,0,0,0.25)]"
       style={{ bottom }}
       // Ne PAS voler le focus de l'éditeur : sinon le clavier se ferme et le
       // blur termine l'édition avant que la commande n'agisse.

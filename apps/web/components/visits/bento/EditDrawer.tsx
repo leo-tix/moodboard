@@ -64,9 +64,16 @@ export function EditDrawer({
             onClick={onClose}
           />
           <motion.div
-            initial={{ opacity: 0, y: "100%" }}
+            // `y` en pourcentage ("100%") se convertit en px à partir de la
+            // hauteur du panneau au moment du mount — mais cette hauteur est
+            // encore intrinsèque/dynamique ici (contenu variable : textarea
+            // qui s'auto-redimensionne juste après le montage). Le calcul se
+            // fige sur une valeur obsolète et le panneau restait bloqué hors
+            // écran sur mobile (bug constaté 2026-07-17). Un décalage fixe en
+            // px n'a pas ce problème.
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: "100%" }}
+            exit={{ opacity: 0, y: 24 }}
             transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
             className="fixed z-[81] inset-x-0 bottom-0 rounded-t-2xl sm:rounded-t-none sm:inset-x-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-[380px] bg-[var(--bg-elevated)] border-t sm:border-t-0 sm:border-l border-[var(--border-default)] shadow-2xl flex flex-col"
             style={{ maxHeight: "min(80vh, 640px)" }}
