@@ -174,6 +174,28 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
       );
     }
 
+    // Fiche artiste (Wikipédia) — carte « portrait » : image + nom + notice.
+    if (c.kind === "ARTIST") {
+      const stacked = tile.h === 2; // portrait/grand → image en haut
+      return (
+        <a href={c.url} target="_blank" rel="noopener noreferrer" className={cn("w-full h-full bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors flex", stacked ? "flex-col" : "flex-row items-stretch")}>
+          {c.image && (
+            <div className={cn("flex-shrink-0 bg-[var(--bg-surface)] overflow-hidden", stacked ? "w-full flex-1" : "w-24")}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={c.image} alt={c.title ?? ""} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+            </div>
+          )}
+          <div className="min-w-0 px-3.5 py-3 flex flex-col justify-center gap-1 flex-1">
+            <p className={cn("font-serif text-[var(--text-primary)] leading-tight", stacked ? "text-lg line-clamp-2" : "text-base line-clamp-2")}>{c.title || "Artiste"}</p>
+            {c.description && <p className={cn("text-xs text-[var(--text-secondary)] leading-snug", stacked ? "line-clamp-4" : "line-clamp-3")}>{c.description}</p>}
+            <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
+              <ExternalLink size={10} strokeWidth={1.75} /> Wikipédia
+            </p>
+          </div>
+        </a>
+      );
+    }
+
     const domain = (() => {
       try { return new URL(c.url).hostname.replace(/^www\./, ""); } catch { return c.url; }
     })();

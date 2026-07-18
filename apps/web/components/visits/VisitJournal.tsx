@@ -133,6 +133,28 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     persistLayout(next);
   };
 
+  const handleSelectArtist = async (name: string) => {
+    const res = await fetch(`/api/visits/${visitId}/artist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).catch(() => null);
+    setPickerOpen(false);
+    if (!res?.ok) {
+      alert("Artiste introuvable sur Wikipédia. Vérifie l'orthographe du nom.");
+      return;
+    }
+    const c = await res.json();
+    const span = DEFAULT_SPAN.embed;
+    const tile: BentoTile = {
+      type: "embed", id: c.id, w: span.w, h: span.h,
+      content: { type: "embed", id: c.id, kind: c.kind, url: c.url, title: c.title, description: c.description, image: c.image, siteName: c.siteName },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+  };
+
   const handleSelectMap = async (locationName: string, latitude: number, longitude: number) => {
     setPickerOpen(false);
     const res = await fetch(`/api/visits/${visitId}/map`, {
@@ -486,6 +508,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectCartel={addCartel}
           onSelectTicket={addTicket}
           onSelectPalette={addPalette}
+          onSelectArtist={handleSelectArtist}
         />
       )}
 

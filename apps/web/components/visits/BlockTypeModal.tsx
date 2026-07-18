@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, User, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -25,10 +25,11 @@ interface BlockTypeModalProps {
   onSelectCartel: () => void;
   onSelectTicket: () => void;
   onSelectPalette: () => void;
+  onSelectArtist: (name: string) => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette }: BlockTypeModalProps) {
-  const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP">("menu");
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette, onSelectArtist }: BlockTypeModalProps) {
+  const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP" | "ARTIST">("menu");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -43,7 +44,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
   }, [mode, onClose]);
 
   const title =
-    mode === "menu" ? "Ajouter une tuile" : mode === "MAP" ? "Ajouter une carte" : mode === "YOUTUBE" ? "Lien YouTube" : "Lien externe";
+    mode === "menu" ? "Ajouter une tuile" : mode === "MAP" ? "Ajouter une carte" : mode === "ARTIST" ? "Fiche artiste" : mode === "YOUTUBE" ? "Lien YouTube" : "Lien externe";
 
   const content = (
     <>
@@ -91,6 +92,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
               <BlockOption icon={Landmark} label="Cartel" onClick={onSelectCartel} />
               <BlockOption icon={Ticket} label="Billet" onClick={onSelectTicket} />
               <BlockOption icon={Palette} label="Palette" onClick={onSelectPalette} />
+              <BlockOption icon={User} label="Fiche artiste" onClick={() => setMode("ARTIST")} />
               <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
             </BlockSection>
             <BlockSection label="Structure">
@@ -105,6 +107,8 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
         )}
 
         {mode === "MAP" && <MapForm onCancel={() => setMode("menu")} onSubmit={onSelectMap} />}
+
+        {mode === "ARTIST" && <ArtistForm onCancel={() => setMode("menu")} onSubmit={onSelectArtist} />}
       </motion.div>
     </>
   );
@@ -151,6 +155,34 @@ function MapForm({
           className="px-3.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-40 transition-opacity"
         >
           {busy ? "Ajout…" : "Ajouter"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Recherche d'un artiste par nom → fiche Wikipédia (résolue côté serveur).
+function ArtistForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (name: string) => void }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  const submit = () => { const n = name.trim(); if (!n || busy) return; setBusy(true); onSubmit(n); };
+  return (
+    <div className="p-4 space-y-3">
+      <input
+        ref={inputRef}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        placeholder="Nom de l'artiste (ex. Claude Monet)"
+        className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]"
+      />
+      <p className="text-[10px] text-[var(--text-tertiary)]">La notice et le portrait sont récupérés sur Wikipédia.</p>
+      <div className="flex items-center justify-end gap-2">
+        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">← Retour</button>
+        <button onClick={submit} disabled={!name.trim() || busy} className="px-3.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-40 transition-opacity">
+          {busy ? "Recherche…" : "Ajouter"}
         </button>
       </div>
     </div>

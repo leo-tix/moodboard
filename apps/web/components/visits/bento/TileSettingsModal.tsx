@@ -139,7 +139,7 @@ export function TileSettingsModal({
               {tile.content.type === "image" && (
                 <ImageForm key={tile.id} title={tile.content.title} author={tile.content.author ?? ""} year={tile.content.year ?? null} onSave={(t, a, y) => onSaveImage(tile.id, t, a, y)} />
               )}
-              {tile.content.type === "embed" && tile.content.kind === "LINK" && (
+              {tile.content.type === "embed" && (tile.content.kind === "LINK" || tile.content.kind === "ARTIST") && (
                 <EmbedForm key={tile.id} title={tile.content.title ?? ""} description={tile.content.description ?? ""} onSave={(t, d) => onSaveEmbed(tile.id, t, d)} />
               )}
               {tile.content.type === "embed" && tile.content.kind === "YOUTUBE" && (
