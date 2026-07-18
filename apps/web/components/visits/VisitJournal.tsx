@@ -256,6 +256,26 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     setSettingsKey(tileKey(tile));
   };
 
+  const addPalette = async () => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/palette`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => null);
+    if (!res?.ok) return;
+    const c = await res.json();
+    const span = DEFAULT_SPAN.palette;
+    const tile: BentoTile = {
+      type: "palette", id: c.id, w: span.w, h: span.h,
+      content: { type: "palette", id: c.id, title: c.title ?? null, colors: [], sourceKey: c.sourceKey ?? null },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+    setSettingsKey(tileKey(tile));
+  };
+
   // ── Suppression ───────────────────────────────────────────────────────────
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
@@ -410,6 +430,20 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     patchTileContent(id, { storageKey: updated.storageKey, thumbnailKey: updated.thumbnailKey, width: updated.width, height: updated.height });
   };
 
+  const savePalette = (id: string, title: string, colors: string[]) => {
+    patchTileContent(id, { title: title.trim() || null, colors });
+    fetch(`/api/visits/${visitId}/palette/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, colors }) }).catch(() => {});
+  };
+
+  const uploadPaletteSource = async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/visits/${visitId}/palette/${id}/photo`, { method: "POST", body: fd }).catch(() => null);
+    if (!res?.ok) return;
+    const updated = await res.json();
+    patchTileContent(id, { sourceKey: updated.sourceKey });
+  };
+
   const toggleChecklistItem = (checklistId: string, itemId: string) => {
     const tile = tilesRef.current.find((t) => t.id === checklistId && t.content.type === "checklist");
     if (!tile || tile.content.type !== "checklist") return;
@@ -451,6 +485,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectTimeline={addTimeline}
           onSelectCartel={addCartel}
           onSelectTicket={addTicket}
+          onSelectPalette={addPalette}
         />
       )}
 
@@ -480,6 +515,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onUploadCartelPhoto={uploadCartelPhoto}
         onSaveTicket={saveTicket}
         onUploadTicketPhoto={uploadTicketPhoto}
+        onSavePalette={savePalette}
+        onUploadPaletteSource={uploadPaletteSource}
       />
     </JournalAuthorProvider>
   );

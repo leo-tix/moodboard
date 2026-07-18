@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2 } from "lucide-react";
+import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2, Palette } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { runCartelOcr, type CartelFields } from "@/lib/visits/cartelOcr";
+import { extractPalette } from "@/lib/visits/colorExtract";
 import type { BentoTile, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
 
 // Champs éditables d'un cartel (miroir des colonnes texte de VisitCartel).
@@ -50,6 +51,8 @@ interface TileSettingsModalProps {
   onUploadCartelPhoto: (id: string, file: File) => Promise<void>;
   onSaveTicket: (id: string, values: TicketFormValues) => void;
   onUploadTicketPhoto: (id: string, file: File) => Promise<void>;
+  onSavePalette: (id: string, title: string, colors: string[]) => void;
+  onUploadPaletteSource: (id: string, file: File) => Promise<void>;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -74,6 +77,8 @@ export function TileSettingsModal({
   onUploadCartelPhoto,
   onSaveTicket,
   onUploadTicketPhoto,
+  onSavePalette,
+  onUploadPaletteSource,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -169,6 +174,14 @@ export function TileSettingsModal({
                   content={tile.content}
                   onSave={(v) => onSaveTicket(tile.id, v)}
                   onUploadPhoto={(file) => onUploadTicketPhoto(tile.id, file)}
+                />
+              )}
+              {tile.content.type === "palette" && (
+                <PaletteForm
+                  key={tile.id}
+                  content={tile.content}
+                  onSave={(title, colors) => onSavePalette(tile.id, title, colors)}
+                  onUploadSource={(file) => onUploadPaletteSource(tile.id, file)}
                 />
               )}
             </div>
@@ -510,6 +523,85 @@ function TicketForm({
         <Field label="Prix"><input value={v.price} onChange={(e) => set("price", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="12 €" /></Field>
         <Field label="Tarif"><input value={v.category} onChange={(e) => set("category", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="Plein tarif" /></Field>
       </div>
+    </div>
+  );
+}
+
+function PaletteForm({
+  content,
+  onSave,
+  onUploadSource,
+}: {
+  content: Extract<BentoTile["content"], { type: "palette" }>;
+  onSave: (title: string, colors: string[]) => void;
+  onUploadSource: (file: File) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(content.title ?? "");
+  const [colors, setColors] = useState<string[]>(content.colors);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onExtract = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      const extracted = await extractPalette(file, 6);
+      if (extracted.length) {
+        setColors(extracted);
+        onSave(title, extracted);
+      }
+      await onUploadSource(file);
+    } catch {
+      /* extraction/upload échoué → l'utilisateur peut réessayer */
+    }
+    setBusy(false);
+  };
+
+  const removeAt = (i: number) => {
+    const next = colors.filter((_, idx) => idx !== i);
+    setColors(next);
+    onSave(title, next);
+  };
+  const addColor = () => {
+    const next = [...colors, "#888888"];
+    setColors(next);
+    onSave(title, next);
+  };
+  const setColorAt = (i: number, hex: string) => setColors((c) => c.map((x, idx) => (idx === i ? hex : x)));
+
+  return (
+    <div className="space-y-3">
+      <Field label="Titre"><input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => onSave(title, colors)} className={inputClass} placeholder="Ex. Nymphéas" /></Field>
+
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={busy}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
+      >
+        {busy ? <Loader2 size={13} className="animate-spin" /> : <Palette size={13} strokeWidth={2} />}
+        {busy ? "Extraction…" : "Extraire d'une photo"}
+      </button>
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onExtract} className="hidden" />
+
+      {colors.length > 0 && (
+        <div className="space-y-1.5">
+          {colors.map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input type="color" value={c} onChange={(e) => setColorAt(i, e.target.value)} onBlur={() => onSave(title, colors)} className="w-8 h-8 rounded border border-[var(--border-subtle)] bg-transparent cursor-pointer flex-shrink-0 p-0" />
+              <span className="text-xs font-mono text-[var(--text-secondary)] uppercase flex-1">{c}</span>
+              <button type="button" onClick={() => removeAt(i)} className="w-7 h-7 flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-colors" aria-label="Retirer la couleur">
+                <X size={13} strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button type="button" onClick={addColor} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+        <Plus size={14} strokeWidth={2} /> Ajouter une couleur
+      </button>
     </div>
   );
 }
