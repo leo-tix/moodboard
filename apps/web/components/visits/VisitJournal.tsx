@@ -22,7 +22,6 @@ interface VisitJournalProps {
   authorImage?: string | null;
 }
 
-const TEXT_ROUTE: Record<"note" | "title" | "quote", string> = { note: "notes", title: "titles", quote: "quotes" };
 const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
 
 export function VisitJournal({ visitId, initialTiles, authorName, authorImage }: VisitJournalProps) {
@@ -78,17 +77,17 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
   // ── Création ──────────────────────────────────────────────────────────────
 
-  const addTextTile = async (type: "title" | "note" | "quote") => {
+  const addText = async () => {
     setPickerOpen(false);
-    const res = await fetch(`/api/visits/${visitId}/${TEXT_ROUTE[type]}`, {
+    const res = await fetch(`/api/visits/${visitId}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: "" }),
     }).catch(() => null);
     if (!res?.ok) return;
     const created = await res.json();
-    const span = DEFAULT_SPAN[type];
-    const tile: BentoTile = { type, id: created.id, w: span.w, h: span.h, content: { type, id: created.id, content: "" } };
+    const span = DEFAULT_SPAN.note;
+    const tile: BentoTile = { type: "note", id: created.id, w: span.w, h: span.h, content: { type: "note", id: created.id, content: "" } };
     const next = [...tiles, tile];
     setTiles(next);
     persistLayout(next);
@@ -160,8 +159,6 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
     note: "notes",
-    title: "titles",
-    quote: "quotes",
     audio: "audio",
     embed: "embeds",
     map: "map",
@@ -207,8 +204,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   const persistText = (tile: BentoTile, value: string): Promise<void> => {
     if (!isTextType(tile.type)) return Promise.resolve();
     patchTileContent(tile.id, { content: value });
-    const route = TEXT_ROUTE[tile.type as "note" | "title" | "quote"];
-    return fetch(`/api/visits/${visitId}/${route}/${tile.id}`, {
+    return fetch(`/api/visits/${visitId}/notes/${tile.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: value }),
@@ -216,8 +212,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   };
 
   const saveText = (tile: BentoTile, value: string) => {
-    const empty = tile.type === "note" ? isEmptyHtml(value) : !value.trim();
-    if (empty) { handleDelete(tile); return; }
+    if (isEmptyHtml(value)) { handleDelete(tile); return; }
     persistText(tile, value).catch(() => {});
   };
 
@@ -270,7 +265,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       {pickerOpen && (
         <BlockTypeModal
           onClose={() => setPickerOpen(false)}
-          onSelectSimple={addTextTile}
+          onSelectText={addText}
           onSelectAudio={() => { setPickerOpen(false); setVoiceMemoOpen(true); }}
           onSelectEmbed={handleSelectEmbed}
           onSelectMap={handleSelectMap}

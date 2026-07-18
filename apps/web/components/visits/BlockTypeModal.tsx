@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heading, Pilcrow, Quote, Mic, MapPin, Link2, Video, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -14,13 +14,14 @@ import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutoc
 // composant sert tous les points d'entrée du bouton "+ Ajouter" de la grille.
 interface BlockTypeModalProps {
   onClose: () => void;
-  onSelectSimple: (type: "title" | "note" | "quote") => void;
+  /** Un seul module texte (titre/paragraphe/citation = formatage interne). */
+  onSelectText: () => void;
   onSelectAudio: () => void;
   onSelectEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
   onSelectMap: (locationName: string, latitude: number, longitude: number) => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectSimple, onSelectAudio, onSelectEmbed, onSelectMap }: BlockTypeModalProps) {
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap }: BlockTypeModalProps) {
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP">("menu");
 
   useEffect(() => {
@@ -69,9 +70,9 @@ export function BlockTypeModal({ onClose, onSelectSimple, onSelectAudio, onSelec
 
         {mode === "menu" && (
           <div className="p-2 grid grid-cols-3 gap-1">
-            <BlockOption icon={Heading} label="Titre" onClick={() => onSelectSimple("title")} />
-            <BlockOption icon={Pilcrow} label="Texte" onClick={() => onSelectSimple("note")} />
-            <BlockOption icon={Quote} label="Citation" onClick={() => onSelectSimple("quote")} />
+            {/* Un seul module texte : titre, paragraphe et citation sont des
+                options de formatage à l'intérieur (fusion 2026-07-18). */}
+            <BlockOption icon={Type} label="Texte" onClick={onSelectText} />
             <BlockOption icon={Mic} label="Audio" onClick={onSelectAudio} />
             <BlockOption icon={MapPin} label="Carte" onClick={() => setMode("MAP")} />
             <BlockOption icon={Link2} label="Lien externe" onClick={() => setMode("LINK")} />

@@ -22,13 +22,12 @@ import { MobileFormatBar } from "./MobileFormatBar";
 
 const BASE_EXTENSIONS = [
   StarterKit.configure({
-    heading: { levels: [3] },
-    // Hors périmètre d'un bloc texte pur : pas de bloc de code / règle
-    // horizontale / citation (la citation est son propre type de bloc,
-    // VisitQuote — voir QuoteEditor.tsx).
+    // Module texte UNIQUE (2026-07-18) : le titre (H1), le sous-titre (H2),
+    // l'intertitre (H3) et la citation sont désormais des options de formatage
+    // de ce seul bloc — plus de blocs Titre/Citation séparés.
+    heading: { levels: [1, 2, 3] },
     codeBlock: false,
     horizontalRule: false,
-    blockquote: false,
   }),
 ];
 
@@ -206,12 +205,16 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
   );
 }
 
-// Boutons de la toolbar fantôme — formatage inline + blocs de texte courants.
+// Boutons de formatage — le module texte unique réunit titre/paragraphe/
+// citation (2026-07-18) : ils sont ici des options de formatage.
 function BubbleButtons({ editor }: { editor: NonNullable<ReturnType<typeof useEditor>> }) {
   const buttons: { label: string; title: string; active: boolean; onClick: () => void }[] = [
+    { label: "Titre", title: "Titre", active: editor.isActive("heading", { level: 1 }), onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() },
+    { label: "S-titre", title: "Sous-titre", active: editor.isActive("heading", { level: 2 }), onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+    { label: "¶", title: "Paragraphe", active: editor.isActive("paragraph"), onClick: () => editor.chain().focus().setParagraph().run() },
     { label: "B", title: "Gras", active: editor.isActive("bold"), onClick: () => editor.chain().focus().toggleBold().run() },
     { label: "I", title: "Italique", active: editor.isActive("italic"), onClick: () => editor.chain().focus().toggleItalic().run() },
-    { label: "H3", title: "Sous-titre", active: editor.isActive("heading", { level: 3 }), onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },
+    { label: "❝", title: "Citation", active: editor.isActive("blockquote"), onClick: () => editor.chain().focus().toggleBlockquote().run() },
     { label: "•", title: "Liste à puces", active: editor.isActive("bulletList"), onClick: () => editor.chain().focus().toggleBulletList().run() },
     { label: "1.", title: "Liste numérotée", active: editor.isActive("orderedList"), onClick: () => editor.chain().focus().toggleOrderedList().run() },
   ];

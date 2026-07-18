@@ -37,8 +37,6 @@ export default async function PublicCarnetPage({ params }: Props) {
         },
       },
       noteBlocks: true,
-      titleBlocks: true,
-      quoteBlocks: true,
       audioClips: true,
       embeds: true,
       mapBlocks: true,

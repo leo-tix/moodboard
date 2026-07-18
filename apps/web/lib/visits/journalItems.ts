@@ -125,8 +125,6 @@ export interface BentoSourceVisit {
   journalLayout: unknown; // Json — JournalTile[], validé/filtré ici
   inspirations: JournalSourceVisit["inspirations"];
   noteBlocks: JournalSourceVisit["noteBlocks"];
-  titleBlocks: JournalSourceVisit["titleBlocks"];
-  quoteBlocks: JournalSourceVisit["quoteBlocks"];
   audioClips: JournalSourceVisit["audioClips"];
   embeds: JournalSourceVisit["embeds"];
   mapBlocks: { id: string; locationName: string; latitude: number; longitude: number }[];
@@ -150,8 +148,6 @@ export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
     });
   });
   visit.noteBlocks.forEach((n) => content.set(`note-${n.id}`, { type: "note", id: n.id, content: n.content }));
-  visit.titleBlocks.forEach((t) => content.set(`title-${t.id}`, { type: "title", id: t.id, content: t.content }));
-  visit.quoteBlocks.forEach((q) => content.set(`quote-${q.id}`, { type: "quote", id: q.id, content: q.content }));
   visit.audioClips.forEach((a) =>
     content.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript }),
   );

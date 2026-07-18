@@ -80,40 +80,14 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
     );
   }
 
-  if (tile.content.type === "title") {
-    return (
-      <div className="px-4 py-3">
-        <p
-          className={cn(
-            "font-serif font-semibold text-[var(--text-primary)] tracking-tight leading-tight break-words hyphens-auto",
-            tile.w === 2 ? "text-3xl" : "text-xl"
-          )}
-          lang="fr"
-        >
-          {tile.content.content || <span className="text-[var(--text-tertiary)] italic font-sans text-sm">Titre vide</span>}
-        </p>
-      </div>
-    );
-  }
-
-  if (tile.content.type === "quote") {
-    return (
-      <div className="flex gap-3 px-4 py-3">
-        {/* Filet en élément à part : en border-l sur la tuile il était rogné par les coins arrondis. */}
-        <span className="w-0.5 self-stretch flex-shrink-0 rounded-full bg-[var(--accent)]" aria-hidden />
-        <p className={cn("italic text-[var(--text-secondary)] leading-relaxed break-words hyphens-auto", tile.w === 2 ? "text-base" : "text-sm")} lang="fr">
-          {tile.content.content || <span className="text-[var(--text-tertiary)] not-italic">Citation vide</span>}
-        </p>
-      </div>
-    );
-  }
-
   if (tile.content.type === "note") {
+    // Module texte unique : le HTML peut contenir titre (h1), sous-titre (h2),
+    // intertitre (h3), citation (blockquote), listes… tous stylés par .note-prose.
     return (
       <div className="px-4 py-3">
         <div
           className="note-prose text-sm leading-relaxed break-words"
-          dangerouslySetInnerHTML={{ __html: tile.content.content || "<p class='text-[var(--text-tertiary)] italic'>Note vide</p>" }}
+          dangerouslySetInnerHTML={{ __html: tile.content.content || "<p class='text-[var(--text-tertiary)] italic'>Texte vide</p>" }}
         />
       </div>
     );

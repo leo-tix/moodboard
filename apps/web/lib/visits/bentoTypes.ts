@@ -17,8 +17,6 @@ export type JournalTileContent =
       height: number | null;
     }
   | { type: "note"; id: string; content: string }
-  | { type: "title"; id: string; content: string }
-  | { type: "quote"; id: string; content: string }
   | { type: "audio"; id: string; storageKey: string; durationSec: number | null; transcript: string | null }
   | {
       type: "embed";

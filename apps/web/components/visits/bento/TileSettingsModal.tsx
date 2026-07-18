@@ -5,8 +5,6 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trash2 } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
-import { TitleEditor } from "@/components/visits/TitleEditor";
-import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { isTextType, type TileWidth } from "@/lib/visits/bentoSpans";
@@ -93,14 +91,8 @@ export function TileSettingsModal({
                   showToolbar
                   onBlurSave={(html) => onSaveText(tile, html)}
                   onAutoSave={(html) => onPersistText(tile, html)}
-                  placeholder="Écris…"
+                  placeholder="Écris… (titre, paragraphe, citation via la barre)"
                 />
-              )}
-              {editTextHere && tile.content.type === "title" && (
-                <TitleEditor key={tile.id} content={tile.content.content} editable onBlurSave={(t) => onSaveText(tile, t)} onAutoSave={(t) => onPersistText(tile, t)} placeholder="Titre…" />
-              )}
-              {editTextHere && tile.content.type === "quote" && (
-                <QuoteEditor key={tile.id} content={tile.content.content} editable onBlurSave={(t) => onSaveText(tile, t)} onAutoSave={(t) => onPersistText(tile, t)} placeholder="Citation…" />
               )}
 
               {tile.content.type === "image" && (
@@ -146,8 +138,6 @@ export function TileSettingsModal({
 const DRAWER_TITLES: Record<BentoTile["type"], string> = {
   image: "Image",
   note: "Texte",
-  title: "Titre",
-  quote: "Citation",
   audio: "Mémo vocal",
   embed: "Lien",
   map: "Carte",

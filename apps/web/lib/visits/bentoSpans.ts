@@ -8,7 +8,10 @@
 //   (row-span 1, 2, 3, 4…) pour tout afficher sans jamais couper. `h` porte
 //   alors la dernière valeur mesurée (voir useMeasuredRows dans BentoTile).
 
-export type JournalTileType = "image" | "note" | "title" | "quote" | "audio" | "embed" | "map";
+// `note` est LE module texte unique (titre/paragraphe/citation y sont des
+// options de formatage depuis 2026-07-18) — les anciens types title/quote
+// ont fusionné dedans.
+export type JournalTileType = "image" | "note" | "audio" | "embed" | "map";
 
 export type TileWidth = 1 | 2;
 
@@ -26,7 +29,7 @@ export interface JournalTile {
 }
 
 export function isTextType(type: JournalTileType): boolean {
-  return type === "title" || type === "note" || type === "quote";
+  return type === "note";
 }
 
 export type FormatIcon = "square" | "wide" | "tall" | "big";
@@ -60,8 +63,6 @@ export function formatOptions(type: JournalTileType): FormatOption[] {
 export const DEFAULT_SPAN: Record<JournalTileType, TileSpan> = {
   image: { w: 1, h: 1 },
   note: { w: 2, h: 1 },
-  title: { w: 2, h: 1 },
-  quote: { w: 2, h: 1 },
   audio: { w: 1, h: 1 },
   embed: { w: 2, h: 2 },
   map: { w: 2, h: 1 },

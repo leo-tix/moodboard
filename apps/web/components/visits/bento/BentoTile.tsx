@@ -6,8 +6,6 @@ import { SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DragHandle } from "@/components/ui/DragHandle";
 import { NoteEditor } from "@/components/visits/NoteEditor";
-import { TitleEditor } from "@/components/visits/TitleEditor";
-import { QuoteEditor } from "@/components/visits/QuoteEditor";
 import { FormatQuickBar } from "@/components/visits/bento/FormatPicker";
 import { TileContent, type ImageNavItem } from "@/components/visits/bento/TileContent";
 import { isTextType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
@@ -80,7 +78,7 @@ interface BentoTileProps {
 
 // Types dont le clic sur le CORPS déclenche une action d'édition (les autres
 // ont une action propre : image → visionneuse, lien → URL, audio → lecture).
-const BODY_EDITS = new Set<BentoTileData["type"]>(["note", "title", "quote", "map"]);
+const BODY_EDITS = new Set<BentoTileData["type"]>(["note", "map"]);
 
 // "Widget Wrapper" (spec §3.1). Chrome commun : coins arrondis, hover public,
 // drag, icônes de format au survol, bouton réglages. Contenu délégué à
@@ -234,29 +232,7 @@ function InlineTextEditor({
         showToolbar
         onBlurSave={onSave}
         onAutoSave={onPersist}
-        placeholder="Écris…"
-      />
-    );
-  }
-  if (tile.content.type === "title") {
-    return (
-      <TitleEditor
-        content={tile.content.content}
-        editable
-        onBlurSave={onSave}
-        onAutoSave={onPersist}
-        placeholder="Titre…"
-      />
-    );
-  }
-  if (tile.content.type === "quote") {
-    return (
-      <QuoteEditor
-        content={tile.content.content}
-        editable
-        onBlurSave={onSave}
-        onAutoSave={onPersist}
-        placeholder="Citation…"
+        placeholder="Écris… (titre, paragraphe, citation via la barre)"
       />
     );
   }

@@ -131,10 +131,35 @@ body {
 .note-prose p:last-child {
   margin-bottom: 0;
 }
-/* Sous-titre — seul niveau de titre restant DANS un bloc texte (le Titre H2
-   est un bloc autonome, voir TitleEditor.tsx) : nettement plus marqué que le
-   corps mais sans rivaliser avec un vrai Titre, esprit intertitre éditorial
-   (sans-serif, dense, resserré). */
+/* Titre (H1) — désormais une OPTION du module texte unique (2026-07-18, fusion
+   des anciens blocs Titre/Texte/Citation). Reprend le look de l'ancien bloc
+   Titre autonome : grand serif arrondi (Fraunces via --font-serif). */
+.note-prose h1 {
+  font-family: var(--font-serif), Georgia, serif;
+  color: var(--text-primary);
+  font-size: 1.9em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.12;
+  margin: 0.5em 0 0.3em;
+}
+.note-prose h1:first-child {
+  margin-top: 0;
+}
+/* Sous-titre (H2) — serif intermédiaire, entre le Titre et le corps. */
+.note-prose h2 {
+  font-family: var(--font-serif), Georgia, serif;
+  color: var(--text-primary);
+  font-size: 1.45em;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  margin: 0.5em 0 0.25em;
+}
+.note-prose h2:first-child {
+  margin-top: 0;
+}
+/* Intertitre (H3) — sans-serif dense, esprit éditorial. */
 .note-prose h3 {
   color: var(--text-primary);
   font-size: 1.35em;
