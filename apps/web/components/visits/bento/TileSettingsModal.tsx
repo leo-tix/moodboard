@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2, Palette } from "lucide-react";
+import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2, Palette, Pencil } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
@@ -53,6 +53,7 @@ interface TileSettingsModalProps {
   onUploadTicketPhoto: (id: string, file: File) => Promise<void>;
   onSavePalette: (id: string, title: string, colors: string[]) => void;
   onUploadPaletteSource: (id: string, file: File) => Promise<void>;
+  onRedrawSketch: (id: string) => void;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -79,6 +80,7 @@ export function TileSettingsModal({
   onUploadTicketPhoto,
   onSavePalette,
   onUploadPaletteSource,
+  onRedrawSketch,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -183,6 +185,14 @@ export function TileSettingsModal({
                   onSave={(title, colors) => onSavePalette(tile.id, title, colors)}
                   onUploadSource={(file) => onUploadPaletteSource(tile.id, file)}
                 />
+              )}
+              {tile.content.type === "sketch" && (
+                <button
+                  onClick={() => onRedrawSketch(tile.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors hover:border-[var(--border-strong)]"
+                >
+                  <Pencil size={13} strokeWidth={2} /> Redessiner
+                </button>
               )}
             </div>
 

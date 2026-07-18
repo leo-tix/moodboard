@@ -14,6 +14,7 @@ import { TimelineTile } from "@/components/visits/bento/TimelineTile";
 import { CartelTile } from "@/components/visits/bento/CartelTile";
 import { TicketTile } from "@/components/visits/bento/TicketTile";
 import { PaletteTile } from "@/components/visits/bento/PaletteTile";
+import { SketchTile } from "@/components/visits/bento/SketchTile";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 export interface ImageNavItem {
@@ -151,6 +152,10 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
     return <PaletteTile content={tile.content} w={tile.w} h={tile.h} />;
   }
 
+  if (tile.content.type === "sketch") {
+    return <SketchTile content={tile.content} />;
+  }
+
   // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)
   if (tile.content.type === "embed") {
     const c = tile.content;
@@ -224,13 +229,7 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
     );
   }
 
-  // Modules « musée » (2026-07-18) — rendus branchés phase par phase. Filet
-  // de sécurité en attendant : aucun de ces types n'est créable tant que son
-  // entrée n'est pas ajoutée à BlockTypeModal, donc ceci ne s'affiche jamais
-  // en pratique — il garantit juste l'exhaustivité de type de l'union.
-  return (
-    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-elevated)]">
-      <span className="text-[var(--text-tertiary)] text-xs">Module « {tile.content.type} »</span>
-    </div>
-  );
+  // Tous les types de tuile sont désormais gérés ci-dessus (union exhaustive) —
+  // `tile.content` est de type `never` ici, ce return n'est jamais atteint.
+  return null;
 }

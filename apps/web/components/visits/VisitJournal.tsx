@@ -5,6 +5,7 @@ import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
 import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from "@/components/visits/bento/TileSettingsModal";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
+import { SketchPad } from "@/components/visits/bento/SketchPad";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
 import { DEFAULT_SPAN, isAutoHeight, isNoteType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
@@ -34,6 +35,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   const settingsTile = tiles.find((t) => tileKey(t) === settingsKey) ?? null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [voiceMemoOpen, setVoiceMemoOpen] = useState(false);
+  const [sketchPadOpen, setSketchPadOpen] = useState(false);
+  const [sketchReplaceId, setSketchReplaceId] = useState<string | null>(null);
+  const [sketchSaving, setSketchSaving] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -298,6 +302,37 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     setSettingsKey(tileKey(tile));
   };
 
+  const openSketchPad = () => { setPickerOpen(false); setSketchReplaceId(null); setSketchPadOpen(true); };
+
+  const handleSketchSave = async (blob: Blob) => {
+    setSketchSaving(true);
+    const fd = new FormData();
+    fd.append("file", new File([blob], "croquis.png", { type: "image/png" }));
+    const url = sketchReplaceId
+      ? `/api/visits/${visitId}/sketch/${sketchReplaceId}`
+      : `/api/visits/${visitId}/sketch`;
+    const res = await fetch(url, { method: "POST", body: fd }).catch(() => null);
+    setSketchSaving(false);
+    if (!res?.ok) { alert("Échec de l'enregistrement du croquis."); return; }
+    const c = await res.json();
+    if (sketchReplaceId) {
+      patchTileContent(sketchReplaceId, { storageKey: c.storageKey, thumbnailKey: c.thumbnailKey, width: c.width, height: c.height });
+    } else {
+      const span = DEFAULT_SPAN.sketch;
+      const tile: BentoTile = {
+        type: "sketch", id: c.id, w: span.w, h: span.h,
+        content: { type: "sketch", id: c.id, storageKey: c.storageKey, thumbnailKey: c.thumbnailKey, width: c.width, height: c.height },
+      };
+      const next = [...tiles, tile];
+      setTiles(next);
+      persistLayout(next);
+    }
+    setSketchPadOpen(false);
+    setSketchReplaceId(null);
+  };
+
+  const redrawSketch = (id: string) => { setSettingsKey(null); setSketchReplaceId(id); setSketchPadOpen(true); };
+
   // ── Suppression ───────────────────────────────────────────────────────────
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
@@ -509,6 +544,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectTicket={addTicket}
           onSelectPalette={addPalette}
           onSelectArtist={handleSelectArtist}
+          onSelectSketch={openSketchPad}
         />
       )}
 
@@ -540,6 +576,14 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onUploadTicketPhoto={uploadTicketPhoto}
         onSavePalette={savePalette}
         onUploadPaletteSource={uploadPaletteSource}
+        onRedrawSketch={redrawSketch}
+      />
+
+      <SketchPad
+        open={sketchPadOpen}
+        saving={sketchSaving}
+        onClose={() => { setSketchPadOpen(false); setSketchReplaceId(null); }}
+        onSave={handleSketchSave}
       />
     </JournalAuthorProvider>
   );

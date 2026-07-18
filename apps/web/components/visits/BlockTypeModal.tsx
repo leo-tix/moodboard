@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, User, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, User, PenLine, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -26,9 +26,10 @@ interface BlockTypeModalProps {
   onSelectTicket: () => void;
   onSelectPalette: () => void;
   onSelectArtist: (name: string) => void;
+  onSelectSketch: () => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette, onSelectArtist }: BlockTypeModalProps) {
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette, onSelectArtist, onSelectSketch }: BlockTypeModalProps) {
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP" | "ARTIST">("menu");
 
   useEffect(() => {
@@ -93,6 +94,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
               <BlockOption icon={Ticket} label="Billet" onClick={onSelectTicket} />
               <BlockOption icon={Palette} label="Palette" onClick={onSelectPalette} />
               <BlockOption icon={User} label="Fiche artiste" onClick={() => setMode("ARTIST")} />
+              <BlockOption icon={PenLine} label="Croquis" onClick={onSelectSketch} />
               <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
             </BlockSection>
             <BlockSection label="Structure">
