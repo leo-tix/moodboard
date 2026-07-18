@@ -196,6 +196,26 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     setSettingsKey(tileKey(tile));
   };
 
+  const addTimeline = async () => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/timeline`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => null);
+    if (!res?.ok) return;
+    const created = await res.json();
+    const span = DEFAULT_SPAN.timeline;
+    const tile: BentoTile = {
+      type: "timeline", id: created.id, w: span.w, h: span.h,
+      content: { type: "timeline", id: created.id, title: created.title ?? null, events: [] },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+    setSettingsKey(tileKey(tile));
+  };
+
   // ── Suppression ───────────────────────────────────────────────────────────
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
@@ -301,6 +321,11 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     fetch(`/api/visits/${visitId}/checklist/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, items }) }).catch(() => {});
   };
 
+  const saveTimeline = (id: string, title: string, events: { id: string; dateText: string; label: string; description?: string }[]) => {
+    patchTileContent(id, { title: title.trim() || null, events });
+    fetch(`/api/visits/${visitId}/timeline/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, events }) }).catch(() => {});
+  };
+
   const toggleChecklistItem = (checklistId: string, itemId: string) => {
     const tile = tilesRef.current.find((t) => t.id === checklistId && t.content.type === "checklist");
     if (!tile || tile.content.type !== "checklist") return;
@@ -339,6 +364,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectMap={handleSelectMap}
           onSelectHighlight={addHighlight}
           onSelectChecklist={addChecklist}
+          onSelectTimeline={addTimeline}
         />
       )}
 
@@ -363,6 +389,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onSaveMap={saveMap}
         onSaveHighlight={saveHighlight}
         onSaveChecklist={saveChecklist}
+        onSaveTimeline={saveTimeline}
       />
     </JournalAuthorProvider>
   );

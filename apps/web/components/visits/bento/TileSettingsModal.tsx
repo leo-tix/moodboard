@@ -8,7 +8,7 @@ import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
-import type { BentoTile, ChecklistItem } from "@/lib/visits/bentoTypes";
+import type { BentoTile, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
 
 interface TileSettingsModalProps {
   tile: BentoTile | null;
@@ -23,6 +23,7 @@ interface TileSettingsModalProps {
   onSaveMap: (id: string, locationName: string, latitude: number, longitude: number) => void;
   onSaveHighlight: (id: string, title: string, rating: number, note: string) => void;
   onSaveChecklist: (id: string, title: string, items: ChecklistItem[]) => void;
+  onSaveTimeline: (id: string, title: string, events: TimelineEvent[]) => void;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -42,6 +43,7 @@ export function TileSettingsModal({
   onSaveMap,
   onSaveHighlight,
   onSaveChecklist,
+  onSaveTimeline,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -119,6 +121,9 @@ export function TileSettingsModal({
               )}
               {tile.content.type === "checklist" && (
                 <ChecklistForm key={tile.id} title={tile.content.title ?? ""} items={tile.content.items} onSave={(t, items) => onSaveChecklist(tile.id, t, items)} />
+              )}
+              {tile.content.type === "timeline" && (
+                <TimelineForm key={tile.id} title={tile.content.title ?? ""} events={tile.content.events} onSave={(t, events) => onSaveTimeline(tile.id, t, events)} />
               )}
             </div>
 
@@ -262,6 +267,40 @@ function ChecklistForm({ title, items, onSave }: { title: string; items: Checkli
       </div>
       <button type="button" onClick={addItem} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
         <Plus size={14} strokeWidth={2} /> Ajouter un élément
+      </button>
+    </div>
+  );
+}
+
+function TimelineForm({ title, events, onSave }: { title: string; events: TimelineEvent[]; onSave: (title: string, events: TimelineEvent[]) => void }) {
+  const [t, setT] = useState(title);
+  const [list, setList] = useState<TimelineEvent[]>(events);
+
+  const commit = (nextList: TimelineEvent[]) => { setList(nextList); onSave(t, nextList); };
+  const addEvent = () => commit([...list, { id: crypto.randomUUID(), dateText: "", label: "", description: "" }]);
+  const patch = (id: string, key: "dateText" | "label" | "description", value: string) =>
+    setList((l) => l.map((ev) => (ev.id === id ? { ...ev, [key]: value } : ev)));
+  const remove = (id: string) => commit(list.filter((ev) => ev.id !== id));
+
+  return (
+    <div className="space-y-3">
+      <Field label="Titre">
+        <input value={t} onChange={(e) => setT(e.target.value)} onBlur={() => onSave(t, list)} className={inputClass} placeholder="Ex. Périodes de Monet" />
+      </Field>
+      <div className="space-y-3">
+        {list.map((ev) => (
+          <div key={ev.id} className="rounded-lg border border-[var(--border-subtle)] p-2.5 space-y-2 relative">
+            <button type="button" onClick={() => remove(ev.id)} className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-colors" aria-label="Supprimer le jalon">
+              <X size={13} strokeWidth={2} />
+            </button>
+            <input value={ev.dateText} onChange={(e) => patch(ev.id, "dateText", e.target.value)} onBlur={() => onSave(t, list)} placeholder="Date (ex. 1872)" className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]" />
+            <input value={ev.label} onChange={(e) => patch(ev.id, "label", e.target.value)} onBlur={() => onSave(t, list)} placeholder="Titre du jalon" className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]" />
+            <textarea value={ev.description ?? ""} onChange={(e) => patch(ev.id, "description", e.target.value)} onBlur={() => onSave(t, list)} rows={2} placeholder="Description (facultatif)" className={inputClass} />
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addEvent} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+        <Plus size={14} strokeWidth={2} /> Ajouter un jalon
       </button>
     </div>
   );

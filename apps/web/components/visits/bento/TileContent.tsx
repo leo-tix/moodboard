@@ -10,6 +10,7 @@ import { useJournalAuthor } from "@/components/visits/JournalAuthorContext";
 import { MapTile } from "@/components/visits/bento/MapTile";
 import { HighlightTile } from "@/components/visits/bento/HighlightTile";
 import { ChecklistTile } from "@/components/visits/bento/ChecklistTile";
+import { TimelineTile } from "@/components/visits/bento/TimelineTile";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 export interface ImageNavItem {
@@ -129,6 +130,10 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
   if (tile.content.type === "checklist") {
     const c = tile.content;
     return <ChecklistTile content={c} editable={editable} onToggle={editable && onToggleChecklistItem ? (itemId) => onToggleChecklistItem(c.id, itemId) : undefined} />;
+  }
+
+  if (tile.content.type === "timeline") {
+    return <TimelineTile content={tile.content} />;
   }
 
   // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)
