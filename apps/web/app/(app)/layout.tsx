@@ -34,8 +34,14 @@ export default async function AppLayout({
         }}
       />
 
-      {/* Main content — bottom padding on mobile to clear the bottom nav */}
-      <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
+      {/* Main content — bottom padding on mobile to clear the bottom nav.
+          overflow-x-hidden : sans lui, `overflow-y-auto` calcule l'axe X à
+          `auto`, si bien que le moindre débordement horizontal (ex. le halo
+          flouté -inset-8 derrière la cover de visite) rendait la page
+          légèrement glissable de quelques px sur mobile (retour utilisateur
+          2026-07-18). Clippe le débordement horizontal sans toucher au scroll
+          vertical ni au `position: sticky` (ce <main> reste le scroller). */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden pb-16 md:pb-0">
         <GlobalUploadProvider>
           <PageTransition>{children}</PageTransition>
         </GlobalUploadProvider>
