@@ -33,6 +33,39 @@ interface VisitMapProps {
 // Mini-carte Leaflet + tuiles CARTO dark (assorties au thème sombre).
 // Leaflet est importé dynamiquement dans useEffect : il touche `window`
 // au chargement et casserait le rendu SSR sinon.
+// Ray-casting : le point (lng,lat) est-il dans l'anneau extérieur ?
+function ringContains(ring: number[][], lng: number, lat: number): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Une frontière de pays OSM est souvent un MultiPolygon incluant les
+// territoires lointains (France + DOM-TOM, etc.) : cadrer sur l'ensemble
+// dézoome jusqu'au monde entier (bug Bordeaux 2026-07-18). On ne garde que le
+// polygone qui CONTIENT le point (→ France métropolitaine pour Bordeaux), avec
+// repli sur le plus grand polygone si aucun ne le contient.
+function pickContainingPolygon(geojson: { type?: string; coordinates?: unknown }, lng: number, lat: number) {
+  if (!geojson || geojson.type !== "MultiPolygon" || !Array.isArray(geojson.coordinates)) return geojson;
+  const polys = geojson.coordinates as number[][][][];
+  for (const poly of polys) {
+    if (poly[0] && ringContains(poly[0], lng, lat)) return { type: "Polygon", coordinates: poly };
+  }
+  let best: number[][][] | null = null, bestArea = -1;
+  for (const poly of polys) {
+    const r = poly[0];
+    if (!r) continue;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of r) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    const area = (maxX - minX) * (maxY - minY);
+    if (area > bestArea) { bestArea = area; best = poly; }
+  }
+  return best ? { type: "Polygon", coordinates: best } : geojson;
+}
+
 export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, interactive = true, countryOutline = false, className }: VisitMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
@@ -107,7 +140,10 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, 
             if (geojson) try { sessionStorage.setItem(cacheKey, JSON.stringify(geojson)); } catch { /* quota */ }
           }
           if (!cancelled && geojson && mapRef.current) {
-            const layer = L.geoJSON(geojson as GeoJSON.GeoJsonObject, {
+            // Ne garder que le polygone contenant le lieu (ex. métropole pour
+            // Bordeaux), pas les territoires lointains.
+            const shape = pickContainingPolygon(geojson as { type?: string; coordinates?: unknown }, longitude, latitude);
+            const layer = L.geoJSON(shape as GeoJSON.GeoJsonObject, {
               interactive: false,
               style: { color: "#e8e0d4", weight: 1.5, opacity: 0.7, fillColor: "#e8e0d4", fillOpacity: 0.05 },
             }).addTo(map);
