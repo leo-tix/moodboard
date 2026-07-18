@@ -134,7 +134,9 @@ export default async function VisiteDetailPage({ params }: Props) {
       )}
 
       {/* Carte pleine largeur juste après le titre/lieu — pin avec vignette
-          mise en avant (même style que la carte cumulée), "carte premium". */}
+          mise en avant. Cadrée sur le PAYS avec son contour (comme les tuiles
+          carte du carnet, 2026-07-18) ; reste interactive (zoom pour explorer).
+          `zoom` sert de repli si le contour ne se charge pas. */}
       {hasMap && (
         <div className="mb-6 rounded-xl overflow-hidden border border-[var(--border-subtle)]">
           <VisitMap
@@ -142,6 +144,8 @@ export default async function VisiteDetailPage({ params }: Props) {
             longitude={visit.longitude!}
             label={visit.place}
             thumbnailKey={mapThumbnailKey}
+            zoom={5}
+            countryOutline
             className="h-64 md:h-80 w-full"
           />
         </div>
