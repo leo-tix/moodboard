@@ -163,7 +163,15 @@ export default async function VisiteDetailPage({ params }: Props) {
         </div>
       )}
 
-      <VisitJournal visitId={visit.id} initialTiles={tiles} authorName={visit.user.name} authorImage={visit.user.image} />
+      <VisitJournal
+        visitId={visit.id}
+        initialTiles={tiles}
+        authorName={visit.user.name}
+        authorImage={visit.user.image}
+        visitPlace={visit.place}
+        visitExhibition={visit.exhibition}
+        visitDate={visit.visitDate.toISOString()}
+      />
 
       {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
       <VisitCaptureFab visitId={visit.id} />

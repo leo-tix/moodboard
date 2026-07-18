@@ -21,11 +21,15 @@ interface VisitJournalProps {
   initialTiles: BentoTile[];
   authorName?: string | null;
   authorImage?: string | null;
+  /** Infos de la visite — servent à pré-remplir certains modules (billet). */
+  visitPlace?: string;
+  visitExhibition?: string | null;
+  visitDate?: string; // ISO
 }
 
 const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
 
-export function VisitJournal({ visitId, initialTiles, authorName, authorImage }: VisitJournalProps) {
+export function VisitJournal({ visitId, initialTiles, authorName, authorImage, visitPlace, visitExhibition, visitDate }: VisitJournalProps) {
   const [tiles, setTiles] = useState<BentoTile[]>(initialTiles);
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
@@ -269,10 +273,19 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
   const addTicket = async () => {
     setPickerOpen(false);
+    // Pré-remplissage depuis la visite : nom de l'expo (ou lieu à défaut), lieu,
+    // et date formatée — l'utilisateur n'a plus qu'à compléter prix/tarif.
+    const prefill = {
+      eventName: (visitExhibition || visitPlace || "").trim(),
+      place: (visitPlace ?? "").trim() || undefined,
+      dateText: visitDate
+        ? new Date(visitDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+        : undefined,
+    };
     const res = await fetch(`/api/visits/${visitId}/ticket`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify(prefill),
     }).catch(() => null);
     if (!res?.ok) return;
     const c = await res.json();

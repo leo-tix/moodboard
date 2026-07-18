@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2, Palette, Pencil } from "lucide-react";
+import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2, Palette, Pencil, Camera } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
@@ -489,7 +489,8 @@ function TicketForm({
     category: content.category ?? "",
   });
   const [photoBusy, setPhotoBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const set = (k: keyof TicketFormValues, val: string) => setV((p) => ({ ...p, [k]: val }));
 
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -512,16 +513,31 @@ function TicketForm({
             <ImagePlus size={18} className="text-[var(--text-tertiary)]" />
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={photoBusy}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity"
-        >
-          {photoBusy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={2} />}
-          {photoBusy ? "Envoi…" : content.thumbnailKey ? "Remplacer la photo" : "Photo du billet"}
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
+        {/* Deux options : choisir dans la galerie (input sans `capture`) ou
+            prendre une photo (input `capture="environment"`). */}
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => galleryRef.current?.click()}
+              disabled={photoBusy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity"
+            >
+              {photoBusy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={2} />} Galerie
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={photoBusy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity"
+            >
+              <Camera size={13} strokeWidth={2} /> Photo
+            </button>
+          </div>
+          {content.thumbnailKey && <span className="text-[10px] text-[var(--text-tertiary)]">Remplacer la photo du billet</span>}
+        </div>
+        <input ref={galleryRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
       </div>
 
       <Field label="Événement / expo"><input value={v.eventName} onChange={(e) => set("eventName", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
