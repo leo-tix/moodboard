@@ -20,13 +20,20 @@ interface VisitMapProps {
    * les boutons +/− encombraient une vignette de 200px de haut.
    */
   interactive?: boolean;
+  /**
+   * Trace le contour du PAYS contenant le point et cadre la carte dessus
+   * (pour visualiser où le lieu se situe dans le pays — demande utilisateur
+   * 2026-07-18). Frontière administrative OSM via reverse-geocoding Nominatim.
+   * Repli silencieux sur `zoom` si indisponible.
+   */
+  countryOutline?: boolean;
   className?: string;
 }
 
 // Mini-carte Leaflet + tuiles CARTO dark (assorties au thème sombre).
 // Leaflet est importé dynamiquement dans useEffect : il touche `window`
 // au chargement et casserait le rendu SSR sinon.
-export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, interactive = true, className }: VisitMapProps) {
+export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, interactive = true, countryOutline = false, className }: VisitMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
 
@@ -79,6 +86,38 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, 
       if (label && interactive) marker.bindPopup(label);
 
       if (interactive) L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      // Contour du pays + cadrage dessus. Best-effort : la frontière
+      // administrative OSM est récupérée par reverse-geocoding Nominatim
+      // (zoom=3 = niveau pays, polygon_geojson=1). En cas d'échec (réseau,
+      // limite de débit, pays introuvable) on garde le zoom par défaut.
+      if (countryOutline) {
+        try {
+          const cacheKey = `mb:country:${latitude.toFixed(1)},${longitude.toFixed(1)}`;
+          let geojson: unknown = null;
+          const cached = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(cacheKey) : null;
+          if (cached) {
+            geojson = JSON.parse(cached);
+          } else {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=jsonv2&zoom=3&polygon_geojson=1&polygon_threshold=0.02&accept-language=fr`,
+            );
+            const data = await res.json();
+            geojson = data?.geojson ?? null;
+            if (geojson) try { sessionStorage.setItem(cacheKey, JSON.stringify(geojson)); } catch { /* quota */ }
+          }
+          if (!cancelled && geojson && mapRef.current) {
+            const layer = L.geoJSON(geojson as GeoJSON.GeoJsonObject, {
+              interactive: false,
+              style: { color: "#e8e0d4", weight: 1.5, opacity: 0.7, fillColor: "#e8e0d4", fillOpacity: 0.05 },
+            }).addTo(map);
+            const b = layer.getBounds();
+            if (b.isValid()) map.fitBounds(b, { padding: [14, 14] });
+          }
+        } catch {
+          /* garde le centre/zoom par défaut */
+        }
+      }
     })();
 
     return () => {
@@ -86,7 +125,7 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, 
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [latitude, longitude, label, thumbnailKey, zoom, interactive]);
+  }, [latitude, longitude, label, thumbnailKey, zoom, interactive, countryOutline]);
 
   return (
     <div
