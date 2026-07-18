@@ -119,7 +119,11 @@ export function VisitCoverCarousel({
           dégradé COMMENCE juste avant le bord de la carte, pas avant : la
           lueur reste vive tout du long de l'anneau visible et ne s'éteint
           que sur la toute fin, près du bord externe de la zone. */}
-      <div className="pointer-events-none absolute -inset-8 md:-inset-24 -z-10">
+      {/* Halo : bleed VERTICAL uniquement (inset-x-0). Un bleed horizontal
+          (-inset-x-8) débordait de 16px hors du viewport sur mobile → léger
+          scroll horizontal parasite (2026-07-18). Le flou (blur-[40px]) adoucit
+          de toute façon les bords latéralement, sans déborder la mise en page. */}
+      <div className="pointer-events-none absolute inset-x-0 -inset-y-8 md:-inset-y-24 -z-10">
         {images.map((img, i) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
