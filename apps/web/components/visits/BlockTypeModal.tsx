@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -23,9 +23,10 @@ interface BlockTypeModalProps {
   onSelectChecklist: () => void;
   onSelectTimeline: () => void;
   onSelectCartel: () => void;
+  onSelectTicket: () => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel }: BlockTypeModalProps) {
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket }: BlockTypeModalProps) {
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP">("menu");
 
   useEffect(() => {
@@ -87,6 +88,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
             </BlockSection>
             <BlockSection label="Musée">
               <BlockOption icon={Landmark} label="Cartel" onClick={onSelectCartel} />
+              <BlockOption icon={Ticket} label="Billet" onClick={onSelectTicket} />
               <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
             </BlockSection>
             <BlockSection label="Structure">

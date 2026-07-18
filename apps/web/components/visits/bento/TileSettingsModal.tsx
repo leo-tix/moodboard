@@ -23,6 +23,15 @@ export interface CartelFormValues {
   notes: string;
 }
 
+// Champs éditables d'un billet (miroir des colonnes texte de VisitTicket).
+export interface TicketFormValues {
+  eventName: string;
+  place: string;
+  dateText: string;
+  price: string;
+  category: string;
+}
+
 interface TileSettingsModalProps {
   tile: BentoTile | null;
   isMobile: boolean;
@@ -39,6 +48,8 @@ interface TileSettingsModalProps {
   onSaveTimeline: (id: string, title: string, events: TimelineEvent[]) => void;
   onSaveCartel: (id: string, values: CartelFormValues) => void;
   onUploadCartelPhoto: (id: string, file: File) => Promise<void>;
+  onSaveTicket: (id: string, values: TicketFormValues) => void;
+  onUploadTicketPhoto: (id: string, file: File) => Promise<void>;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -61,6 +72,8 @@ export function TileSettingsModal({
   onSaveTimeline,
   onSaveCartel,
   onUploadCartelPhoto,
+  onSaveTicket,
+  onUploadTicketPhoto,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -148,6 +161,14 @@ export function TileSettingsModal({
                   content={tile.content}
                   onSave={(v) => onSaveCartel(tile.id, v)}
                   onUploadPhoto={(file) => onUploadCartelPhoto(tile.id, file)}
+                />
+              )}
+              {tile.content.type === "ticket" && (
+                <TicketForm
+                  key={tile.id}
+                  content={tile.content}
+                  onSave={(v) => onSaveTicket(tile.id, v)}
+                  onUploadPhoto={(file) => onUploadTicketPhoto(tile.id, file)}
                 />
               )}
             </div>
@@ -424,6 +445,71 @@ function CartelForm({
       <Field label="Technique"><input value={v.medium} onChange={(e) => set("medium", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="Huile sur toile" /></Field>
       <Field label="Salle / section"><input value={v.room} onChange={(e) => set("room", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
       <Field label="Notes"><textarea value={v.notes} onChange={(e) => set("notes", e.target.value)} onBlur={() => onSave(v)} rows={2} className={inputClass} /></Field>
+    </div>
+  );
+}
+
+function TicketForm({
+  content,
+  onSave,
+  onUploadPhoto,
+}: {
+  content: Extract<BentoTile["content"], { type: "ticket" }>;
+  onSave: (values: TicketFormValues) => void;
+  onUploadPhoto: (file: File) => Promise<void>;
+}) {
+  const [v, setV] = useState<TicketFormValues>({
+    eventName: content.eventName ?? "",
+    place: content.place ?? "",
+    dateText: content.dateText ?? "",
+    price: content.price ?? "",
+    category: content.category ?? "",
+  });
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const set = (k: keyof TicketFormValues, val: string) => setV((p) => ({ ...p, [k]: val }));
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoBusy(true);
+    try { await onUploadPhoto(file); } catch { /* upload échoué */ }
+    setPhotoBusy(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        {content.thumbnailKey ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={getThumbnailUrl(content.thumbnailKey)} alt="" className="w-14 h-14 rounded-lg object-cover border border-[var(--border-subtle)] flex-shrink-0" />
+        ) : (
+          <div className="w-14 h-14 rounded-lg bg-[var(--bg-base)] border border-dashed border-[var(--border-default)] flex items-center justify-center flex-shrink-0">
+            <ImagePlus size={18} className="text-[var(--text-tertiary)]" />
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={photoBusy}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity"
+        >
+          {photoBusy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={2} />}
+          {photoBusy ? "Envoi…" : content.thumbnailKey ? "Remplacer la photo" : "Photo du billet"}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
+      </div>
+
+      <Field label="Événement / expo"><input value={v.eventName} onChange={(e) => set("eventName", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Lieu"><input value={v.place} onChange={(e) => set("place", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
+        <Field label="Date"><input value={v.dateText} onChange={(e) => set("dateText", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Prix"><input value={v.price} onChange={(e) => set("price", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="12 €" /></Field>
+        <Field label="Tarif"><input value={v.category} onChange={(e) => set("category", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="Plein tarif" /></Field>
+      </div>
     </div>
   );
 }
