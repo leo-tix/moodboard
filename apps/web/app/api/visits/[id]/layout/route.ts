@@ -6,7 +6,14 @@ import { z } from "zod";
 interface Params { params: Promise<{ id: string }> }
 
 const tileSchema = z.object({
-  type: z.enum(["image", "note", "title", "quote", "audio", "embed", "map"]),
+  // Doit rester aligné sur JournalTileType (apps/web/lib/visits/bentoSpans.ts).
+  // ⚠ Un type manquant ici fait échouer TOUT le PATCH (zod) → aucune
+  // sauvegarde de layout (réordonnancement/format) sur les visites contenant
+  // ce type — bug 2026-07-19 (les 7 modules « musée » manquaient).
+  type: z.enum([
+    "image", "note", "audio", "embed", "map",
+    "cartel", "palette", "ticket", "sketch", "highlight", "checklist", "timeline",
+  ]),
   id: z.string().min(1),
   w: z.union([z.literal(1), z.literal(2)]),
   // Les médias tiennent en 1|2 (format fixe) ; les blocs texte s'étendent en

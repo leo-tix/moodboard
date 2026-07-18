@@ -50,6 +50,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
   const isFirstSync = useRef(true);
   useEffect(() => {
+    tilesRef.current = initialTiles;
     setTiles(initialTiles);
     if (isFirstSync.current) { isFirstSync.current = false; return; }
     persistLayout(initialTiles);
@@ -64,17 +65,30 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     }).catch(() => {});
   };
 
+  // `tilesRef` est la source de vérité SYNCHRONE du layout : chaque mutation de
+  // disposition la met à jour AVANT le re-render React, pour que le drop, la
+  // persistance et les mutations suivantes lisent toujours l'état final. Sans
+  // ça, un drag/resize suivi de trop près par un autre (ou par le drop)
+  // repartait de l'état d'avant → réordonnancement/redimensionnement perdus par
+  // intermittence (retour utilisateur 2026-07-19).
+  const commitLayout = (next: BentoTile[], persist = true) => {
+    tilesRef.current = next;
+    setTiles(next);
+    if (persist) persistLayout(next);
+  };
+
   const sortable = useSortableGrid({
     onReorder: (draggedKey, targetKey) => {
-      setTiles((prev) => {
-        const from = prev.findIndex((t) => tileKey(t) === draggedKey);
-        const to = prev.findIndex((t) => tileKey(t) === targetKey);
-        if (from === -1 || to === -1) return prev;
-        const next = [...prev];
-        const [moved] = next.splice(from, 1);
-        next.splice(to, 0, moved);
-        return next;
-      });
+      const prev = tilesRef.current;
+      const from = prev.findIndex((t) => tileKey(t) === draggedKey);
+      const to = prev.findIndex((t) => tileKey(t) === targetKey);
+      if (from === -1 || to === -1 || from === to) return;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      // Réordonnancement en direct sans persister chaque étape — onDrop persiste
+      // l'ordre FINAL une fois (tilesRef est déjà à jour de façon synchrone).
+      commitLayout(next, false);
     },
     onDrop: () => persistLayout(tilesRef.current),
   });
@@ -92,9 +106,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     const created = await res.json();
     const span = DEFAULT_SPAN.note;
     const tile: BentoTile = { type: "note", id: created.id, w: span.w, h: span.h, content: { type: "note", id: created.id, content: "" } };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     // Édition immédiate : inline sur desktop, pop-up central sur mobile.
     if (isMobile) setSettingsKey(tileKey(tile));
     else setEditingContentKey(tileKey(tile));
@@ -110,9 +123,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       h: span.h,
       content: { type: "audio", id: created.id, storageKey: created.storageKey, durationSec: created.durationSec, transcript: created.transcript ?? null },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
   };
 
   const handleSelectEmbed = async (kind: "LINK" | "YOUTUBE", url: string) => {
@@ -132,9 +144,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       h: span.h,
       content: { type: "embed", id: created.id, kind: created.kind, url: created.url, title: created.title, description: created.description, image: created.image, siteName: created.siteName },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
   };
 
   const handleSelectArtist = async (name: string) => {
@@ -154,9 +165,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "embed", id: c.id, w: span.w, h: span.h,
       content: { type: "embed", id: c.id, kind: c.kind, url: c.url, title: c.title, description: c.description, image: c.image, siteName: c.siteName },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
   };
 
   const handleSelectMap = async (locationName: string, latitude: number, longitude: number) => {
@@ -176,9 +186,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       h: span.h,
       content: { type: "map", id: created.id, locationName: created.locationName, latitude: created.latitude, longitude: created.longitude },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
   };
 
   const addHighlight = async () => {
@@ -195,9 +204,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "highlight", id: created.id, w: span.w, h: span.h,
       content: { type: "highlight", id: created.id, title: created.title, rating: created.rating, note: created.note },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     // Édition immédiate via le pop-up (pas d'édition inline pour ce module).
     setSettingsKey(tileKey(tile));
   };
@@ -216,9 +224,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "checklist", id: created.id, w: span.w, h: span.h,
       content: { type: "checklist", id: created.id, title: created.title ?? null, items: [] },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     setSettingsKey(tileKey(tile));
   };
 
@@ -236,9 +243,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "timeline", id: created.id, w: span.w, h: span.h,
       content: { type: "timeline", id: created.id, title: created.title ?? null, events: [] },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     setSettingsKey(tileKey(tile));
   };
 
@@ -256,9 +262,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "cartel", id: c.id, w: span.w, h: span.h,
       content: { type: "cartel", id: c.id, artworkTitle: c.artworkTitle, artist: c.artist, dateText: c.dateText, medium: c.medium, dimensions: c.dimensions, room: c.room, notes: c.notes, storageKey: c.storageKey, thumbnailKey: c.thumbnailKey, width: c.width, height: c.height },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     setSettingsKey(tileKey(tile));
   };
 
@@ -276,9 +281,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "ticket", id: c.id, w: span.w, h: span.h,
       content: { type: "ticket", id: c.id, eventName: c.eventName, place: c.place, dateText: c.dateText, price: c.price, category: c.category, storageKey: c.storageKey, thumbnailKey: c.thumbnailKey, width: c.width, height: c.height },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     setSettingsKey(tileKey(tile));
   };
 
@@ -296,9 +300,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       type: "palette", id: c.id, w: span.w, h: span.h,
       content: { type: "palette", id: c.id, title: c.title ?? null, colors: [], sourceKey: c.sourceKey ?? null },
     };
-    const next = [...tiles, tile];
-    setTiles(next);
-    persistLayout(next);
+    const next = [...tilesRef.current, tile];
+    commitLayout(next);
     setSettingsKey(tileKey(tile));
   };
 
@@ -350,9 +353,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   };
 
   const handleDelete = async (tile: BentoTile) => {
-    const next = tiles.filter((t) => tileKey(t) !== tileKey(tile));
-    setTiles(next);
-    persistLayout(next);
+    const next = tilesRef.current.filter((t) => tileKey(t) !== tileKey(tile));
+    commitLayout(next);
     if (settingsKey === tileKey(tile)) setSettingsKey(null);
     if (editingContentKey === tileKey(tile)) setEditingContentKey(null);
     if (tile.type === "image") {
@@ -370,21 +372,23 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
       // la hauteur reste automatique.
       tileKey(t) === tileKey(tile) ? { ...t, w, h: isAutoHeight(t.type) ? t.h : h } : t
     );
-    setTiles(next);
-    persistLayout(next);
+    commitLayout(next);
   };
 
   const setAutoRows = (tile: BentoTile, rows: number) => {
     if (tile.h === rows) return;
     const next = tilesRef.current.map((t) => (tileKey(t) === tileKey(tile) ? { ...t, h: rows } : t));
-    setTiles(next);
-    persistLayout(next);
+    commitLayout(next);
   };
 
   // ── Édition de texte ───────────────────────────────────────────────────────
 
+  // Mise à jour de CONTENU (pas de layout) — on garde tilesRef synchrone quand
+  // même pour qu'une mutation de disposition juste après lise le contenu à jour.
   const patchTileContent = (id: string, patch: Record<string, unknown>) => {
-    setTiles((prev) => prev.map((t) => (t.id === id ? ({ ...t, content: { ...t.content, ...patch } } as BentoTile) : t)));
+    const next = tilesRef.current.map((t) => (t.id === id ? ({ ...t, content: { ...t.content, ...patch } } as BentoTile) : t));
+    tilesRef.current = next;
+    setTiles(next);
   };
 
   const persistText = (tile: BentoTile, value: string): Promise<void> => {
