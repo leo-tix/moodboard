@@ -150,9 +150,11 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
 
   return (
     <div className={cn("flex-1 min-w-0 relative", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
-      {/* Barre d'outils persistante (édition du carnet) — tous les contrôles
-          de formatage visibles en continu. */}
-      {editable && showToolbar && (
+      {/* Barre d'outils persistante — DESKTOP uniquement. Sur mobile elle
+          ferait doublon avec la barre ancrée au-dessus du clavier
+          (MobileFormatBar), qui est bien plus accessible au pouce pendant la
+          frappe (retour utilisateur 2026-07-18). */}
+      {editable && showToolbar && !isTouch && (
         <div
           className="flex items-center gap-0.5 mb-2 pb-2 border-b border-[var(--border-subtle)] flex-wrap"
           onMouseDown={(e) => e.preventDefault()}
