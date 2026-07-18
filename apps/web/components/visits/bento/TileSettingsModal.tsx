@@ -396,7 +396,8 @@ function CartelForm({
   const [ocrBusy, setOcrBusy] = useState(false);
   const [pct, setPct] = useState(0);
   const [photoBusy, setPhotoBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const set = (k: keyof CartelFormValues, val: string) => setV((p) => ({ ...p, [k]: val }));
 
   const applyOcr = (f: CartelFields) => {
@@ -445,18 +446,33 @@ function CartelForm({
           </div>
         )}
         <div className="min-w-0">
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={ocrBusy || photoBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
-          >
-            {ocrBusy ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} strokeWidth={2} />}
-            {ocrBusy ? `Lecture… ${pct}%` : photoBusy ? "Envoi…" : "Scanner un cartel"}
-          </button>
-          <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">Photographie le cartel : les champs se pré-remplissent.</p>
+          {/* Deux sources : galerie (input sans `capture`) ou prise de vue
+              (input `capture="environment"`). Les deux lancent l'OCR + l'upload. */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => galleryRef.current?.click()}
+              disabled={ocrBusy || photoBusy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity"
+            >
+              <ImagePlus size={13} strokeWidth={2} /> Galerie
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={ocrBusy || photoBusy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
+            >
+              {ocrBusy ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} strokeWidth={2} />}
+              {ocrBusy ? `${pct}%` : "Scanner"}
+            </button>
+          </div>
+          <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">
+            {photoBusy ? "Envoi…" : "Galerie ou photo du cartel — les champs se pré-remplissent (OCR)."}
+          </p>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onScan} className="hidden" />
+        <input ref={galleryRef} type="file" accept="image/*" onChange={onScan} className="hidden" />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onScan} className="hidden" />
       </div>
 
       <Field label="Titre de l'œuvre"><input value={v.artworkTitle} onChange={(e) => set("artworkTitle", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
