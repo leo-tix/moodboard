@@ -102,7 +102,9 @@ export default async function VisiteDetailPage({ params }: Props) {
     // demande utilisateur 2026-07-14 : "ce sera + classe" + réduit
     // naturellement le nombre de colonnes d'images visibles. Élargie ensuite
     // à max-w-4xl (retour "rendre un petit peu plus large l'ensemble").
-    <div className="max-w-4xl mx-auto p-4 md:p-6">
+    // Pas de padding-top sur mobile : VisitTopBar y est `fixed` et fournit son
+    // propre intercalaire de 56px (la barre ne réserve plus d'espace en flux).
+    <div className="max-w-4xl mx-auto px-4 pb-4 md:p-6">
       {/* Retour + Partager ancrés en haut (sticky) : accessibles pendant tout
           le défilement du carnet (demande utilisateur 2026-07-14). */}
       <VisitTopBar backHref="/visites">{shareButton}</VisitTopBar>

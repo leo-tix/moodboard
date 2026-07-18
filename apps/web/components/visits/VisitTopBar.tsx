@@ -28,9 +28,19 @@ export function VisitTopBar({ backHref, children }: { backHref: string; children
   }, []);
 
   return (
+    <>
     <div
       ref={ref}
-      className="sticky top-0 z-40 -mx-4 md:-mx-6 -mt-4 md:-mt-6 h-14 px-4 md:px-6 flex items-center justify-between gap-3"
+      // Mobile → `fixed` (relatif au viewport), PAS `sticky` : sur iOS toutes
+      // les apps (dont Chrome) tournent sous WebKit, où `position: sticky` dans
+      // un conteneur `overflow:auto` imbriqué (ici le <main> défilant) DÉCROCHE
+      // pendant le rebond élastique tout en bas — la barre disparaissait
+      // "arrivé en bas" (retour utilisateur 2026-07-18, non reproductible sur
+      // l'émulateur Chromium car c'est un bug spécifique WebKit). `fixed` ne
+      // dépend d'aucun conteneur défilant → fiable partout. Un intercalaire
+      // (plus bas) réserve les 56px sur mobile. Desktop → on garde `sticky` :
+      // il fonctionne, et un `fixed` pleine largeur chevaucherait la sidebar.
+      className="fixed inset-x-0 top-0 md:sticky md:inset-x-auto md:top-0 md:-mx-6 md:-mt-6 z-40 h-14 px-4 md:px-6 flex items-center justify-between gap-3"
       // Fond dépoli piloté en style inline (color-mix + backdrop-filter) :
       // les utilitaires Tailwind v4 à valeur arbitraire + opacité
       // (bg-[var(--x)]/80) ne génèrent pas de couleur fiable. NB : PAS de
@@ -56,5 +66,10 @@ export function VisitTopBar({ backHref, children }: { backHref: string; children
       </Link>
       {children}
     </div>
+    {/* Intercalaire mobile : la barre étant `fixed` (hors flux) sur mobile, on
+        réserve sa hauteur ici pour que la cover/carte ne passent pas dessous.
+        Masqué en desktop où la barre `sticky` réserve déjà sa place. */}
+    <div className="h-14 md:hidden" aria-hidden />
+    </>
   );
 }
