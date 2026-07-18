@@ -219,18 +219,19 @@ function BubbleButtons({ editor }: { editor: NonNullable<ReturnType<typeof useEd
     { label: "1.", title: "Liste numérotée", active: editor.isActive("orderedList"), onClick: () => editor.chain().focus().toggleOrderedList().run() },
   ];
   return (
-    <span
-      className="contents"
-      // Empêche le blur de l'éditeur (qui ferme l'édition) avant que le clic
-      // sur le bouton n'ait agi sur la sélection.
-      onMouseDown={(e) => e.preventDefault()}
-    >
+    <span className="contents">
       {buttons.map((b) => (
         <button
           key={b.label}
           type="button"
           title={b.title}
-          onClick={b.onClick}
+          // Action déclenchée sur pointerDown, PAS onClick : sur tactile, le
+          // simple fait de toucher le bouton retire le focus de l'éditeur
+          // (blur → sauvegarde/fermeture) avant qu'un onClick n'ait lieu, donc
+          // les boutons de format ne faisaient rien sur mobile (bug
+          // 2026-07-18). preventDefault ici préserve le focus/la sélection et
+          // couvre souris + tactile ; on exécute la commande dans la foulée.
+          onPointerDown={(e) => { e.preventDefault(); b.onClick(); }}
           className={cn(
             "w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded text-sm md:text-[11px] font-medium transition-colors",
             b.active
