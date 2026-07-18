@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -19,9 +19,10 @@ interface BlockTypeModalProps {
   onSelectAudio: () => void;
   onSelectEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
   onSelectMap: (locationName: string, latitude: number, longitude: number) => void;
+  onSelectHighlight: () => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap }: BlockTypeModalProps) {
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight }: BlockTypeModalProps) {
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP">("menu");
 
   useEffect(() => {
@@ -69,14 +70,21 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
         </div>
 
         {mode === "menu" && (
-          <div className="p-2 grid grid-cols-3 gap-1">
-            {/* Un seul module texte : titre, paragraphe et citation sont des
-                options de formatage à l'intérieur (fusion 2026-07-18). */}
-            <BlockOption icon={Type} label="Texte" onClick={onSelectText} />
-            <BlockOption icon={Mic} label="Audio" onClick={onSelectAudio} />
-            <BlockOption icon={MapPin} label="Carte" onClick={() => setMode("MAP")} />
-            <BlockOption icon={Link2} label="Lien externe" onClick={() => setMode("LINK")} />
-            <BlockOption icon={Video} label="YouTube" onClick={() => setMode("YOUTUBE")} />
+          <div className="p-2 overflow-y-auto" style={{ maxHeight: "min(24rem, 68vh)" }}>
+            {/* Sections thématiques : le catalogue s'étoffe (modules « musée »),
+                on regroupe pour garder le choix lisible. */}
+            <BlockSection label="Contenu">
+              {/* Un seul module texte : titre, paragraphe et citation sont des
+                  options de formatage à l'intérieur (fusion 2026-07-18). */}
+              <BlockOption icon={Type} label="Texte" onClick={onSelectText} />
+              <BlockOption icon={Mic} label="Audio" onClick={onSelectAudio} />
+              <BlockOption icon={MapPin} label="Carte" onClick={() => setMode("MAP")} />
+              <BlockOption icon={Link2} label="Lien externe" onClick={() => setMode("LINK")} />
+              <BlockOption icon={Video} label="YouTube" onClick={() => setMode("YOUTUBE")} />
+            </BlockSection>
+            <BlockSection label="Musée">
+              <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
+            </BlockSection>
           </div>
         )}
 
@@ -133,6 +141,15 @@ function MapForm({
           {busy ? "Ajout…" : "Ajouter"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function BlockSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-1 last:mb-0">
+      <p className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">{label}</p>
+      <div className="grid grid-cols-3 gap-1">{children}</div>
     </div>
   );
 }

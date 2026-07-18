@@ -8,6 +8,7 @@ import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
 import { useJournalAuthor } from "@/components/visits/JournalAuthorContext";
 import { MapTile } from "@/components/visits/bento/MapTile";
+import { HighlightTile } from "@/components/visits/bento/HighlightTile";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 export interface ImageNavItem {
@@ -117,6 +118,10 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
   if (tile.content.type === "map") {
     const c = tile.content;
     return <MapTile locationName={c.locationName} latitude={c.latitude} longitude={c.longitude} className="w-full h-full" />;
+  }
+
+  if (tile.content.type === "highlight") {
+    return <HighlightTile content={tile.content} w={tile.w} h={tile.h} />;
   }
 
   // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)

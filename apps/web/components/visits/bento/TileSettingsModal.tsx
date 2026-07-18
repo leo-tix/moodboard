@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, Star } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
@@ -21,6 +21,7 @@ interface TileSettingsModalProps {
   onSaveImage: (id: string, title: string, author: string, year: string) => void;
   onSaveEmbed: (id: string, title: string, description: string) => void;
   onSaveMap: (id: string, locationName: string, latitude: number, longitude: number) => void;
+  onSaveHighlight: (id: string, title: string, rating: number, note: string) => void;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -38,6 +39,7 @@ export function TileSettingsModal({
   onSaveImage,
   onSaveEmbed,
   onSaveMap,
+  onSaveHighlight,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -109,6 +111,9 @@ export function TileSettingsModal({
               )}
               {tile.content.type === "map" && (
                 <MapForm key={tile.id} locationName={tile.content.locationName} latitude={tile.content.latitude} longitude={tile.content.longitude} onSave={(n, la, lo) => onSaveMap(tile.id, n, la, lo)} />
+              )}
+              {tile.content.type === "highlight" && (
+                <HighlightForm key={tile.id} title={tile.content.title} rating={tile.content.rating} note={tile.content.note ?? ""} onSave={(t, r, n) => onSaveHighlight(tile.id, t, r, n)} />
               )}
             </div>
 
@@ -185,6 +190,33 @@ function MapForm({ locationName, latitude, longitude, onSave }: { locationName: 
       <button type="button" onClick={() => geo && onSave(value.trim() || geo.address, geo.latitude, geo.longitude)} className="text-xs px-3 py-1.5 rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity hover:opacity-90">
         Enregistrer le nom
       </button>
+    </div>
+  );
+}
+
+function HighlightForm({ title, rating, note, onSave }: { title: string; rating: number; note: string; onSave: (title: string, rating: number, note: string) => void }) {
+  const [t, setT] = useState(title);
+  const [r, setR] = useState(rating);
+  const [n, setN] = useState(note);
+  // La note d'étoiles s'enregistre immédiatement au clic (pas de blur).
+  const setRating = (value: number) => { const nr = value === r ? 0 : value; setR(nr); onSave(t, nr, n); };
+  return (
+    <div className="space-y-3">
+      <Field label="Œuvre / titre">
+        <input value={t} onChange={(e) => setT(e.target.value)} onBlur={() => onSave(t, r, n)} className={inputClass} placeholder="Titre de l'œuvre" />
+      </Field>
+      <Field label="Note">
+        <div className="flex items-center gap-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <button key={i} type="button" onClick={() => setRating(i + 1)} className="p-0.5" aria-label={`${i + 1} étoile${i > 0 ? "s" : ""}`}>
+              <Star size={22} strokeWidth={1.75} className={i < r ? "text-[#f5a623] fill-[#f5a623]" : "text-[var(--border-strong)] hover:text-[var(--text-tertiary)]"} />
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Commentaire">
+        <textarea value={n} onChange={(e) => setN(e.target.value)} onBlur={() => onSave(t, r, n)} rows={3} className={inputClass} placeholder="Pourquoi ce coup de cœur ?" />
+      </Field>
     </div>
   );
 }

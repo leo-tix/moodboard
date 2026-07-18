@@ -155,6 +155,27 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     persistLayout(next);
   };
 
+  const addHighlight = async () => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/highlight`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => null);
+    if (!res?.ok) return;
+    const created = await res.json();
+    const span = DEFAULT_SPAN.highlight;
+    const tile: BentoTile = {
+      type: "highlight", id: created.id, w: span.w, h: span.h,
+      content: { type: "highlight", id: created.id, title: created.title, rating: created.rating, note: created.note },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+    // Édition immédiate via le pop-up (pas d'édition inline pour ce module).
+    setSettingsKey(tileKey(tile));
+  };
+
   // ── Suppression ───────────────────────────────────────────────────────────
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
@@ -250,6 +271,11 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     fetch(`/api/visits/${visitId}/map/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locationName, latitude, longitude }) }).catch(() => {});
   };
 
+  const saveHighlight = (id: string, title: string, rating: number, note: string) => {
+    patchTileContent(id, { title, rating, note: note.trim() || null });
+    fetch(`/api/visits/${visitId}/highlight/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, rating, note: note.trim() || null }) }).catch(() => {});
+  };
+
   return (
     <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
       <BentoGrid
@@ -277,6 +303,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectAudio={() => { setPickerOpen(false); setVoiceMemoOpen(true); }}
           onSelectEmbed={handleSelectEmbed}
           onSelectMap={handleSelectMap}
+          onSelectHighlight={addHighlight}
         />
       )}
 
@@ -299,6 +326,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onSaveImage={saveImage}
         onSaveEmbed={saveEmbed}
         onSaveMap={saveMap}
+        onSaveHighlight={saveHighlight}
       />
     </JournalAuthorProvider>
   );
