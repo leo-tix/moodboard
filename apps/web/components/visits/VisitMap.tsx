@@ -69,9 +69,12 @@ function pickContainingPolygon(geojson: { type?: string; coordinates?: unknown }
 export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, interactive = true, countryOutline = false, className }: VisitMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
+  // Cadre à restaurer après un redimensionnement du conteneur (contour pays).
+  const fitBoundsRef = useRef<import("leaflet").LatLngBounds | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let ro: ResizeObserver | null = null;
 
     (async () => {
       const L = (await import("leaflet")).default;
@@ -148,16 +151,31 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, 
               style: { color: "#e8e0d4", weight: 1.5, opacity: 0.7, fillColor: "#e8e0d4", fillOpacity: 0.05 },
             }).addTo(map);
             const b = layer.getBounds();
-            if (b.isValid()) map.fitBounds(b, { padding: [14, 14] });
+            if (b.isValid()) { fitBoundsRef.current = b; map.fitBounds(b, { padding: [14, 14] }); }
           }
         } catch {
           /* garde le centre/zoom par défaut */
         }
       }
+
+      // Le conteneur change de taille quand la tuile change de format : sans
+      // invalidateSize(), Leaflet reste dimensionné pour l'ancienne taille et
+      // la carte apparaît décalée jusqu'au rafraîchissement (bug 2026-07-18).
+      // On resynchronise et on re-cadre sur le pays le cas échéant.
+      if (containerRef.current) {
+        ro = new ResizeObserver(() => {
+          const mp = mapRef.current;
+          if (!mp) return;
+          mp.invalidateSize({ animate: false });
+          if (fitBoundsRef.current?.isValid()) mp.fitBounds(fitBoundsRef.current, { padding: [14, 14] });
+        });
+        ro.observe(containerRef.current);
+      }
     })();
 
     return () => {
       cancelled = true;
+      ro?.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
     };
