@@ -111,7 +111,10 @@ export default async function VisiteDetailPage({ params }: Props) {
     // à max-w-4xl (retour "rendre un petit peu plus large l'ensemble").
     // Pas de padding-top sur mobile : VisitTopBar y est `fixed` et fournit son
     // propre intercalaire de 56px (la barre ne réserve plus d'espace en flux).
-    <div className="max-w-4xl mx-auto px-4 pb-4 md:p-6">
+    // Grande marge basse sur mobile : le FAB de capture est `fixed` au-dessus
+    // de la BottomNav (~128px + safe area) et chevauchait sinon le bouton
+    // « Ajouter une tuile » en bas de grille (retour utilisateur 2026-07-19).
+    <div className="max-w-4xl mx-auto px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-6 md:px-6 md:pt-6">
       {/* Retour + Partager ancrés en haut (sticky) : accessibles pendant tout
           le défilement du carnet (demande utilisateur 2026-07-14). */}
       <VisitTopBar backHref="/visites">{shareButton}</VisitTopBar>
