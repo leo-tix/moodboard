@@ -131,6 +131,13 @@ body {
 .note-prose p:last-child {
   margin-bottom: 0;
 }
+/* Ligne vide (double Entrée) : un <p></p> vide n'a pas de boîte de ligne et
+   s'affondait à hauteur 0 → les lignes blanches disparaissaient à l'affichage
+   (retour utilisateur 2026-07-18 : "les retours à la ligne ne sont pas pris en
+   compte"). On lui rend une hauteur de ligne via une espace insécable. */
+.note-prose p:empty::before {
+  content: "\00a0";
+}
 /* Titre (H1) — désormais une OPTION du module texte unique (2026-07-18, fusion
    des anciens blocs Titre/Texte/Citation). Reprend le look de l'ancien bloc
    Titre autonome : grand serif arrondi (Fraunces via --font-serif). */
