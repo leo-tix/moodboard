@@ -9,7 +9,8 @@ import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutoc
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
 import { getThumbnailUrl } from "@/lib/storage/urls";
-import { runCartelOcr, type CartelFields } from "@/lib/visits/cartelOcr";
+import { type CartelFields } from "@/lib/visits/cartelOcr";
+import { CartelScanModal } from "@/components/visits/bento/CartelScanModal";
 import { extractPalette } from "@/lib/visits/colorExtract";
 import type { BentoTile, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
 
@@ -48,7 +49,6 @@ interface TileSettingsModalProps {
   onSaveChecklist: (id: string, title: string, items: ChecklistItem[]) => void;
   onSaveTimeline: (id: string, title: string, events: TimelineEvent[]) => void;
   onSaveCartel: (id: string, values: CartelFormValues) => void;
-  onUploadCartelPhoto: (id: string, file: File) => Promise<void>;
   onSaveTicket: (id: string, values: TicketFormValues) => void;
   onUploadTicketPhoto: (id: string, file: File) => Promise<void>;
   onSavePalette: (id: string, title: string, colors: string[]) => void;
@@ -75,7 +75,6 @@ export function TileSettingsModal({
   onSaveChecklist,
   onSaveTimeline,
   onSaveCartel,
-  onUploadCartelPhoto,
   onSaveTicket,
   onUploadTicketPhoto,
   onSavePalette,
@@ -167,7 +166,6 @@ export function TileSettingsModal({
                   key={tile.id}
                   content={tile.content}
                   onSave={(v) => onSaveCartel(tile.id, v)}
-                  onUploadPhoto={(file) => onUploadCartelPhoto(tile.id, file)}
                 />
               )}
               {tile.content.type === "ticket" && (
@@ -378,11 +376,9 @@ function TimelineForm({ title, events, onSave }: { title: string; events: Timeli
 function CartelForm({
   content,
   onSave,
-  onUploadPhoto,
 }: {
   content: Extract<BentoTile["content"], { type: "cartel" }>;
   onSave: (values: CartelFormValues) => void;
-  onUploadPhoto: (file: File) => Promise<void>;
 }) {
   const [v, setV] = useState<CartelFormValues>({
     artworkTitle: content.artworkTitle ?? "",
@@ -393,87 +389,60 @@ function CartelForm({
     room: content.room ?? "",
     notes: content.notes ?? "",
   });
-  const [ocrBusy, setOcrBusy] = useState(false);
-  const [pct, setPct] = useState(0);
-  const [photoBusy, setPhotoBusy] = useState(false);
+  const [scanFile, setScanFile] = useState<File | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const set = (k: keyof CartelFormValues, val: string) => setV((p) => ({ ...p, [k]: val }));
 
+  // Résultat de l'OCR (après recadrage) → on ne remplit QUE les champs vides,
+  // pour ne pas écraser une correction manuelle. La photo n'est pas conservée.
   const applyOcr = (f: CartelFields) => {
     setV((prev) => {
       const next: CartelFormValues = {
-        ...prev,
-        artworkTitle: f.artworkTitle || prev.artworkTitle,
-        artist: f.artist || prev.artist,
-        dateText: f.dateText || prev.dateText,
-        medium: f.medium || prev.medium,
-        dimensions: f.dimensions || prev.dimensions,
+        artworkTitle: prev.artworkTitle || f.artworkTitle || "",
+        artist: prev.artist || f.artist || "",
+        dateText: prev.dateText || f.dateText || "",
+        medium: prev.medium || f.medium || "",
+        dimensions: prev.dimensions || f.dimensions || "",
+        room: prev.room,
+        notes: prev.notes || f.notes || "",
       };
       onSave(next);
       return next;
     });
   };
 
-  const onScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return;
-    setOcrBusy(true);
-    setPct(0);
-    try {
-      const { fields } = await runCartelOcr(file, setPct);
-      applyOcr(fields);
-    } catch {
-      /* OCR indisponible → saisie manuelle */
-    }
-    setOcrBusy(false);
-    setPhotoBusy(true);
-    try { await onUploadPhoto(file); } catch { /* upload échoué */ }
-    setPhotoBusy(false);
+    if (file) setScanFile(file);
   };
 
   return (
     <div className="space-y-3">
-      {/* Aperçu photo + scan */}
-      <div className="flex items-center gap-3">
-        {content.thumbnailKey ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={getThumbnailUrl(content.thumbnailKey)} alt="" className="w-14 h-14 rounded-lg object-cover border border-[var(--border-subtle)] flex-shrink-0" />
-        ) : (
-          <div className="w-14 h-14 rounded-lg bg-[var(--bg-base)] border border-dashed border-[var(--border-default)] flex items-center justify-center flex-shrink-0">
-            <ImagePlus size={18} className="text-[var(--text-tertiary)]" />
-          </div>
-        )}
-        <div className="min-w-0">
-          {/* Deux sources : galerie (input sans `capture`) ou prise de vue
-              (input `capture="environment"`). Les deux lancent l'OCR + l'upload. */}
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => galleryRef.current?.click()}
-              disabled={ocrBusy || photoBusy}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity"
-            >
-              <ImagePlus size={13} strokeWidth={2} /> Galerie
-            </button>
-            <button
-              type="button"
-              onClick={() => cameraRef.current?.click()}
-              disabled={ocrBusy || photoBusy}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
-            >
-              {ocrBusy ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} strokeWidth={2} />}
-              {ocrBusy ? `${pct}%` : "Scanner"}
-            </button>
-          </div>
-          <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">
-            {photoBusy ? "Envoi…" : "Galerie ou photo du cartel — les champs se pré-remplissent (OCR)."}
-          </p>
+      {/* Scan du cartel : galerie (sans capture) ou photo (capture) →
+          recadrage → OCR → pré-remplissage. L'image n'est PAS stockée. */}
+      <div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => galleryRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors">
+            <ImagePlus size={13} strokeWidth={2} /> Galerie
+          </button>
+          <button type="button" onClick={() => cameraRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity">
+            <ScanText size={13} strokeWidth={2} /> Scanner un cartel
+          </button>
         </div>
-        <input ref={galleryRef} type="file" accept="image/*" onChange={onScan} className="hidden" />
-        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onScan} className="hidden" />
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">Recadre la zone du cartel, l&apos;OCR pré-remplit les champs (image non conservée).</p>
+        <input ref={galleryRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
       </div>
+
+      {scanFile && (
+        <CartelScanModal
+          file={scanFile}
+          onCancel={() => setScanFile(null)}
+          onResult={(fields) => { setScanFile(null); applyOcr(fields); }}
+        />
+      )}
 
       <Field label="Titre de l'œuvre"><input value={v.artworkTitle} onChange={(e) => set("artworkTitle", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
       <Field label="Artiste"><input value={v.artist} onChange={(e) => set("artist", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>

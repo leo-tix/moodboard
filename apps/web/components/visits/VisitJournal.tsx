@@ -474,16 +474,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     fetch(`/api/visits/${visitId}/cartel/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).catch(() => {});
   };
 
-  const uploadCartelPhoto = async (id: string, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(`/api/visits/${visitId}/cartel/${id}/photo`, { method: "POST", body: fd }).catch(() => null);
-    if (!res?.ok) return;
-    const updated = await res.json();
-    patchTileContent(id, { storageKey: updated.storageKey, thumbnailKey: updated.thumbnailKey, width: updated.width, height: updated.height });
-  };
-
-  const saveTicket = (id: string, v: TicketFormValues) => {
+  const saveTicket =(id: string, v: TicketFormValues) => {
     const patch = {
       eventName: v.eventName,
       place: v.place.trim() || null,
@@ -588,7 +579,6 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         onSaveChecklist={saveChecklist}
         onSaveTimeline={saveTimeline}
         onSaveCartel={saveCartel}
-        onUploadCartelPhoto={uploadCartelPhoto}
         onSaveTicket={saveTicket}
         onUploadTicketPhoto={uploadTicketPhoto}
         onSavePalette={savePalette}
