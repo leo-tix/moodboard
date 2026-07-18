@@ -223,6 +223,15 @@ model Visit {
   columnBlocks VisitColumns[]
   embeds       VisitEmbed[]
   mapBlocks    VisitMapBlock[]
+  // Modules carnet ajoutés le 2026-07-18 (tuiles bento « musée ») — voir
+  // apps/web/lib/visits/bentoSpans.ts pour les types correspondants.
+  cartels      VisitCartel[]
+  palettes     VisitPalette[]
+  tickets      VisitTicket[]
+  sketches     VisitSketch[]
+  highlights   VisitHighlight[]
+  checklists   VisitChecklist[]
+  timelines    VisitTimeline[]
   // Grille modulaire façon Bento.me (2026-07-15) — ordre/position/format de
   // chaque tuile du carnet. Remplace les colonnes `order`/`visitOrder`
   // dispersées sur chaque table de contenu comme source de vérité pour
@@ -252,6 +261,141 @@ model VisitMapBlock {
 
   @@index([visitId])
   @@map("visit_map_blocks")
+}
+
+// ── Modules « musée » de la grille bento (2026-07-18) ────────────────────────
+// Chaque table = une tuile du carnet. Le format/position vit dans
+// Visit.journalLayout ; ces tables ne portent que le contenu.
+
+// Cartel / fiche d'œuvre — le petit carton descriptif à côté d'une œuvre.
+// Photo optionnelle (du cartel ou de l'œuvre) stockée sur R2, servant aussi
+// à l'OCR de pré-remplissage (Tesseract.js côté client).
+model VisitCartel {
+  id           String   @id @default(cuid())
+  visitId      String
+  visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  artworkTitle String   @default("")
+  artist       String?
+  dateText     String?  // texte libre : « 1503-1519 », « v. 1890 », « XVIIe s. »
+  medium       String?  // technique : huile sur toile, bronze…
+  dimensions   String?  // « 77 × 53 cm »
+  room         String?  // salle / section de l'expo
+  notes        String?
+  storageKey   String?  // photo optionnelle (R2)
+  thumbnailKey String?
+  width        Int?
+  height       Int?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_cartels")
+}
+
+// Palette de couleurs extraite d'une œuvre — couleurs dominantes en hex,
+// avec la vignette source dont elles sont issues.
+model VisitPalette {
+  id           String   @id @default(cuid())
+  visitId      String
+  visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  title        String?
+  colors       Json     @default("[]") // string[] de codes hex
+  sourceKey    String?  // vignette de l'image source (R2), pour l'illustration
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_palettes")
+}
+
+// Billet / ticket d'entrée — souvenir façon « stub » scrapbook. Photo du
+// billet optionnelle (R2).
+model VisitTicket {
+  id           String   @id @default(cuid())
+  visitId      String
+  visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  eventName    String   @default("")
+  place        String?
+  dateText     String?
+  price        String?  // « 12 € », « Gratuit »
+  category     String?  // tarif / catégorie : « Plein tarif », « Étudiant »
+  storageKey   String?  // photo du billet (R2)
+  thumbnailKey String?
+  width        Int?
+  height       Int?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_tickets")
+}
+
+// Croquis à main levée — dessin exporté en PNG et stocké sur R2.
+model VisitSketch {
+  id           String   @id @default(cuid())
+  visitId      String
+  visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  storageKey   String
+  thumbnailKey String?
+  width        Int?
+  height       Int?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_sketches")
+}
+
+// Coup de cœur / notation — met en avant une œuvre favorite (0-5 étoiles).
+model VisitHighlight {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  title     String   @default("")
+  rating    Int      @default(0) // 0-5
+  note      String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_highlights")
+}
+
+// Checklist interactive — « œuvres à revoir », « expos à voir »…
+// items = Array<{ id: string; text: string; done: boolean }>.
+model VisitChecklist {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  title     String?
+  items     Json     @default("[]")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_checklists")
+}
+
+// Frise / chronologie — sections d'expo ou périodes d'un artiste.
+// events = Array<{ id: string; dateText: string; label: string; description?: string }>.
+model VisitTimeline {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  title     String?
+  events    Json     @default("[]")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visitId])
+  @@map("visit_timelines")
 }
 
 // ── Carnet façon Notion (2026-07-13) ────────────────────────────────────────
@@ -410,6 +554,10 @@ model VisitEmbed {
 enum VisitEmbedKind {
   LINK
   YOUTUBE
+  // Fiche artiste (2026-07-18) — même table/rendu qu'un lien, mais alimentée
+  // par une recherche de nom via l'API Wikipedia (voir lib/visits/wikiArtist.ts)
+  // plutôt qu'une URL saisie. Rendu en carte "artiste" portrait.
+  ARTIST
 }
 
 enum MediaType {

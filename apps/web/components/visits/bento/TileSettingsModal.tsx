@@ -7,7 +7,7 @@ import { X, Trash2 } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
-import { isTextType, type TileWidth } from "@/lib/visits/bentoSpans";
+import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 interface TileSettingsModalProps {
@@ -51,7 +51,7 @@ export function TileSettingsModal({
 
   if (typeof document === "undefined") return null;
 
-  const editTextHere = tile ? isTextType(tile.type) && isMobile : false;
+  const editTextHere = tile ? isNoteType(tile.type) && isMobile : false;
 
   return createPortal(
     <AnimatePresence>
@@ -141,6 +141,13 @@ const DRAWER_TITLES: Record<BentoTile["type"], string> = {
   audio: "Mémo vocal",
   embed: "Lien",
   map: "Carte",
+  cartel: "Cartel",
+  palette: "Palette",
+  ticket: "Billet",
+  sketch: "Croquis",
+  highlight: "Coup de cœur",
+  checklist: "Checklist",
+  timeline: "Frise",
 };
 
 function ImageForm({ title, author, year, onSave }: { title: string; author: string; year: number | null; onSave: (title: string, author: string, year: string) => void }) {

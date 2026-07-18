@@ -8,7 +8,7 @@ import { DragHandle } from "@/components/ui/DragHandle";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { FormatQuickBar } from "@/components/visits/bento/FormatPicker";
 import { TileContent, type ImageNavItem } from "@/components/visits/bento/TileContent";
-import { isTextType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
+import { isAutoHeight, isNoteType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { SortableGrid } from "@/hooks/useSortableGrid";
 import type { BentoTile as BentoTileData } from "@/lib/visits/bentoTypes";
 
@@ -78,7 +78,17 @@ interface BentoTileProps {
 
 // Types dont le clic sur le CORPS déclenche une action d'édition (les autres
 // ont une action propre : image → visionneuse, lien → URL, audio → lecture).
-const BODY_EDITS = new Set<BentoTileData["type"]>(["note", "map"]);
+const BODY_EDITS = new Set<BentoTileData["type"]>([
+  "note",
+  "map",
+  "highlight",
+  "cartel",
+  "ticket",
+  "checklist",
+  "timeline",
+  "palette",
+  "sketch",
+]);
 
 // "Widget Wrapper" (spec §3.1). Chrome commun : coins arrondis, hover public,
 // drag, icônes de format au survol, bouton réglages. Contenu délégué à
@@ -102,14 +112,16 @@ export function BentoTile({
   onAutoRows,
 }: BentoTileProps) {
   const key = tileKey(tile);
-  const text = isTextType(tile.type);
+  // autoHeight : mesuré (note/checklist/frise). note : édition Tiptap inline.
+  const autoHeight = isAutoHeight(tile.type);
+  const note = isNoteType(tile.type);
 
   const { rows, innerRef, tileRef } = useMeasuredRows(
-    text,
+    autoHeight,
     tile.h,
     onAutoRows ? (n) => onAutoRows(tile, n) : undefined
   );
-  const effectiveH = text ? rows : tile.h;
+  const effectiveH = autoHeight ? rows : tile.h;
 
   // Pas de drag pendant l'édition inline (Tiptap est un contenteditable, non
   // exclu par le garde-fou pointerdown de useSortableGrid).
@@ -120,8 +132,8 @@ export function BentoTile({
   const handleBodyClick = () => {
     if (!bodyEdits || editingInline) return;
     if (sortable?.wasDragging()) return;
-    if (text && !isMobile) onStartInlineEdit?.(tile);
-    else onOpenSettings?.(tile); // texte mobile, ou carte → pop-up central
+    if (note && !isMobile) onStartInlineEdit?.(tile);
+    else onOpenSettings?.(tile); // note mobile, ou autre module → pop-up central
   };
 
   return (
@@ -131,13 +143,13 @@ export function BentoTile({
       // transition), très visible quand la tuile grandit à la frappe en
       // auto-hauteur. Croissance instantanée à la place. Les médias gardent
       // l'animation (réordonnancement fluide).
-      layout={!text && !editingInline}
+      layout={!autoHeight && !editingInline}
       ref={tileRef}
       {...sortableProps}
       style={spanStyle(tile.w, effectiveH)}
       className={cn(
         "group/tile relative rounded-[20px] overflow-hidden",
-        text && "bg-[var(--bg-elevated)]",
+        autoHeight && "bg-[var(--bg-elevated)]",
         editable && !editingInline && "cursor-grab active:cursor-grabbing",
         !editable && "transition-transform duration-300 ease-out hover:-translate-y-0.5 hover:scale-[1.02]",
         selected && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-base)]"
@@ -152,9 +164,9 @@ export function BentoTile({
     >
       {isDragging ? (
         <div className="w-full h-full rounded-[20px] border-2 border-dashed border-[var(--border-default)] bg-[var(--bg-surface)]/60" />
-      ) : text ? (
+      ) : autoHeight ? (
         <div ref={innerRef}>
-          {editingInline ? (
+          {editingInline && note ? (
             <div className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
               <InlineTextEditor
                 tile={tile}

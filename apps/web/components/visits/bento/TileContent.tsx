@@ -119,52 +119,64 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
     return <MapTile locationName={c.locationName} latitude={c.latitude} longitude={c.longitude} className="w-full h-full" />;
   }
 
-  // embed — YouTube (iframe) ou lien externe (carte d'aperçu)
-  const c = tile.content;
-  if (c.kind === "YOUTUBE") {
-    const videoId = parseYouTubeId(c.url);
+  // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)
+  if (tile.content.type === "embed") {
+    const c = tile.content;
+    if (c.kind === "YOUTUBE") {
+      const videoId = parseYouTubeId(c.url);
+      return (
+        <div className="w-full h-full bg-black">
+          {videoId ? (
+            <iframe
+              src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+              title={c.title ?? "YouTube"}
+              className="w-full h-full"
+              loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)] text-xs">Vidéo indisponible</div>
+          )}
+        </div>
+      );
+    }
+
+    const domain = (() => {
+      try { return new URL(c.url).hostname.replace(/^www\./, ""); } catch { return c.url; }
+    })();
+    const tall = tile.h === 2;
     return (
-      <div className="w-full h-full bg-black">
-        {videoId ? (
-          <iframe
-            src={`https://www.youtube-nocookie.com/embed/${videoId}`}
-            title={c.title ?? "YouTube"}
-            className="w-full h-full"
-            loading="lazy"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)] text-xs">Vidéo indisponible</div>
+      <a
+        href={c.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn("w-full h-full bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors flex", tall ? "flex-col" : "items-stretch")}
+      >
+        {c.image && (
+          <div className={cn("flex-shrink-0 bg-[var(--bg-surface)] overflow-hidden", tall ? "w-full flex-1 order-first" : "w-28 order-last")}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={c.image} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+          </div>
         )}
-      </div>
+        <div className={cn("min-w-0 px-4 py-3 flex flex-col justify-center gap-1", tall ? "flex-shrink-0" : "flex-1")}>
+          <p className={cn("text-sm font-medium text-[var(--text-primary)]", tall ? "line-clamp-2" : "line-clamp-1")}>{c.title || domain}</p>
+          {c.description && <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-snug">{c.description}</p>}
+          <p className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
+            <ExternalLink size={11} strokeWidth={1.75} /> {c.siteName || domain}
+          </p>
+        </div>
+      </a>
     );
   }
 
-  const domain = (() => {
-    try { return new URL(c.url).hostname.replace(/^www\./, ""); } catch { return c.url; }
-  })();
-  const tall = tile.h === 2;
+  // Modules « musée » (2026-07-18) — rendus branchés phase par phase. Filet
+  // de sécurité en attendant : aucun de ces types n'est créable tant que son
+  // entrée n'est pas ajoutée à BlockTypeModal, donc ceci ne s'affiche jamais
+  // en pratique — il garantit juste l'exhaustivité de type de l'union.
   return (
-    <a
-      href={c.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn("w-full h-full bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors flex", tall ? "flex-col" : "items-stretch")}
-    >
-      {c.image && (
-        <div className={cn("flex-shrink-0 bg-[var(--bg-surface)] overflow-hidden", tall ? "w-full flex-1 order-first" : "w-28 order-last")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={c.image} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
-        </div>
-      )}
-      <div className={cn("min-w-0 px-4 py-3 flex flex-col justify-center gap-1", tall ? "flex-shrink-0" : "flex-1")}>
-        <p className={cn("text-sm font-medium text-[var(--text-primary)]", tall ? "line-clamp-2" : "line-clamp-1")}>{c.title || domain}</p>
-        {c.description && <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-snug">{c.description}</p>}
-        <p className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
-          <ExternalLink size={11} strokeWidth={1.75} /> {c.siteName || domain}
-        </p>
-      </div>
-    </a>
+    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-elevated)]">
+      <span className="text-[var(--text-tertiary)] text-xs">Module « {tile.content.type} »</span>
+    </div>
   );
 }

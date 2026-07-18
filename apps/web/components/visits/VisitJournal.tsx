@@ -7,7 +7,7 @@ import { TileSettingsModal } from "@/components/visits/bento/TileSettingsModal";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
-import { DEFAULT_SPAN, isTextType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
+import { DEFAULT_SPAN, isAutoHeight, isNoteType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 // ── Carnet de visite — grille modulaire façon Bento.me ──────────────────────
@@ -162,6 +162,13 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     audio: "audio",
     embed: "embeds",
     map: "map",
+    cartel: "cartel",
+    palette: "palette",
+    ticket: "ticket",
+    sketch: "sketch",
+    highlight: "highlight",
+    checklist: "checklist",
+    timeline: "timeline",
   };
 
   const handleDelete = async (tile: BentoTile) => {
@@ -181,8 +188,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
   const setFormat = (tile: BentoTile, w: TileWidth, h: 1 | 2) => {
     const next = tilesRef.current.map((t) =>
-      // Texte : seule la largeur est réglable, la hauteur reste automatique.
-      tileKey(t) === tileKey(tile) ? { ...t, w, h: isTextType(t.type) ? t.h : h } : t
+      // Auto-hauteur (texte/checklist/frise) : seule la largeur est réglable,
+      // la hauteur reste automatique.
+      tileKey(t) === tileKey(tile) ? { ...t, w, h: isAutoHeight(t.type) ? t.h : h } : t
     );
     setTiles(next);
     persistLayout(next);
@@ -202,7 +210,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   };
 
   const persistText = (tile: BentoTile, value: string): Promise<void> => {
-    if (!isTextType(tile.type)) return Promise.resolve();
+    if (!isNoteType(tile.type)) return Promise.resolve();
     patchTileContent(tile.id, { content: value });
     return fetch(`/api/visits/${visitId}/notes/${tile.id}`, {
       method: "PATCH",

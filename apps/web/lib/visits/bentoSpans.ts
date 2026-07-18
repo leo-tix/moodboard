@@ -1,23 +1,38 @@
 // Grille modulaire façon Bento.me — formats de tuile.
 //
 // Deux régimes (audit 2026-07-18) :
-// - MÉDIA (image, audio, embed, carte) : 4 formats fixes uniformes
-//   (Carré/Large/Vertical/Grand). La hauteur est décidée par le format.
-// - TEXTE (titre, note, citation) : la LARGEUR est choisie (Normal/Large),
-//   la HAUTEUR est automatique — la tuile s'étend par paliers de grille
-//   (row-span 1, 2, 3, 4…) pour tout afficher sans jamais couper. `h` porte
-//   alors la dernière valeur mesurée (voir useMeasuredRows dans BentoTile).
+// - MÉDIA (image, audio, embed, carte, cartel, palette, billet, croquis,
+//   coup de cœur) : 4 formats fixes uniformes (Carré/Large/Vertical/Grand).
+//   La hauteur est décidée par le format.
+// - AUTO-HAUTEUR (note, checklist, frise) : la LARGEUR est choisie
+//   (Normal/Large), la HAUTEUR est automatique — la tuile s'étend par paliers
+//   de grille (row-span 1, 2, 3, 4…) pour tout afficher sans jamais couper.
+//   `h` porte alors la dernière valeur mesurée (voir useMeasuredRows dans
+//   BentoTile).
 
-// `note` est LE module texte unique (titre/paragraphe/citation y sont des
-// options de formatage depuis 2026-07-18) — les anciens types title/quote
-// ont fusionné dedans.
-export type JournalTileType = "image" | "note" | "audio" | "embed" | "map";
+// Types de tuile du carnet. Le module texte unique `note` (titre/paragraphe/
+// citation = options de formatage depuis 2026-07-18) ; les modules « musée »
+// (cartel/palette/ticket/sketch/highlight/checklist/timeline) ajoutés le
+// 2026-07-18. La fiche artiste réutilise le type `embed` (kind ARTIST).
+export type JournalTileType =
+  | "image"
+  | "note"
+  | "audio"
+  | "embed"
+  | "map"
+  | "cartel"
+  | "palette"
+  | "ticket"
+  | "sketch"
+  | "highlight"
+  | "checklist"
+  | "timeline";
 
 export type TileWidth = 1 | 2;
 
 export interface TileSpan {
   w: TileWidth;
-  // 1|2 pour les médias (format), 1..N pour le texte (auto-hauteur).
+  // 1|2 pour les médias (format), 1..N pour l'auto-hauteur (texte/liste/frise).
   h: number;
 }
 
@@ -28,7 +43,17 @@ export interface JournalTile {
   h: number;
 }
 
-export function isTextType(type: JournalTileType): boolean {
+// Types à hauteur automatique (largeur choisie, hauteur mesurée). Leur contenu
+// est de longueur variable → on les laisse s'étendre par paliers de grille.
+const AUTO_HEIGHT_TYPES = new Set<JournalTileType>(["note", "checklist", "timeline"]);
+
+export function isAutoHeight(type: JournalTileType): boolean {
+  return AUTO_HEIGHT_TYPES.has(type);
+}
+
+// Le module texte riche (Tiptap) — édition inline sur desktop. Distinct des
+// autres types auto-hauteur (checklist/frise) qui s'éditent via le pop-up.
+export function isNoteType(type: JournalTileType): boolean {
   return type === "note";
 }
 
@@ -50,14 +75,14 @@ export const MEDIA_FORMATS: FormatOption[] = [
   { w: 2, h: 2, label: "Grand", icon: "big" },
 ];
 
-// Texte : uniquement la largeur (la hauteur est automatique).
+// Auto-hauteur : uniquement la largeur (la hauteur est automatique).
 export const TEXT_WIDTHS: FormatOption[] = [
   { w: 1, h: 1, label: "Normal", icon: "square" },
   { w: 2, h: 1, label: "Large", icon: "wide" },
 ];
 
 export function formatOptions(type: JournalTileType): FormatOption[] {
-  return isTextType(type) ? TEXT_WIDTHS : MEDIA_FORMATS;
+  return isAutoHeight(type) ? TEXT_WIDTHS : MEDIA_FORMATS;
 }
 
 export const DEFAULT_SPAN: Record<JournalTileType, TileSpan> = {
@@ -66,10 +91,17 @@ export const DEFAULT_SPAN: Record<JournalTileType, TileSpan> = {
   audio: { w: 1, h: 1 },
   embed: { w: 2, h: 2 },
   map: { w: 2, h: 1 },
+  cartel: { w: 1, h: 2 },
+  palette: { w: 2, h: 1 },
+  ticket: { w: 2, h: 1 },
+  sketch: { w: 1, h: 1 },
+  highlight: { w: 1, h: 1 },
+  checklist: { w: 2, h: 1 },
+  timeline: { w: 2, h: 1 },
 };
 
 // Placement dans la grille — style inline plutôt que classes Tailwind : `h`
-// peut dépasser 6 (texte long auto-étendu) et Tailwind ne génère les
+// peut dépasser 6 (contenu long auto-étendu) et Tailwind ne génère les
 // utilitaires row-span que jusqu'à 6. `span` reste identique à tous les
 // breakpoints (seul le NOMBRE de colonnes de la grille change).
 export function spanStyle(w: TileWidth, h: number): React.CSSProperties {

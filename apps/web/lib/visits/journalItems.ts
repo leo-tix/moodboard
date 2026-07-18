@@ -1,6 +1,6 @@
 import type { JournalItem, JournalBlock } from "@/lib/visits/legacyJournalTypes";
 import { DEFAULT_SPAN, type JournalTile } from "@/lib/visits/bentoSpans";
-import type { BentoTile, JournalTileContent } from "@/lib/visits/bentoTypes";
+import type { BentoTile, JournalTileContent, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
 
 // Construit la séquence de blocs du carnet (façon Notion) à partir des 6 tables
 // de blocs d'une visite. Extrait de la page de détail pour être réutilisé par la
@@ -126,8 +126,49 @@ export interface BentoSourceVisit {
   inspirations: JournalSourceVisit["inspirations"];
   noteBlocks: JournalSourceVisit["noteBlocks"];
   audioClips: JournalSourceVisit["audioClips"];
-  embeds: JournalSourceVisit["embeds"];
+  // Comme JournalSourceVisit["embeds"] mais kind élargi à ARTIST (fiche artiste).
+  embeds: { id: string; kind: "LINK" | "YOUTUBE" | "ARTIST"; url: string; title: string | null; description: string | null; image: string | null; siteName: string | null; order: number; createdAt: Date }[];
   mapBlocks: { id: string; locationName: string; latitude: number; longitude: number }[];
+  // Modules « musée » (2026-07-18)
+  cartels: {
+    id: string; artworkTitle: string; artist: string | null; dateText: string | null;
+    medium: string | null; dimensions: string | null; room: string | null; notes: string | null;
+    storageKey: string | null; thumbnailKey: string | null; width: number | null; height: number | null;
+  }[];
+  palettes: { id: string; title: string | null; colors: unknown; sourceKey: string | null }[];
+  tickets: {
+    id: string; eventName: string; place: string | null; dateText: string | null; price: string | null;
+    category: string | null; storageKey: string | null; thumbnailKey: string | null; width: number | null; height: number | null;
+  }[];
+  sketches: { id: string; storageKey: string; thumbnailKey: string | null; width: number | null; height: number | null }[];
+  highlights: { id: string; title: string; rating: number; note: string | null }[];
+  checklists: { id: string; title: string | null; items: unknown }[];
+  timelines: { id: string; title: string | null; events: unknown }[];
+}
+
+// Coercions défensives des champs Json (colors/items/events) — la base peut
+// contenir n'importe quoi ; on ne garde que ce qui a la bonne forme.
+function asStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+function asChecklistItems(v: unknown): ChecklistItem[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .map((x) => ({ id: String(x.id ?? ""), text: String(x.text ?? ""), done: Boolean(x.done) }))
+    .filter((x) => x.id);
+}
+function asTimelineEvents(v: unknown): TimelineEvent[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .map((x) => ({
+      id: String(x.id ?? ""),
+      dateText: String(x.dateText ?? ""),
+      label: String(x.label ?? ""),
+      description: x.description != null ? String(x.description) : undefined,
+    }))
+    .filter((x) => x.id);
 }
 
 // Résout Visit.journalLayout (position/format) vers son contenu réel, table
@@ -165,6 +206,34 @@ export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
   );
   visit.mapBlocks.forEach((m) =>
     content.set(`map-${m.id}`, { type: "map", id: m.id, locationName: m.locationName, latitude: m.latitude, longitude: m.longitude }),
+  );
+  visit.cartels.forEach((c) =>
+    content.set(`cartel-${c.id}`, {
+      type: "cartel", id: c.id, artworkTitle: c.artworkTitle, artist: c.artist, dateText: c.dateText,
+      medium: c.medium, dimensions: c.dimensions, room: c.room, notes: c.notes,
+      storageKey: c.storageKey, thumbnailKey: c.thumbnailKey, width: c.width, height: c.height,
+    }),
+  );
+  visit.palettes.forEach((p) =>
+    content.set(`palette-${p.id}`, { type: "palette", id: p.id, title: p.title, colors: asStringArray(p.colors), sourceKey: p.sourceKey }),
+  );
+  visit.tickets.forEach((t) =>
+    content.set(`ticket-${t.id}`, {
+      type: "ticket", id: t.id, eventName: t.eventName, place: t.place, dateText: t.dateText,
+      price: t.price, category: t.category, storageKey: t.storageKey, thumbnailKey: t.thumbnailKey, width: t.width, height: t.height,
+    }),
+  );
+  visit.sketches.forEach((s) =>
+    content.set(`sketch-${s.id}`, { type: "sketch", id: s.id, storageKey: s.storageKey, thumbnailKey: s.thumbnailKey, width: s.width, height: s.height }),
+  );
+  visit.highlights.forEach((h) =>
+    content.set(`highlight-${h.id}`, { type: "highlight", id: h.id, title: h.title, rating: h.rating, note: h.note }),
+  );
+  visit.checklists.forEach((c) =>
+    content.set(`checklist-${c.id}`, { type: "checklist", id: c.id, title: c.title, items: asChecklistItems(c.items) }),
+  );
+  visit.timelines.forEach((t) =>
+    content.set(`timeline-${t.id}`, { type: "timeline", id: t.id, title: t.title, events: asTimelineEvents(t.events) }),
   );
 
   const layout: JournalTile[] = Array.isArray(visit.journalLayout) ? (visit.journalLayout as JournalTile[]) : [];

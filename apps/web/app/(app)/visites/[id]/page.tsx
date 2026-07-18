@@ -57,6 +57,13 @@ export default async function VisiteDetailPage({ params }: Props) {
       audioClips: true,
       embeds: true,
       mapBlocks: true,
+      cartels: true,
+      palettes: true,
+      tickets: true,
+      sketches: true,
+      highlights: true,
+      checklists: true,
+      timelines: true,
     },
   });
 
