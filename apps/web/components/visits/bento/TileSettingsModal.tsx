@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, Star } from "lucide-react";
+import { X, Trash2, Star, Plus, CheckCircle2, Circle } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
-import type { BentoTile } from "@/lib/visits/bentoTypes";
+import type { BentoTile, ChecklistItem } from "@/lib/visits/bentoTypes";
 
 interface TileSettingsModalProps {
   tile: BentoTile | null;
@@ -22,6 +22,7 @@ interface TileSettingsModalProps {
   onSaveEmbed: (id: string, title: string, description: string) => void;
   onSaveMap: (id: string, locationName: string, latitude: number, longitude: number) => void;
   onSaveHighlight: (id: string, title: string, rating: number, note: string) => void;
+  onSaveChecklist: (id: string, title: string, items: ChecklistItem[]) => void;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -40,6 +41,7 @@ export function TileSettingsModal({
   onSaveEmbed,
   onSaveMap,
   onSaveHighlight,
+  onSaveChecklist,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -114,6 +116,9 @@ export function TileSettingsModal({
               )}
               {tile.content.type === "highlight" && (
                 <HighlightForm key={tile.id} title={tile.content.title} rating={tile.content.rating} note={tile.content.note ?? ""} onSave={(t, r, n) => onSaveHighlight(tile.id, t, r, n)} />
+              )}
+              {tile.content.type === "checklist" && (
+                <ChecklistForm key={tile.id} title={tile.content.title ?? ""} items={tile.content.items} onSave={(t, items) => onSaveChecklist(tile.id, t, items)} />
               )}
             </div>
 
@@ -217,6 +222,47 @@ function HighlightForm({ title, rating, note, onSave }: { title: string; rating:
       <Field label="Commentaire">
         <textarea value={n} onChange={(e) => setN(e.target.value)} onBlur={() => onSave(t, r, n)} rows={3} className={inputClass} placeholder="Pourquoi ce coup de cœur ?" />
       </Field>
+    </div>
+  );
+}
+
+function ChecklistForm({ title, items, onSave }: { title: string; items: ChecklistItem[]; onSave: (title: string, items: ChecklistItem[]) => void }) {
+  const [t, setT] = useState(title);
+  const [list, setList] = useState<ChecklistItem[]>(items);
+
+  const commit = (nextT: string, nextList: ChecklistItem[]) => { setList(nextList); onSave(nextT, nextList); };
+  const addItem = () => commit(t, [...list, { id: crypto.randomUUID(), text: "", done: false }]);
+  const setText = (id: string, text: string) => setList((l) => l.map((it) => (it.id === id ? { ...it, text } : it)));
+  const toggle = (id: string) => commit(t, list.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
+  const remove = (id: string) => commit(t, list.filter((it) => it.id !== id));
+
+  return (
+    <div className="space-y-3">
+      <Field label="Titre">
+        <input value={t} onChange={(e) => setT(e.target.value)} onBlur={() => onSave(t, list)} className={inputClass} placeholder="Ex. Œuvres à revoir" />
+      </Field>
+      <div className="space-y-1.5">
+        {list.map((it) => (
+          <div key={it.id} className="flex items-center gap-2">
+            <button type="button" onClick={() => toggle(it.id)} className="flex-shrink-0" aria-label={it.done ? "Décocher" : "Cocher"}>
+              {it.done ? <CheckCircle2 size={18} strokeWidth={2} className="text-[var(--accent)]" /> : <Circle size={18} strokeWidth={2} className="text-[var(--text-tertiary)]" />}
+            </button>
+            <input
+              value={it.text}
+              onChange={(e) => setText(it.id, e.target.value)}
+              onBlur={() => onSave(t, list)}
+              placeholder="Élément…"
+              className="flex-1 bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]"
+            />
+            <button type="button" onClick={() => remove(it.id)} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-400 transition-colors" aria-label="Supprimer l'élément">
+              <X size={14} strokeWidth={2} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addItem} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+        <Plus size={14} strokeWidth={2} /> Ajouter un élément
+      </button>
     </div>
   );
 }

@@ -176,6 +176,26 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     setSettingsKey(tileKey(tile));
   };
 
+  const addChecklist = async () => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/checklist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => null);
+    if (!res?.ok) return;
+    const created = await res.json();
+    const span = DEFAULT_SPAN.checklist;
+    const tile: BentoTile = {
+      type: "checklist", id: created.id, w: span.w, h: span.h,
+      content: { type: "checklist", id: created.id, title: created.title ?? null, items: [] },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+    setSettingsKey(tileKey(tile));
+  };
+
   // ── Suppression ───────────────────────────────────────────────────────────
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
@@ -276,6 +296,19 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     fetch(`/api/visits/${visitId}/highlight/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, rating, note: note.trim() || null }) }).catch(() => {});
   };
 
+  const saveChecklist = (id: string, title: string, items: { id: string; text: string; done: boolean }[]) => {
+    patchTileContent(id, { title: title.trim() || null, items });
+    fetch(`/api/visits/${visitId}/checklist/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, items }) }).catch(() => {});
+  };
+
+  const toggleChecklistItem = (checklistId: string, itemId: string) => {
+    const tile = tilesRef.current.find((t) => t.id === checklistId && t.content.type === "checklist");
+    if (!tile || tile.content.type !== "checklist") return;
+    const items = tile.content.items.map((it) => (it.id === itemId ? { ...it, done: !it.done } : it));
+    patchTileContent(checklistId, { items });
+    fetch(`/api/visits/${visitId}/checklist/${checklistId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) }).catch(() => {});
+  };
+
   return (
     <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
       <BentoGrid
@@ -292,6 +325,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onSaveText={saveText}
         onPersistText={persistText}
         onPersistAudioTranscript={persistAudioTranscript}
+        onToggleChecklistItem={toggleChecklistItem}
         onAutoRows={setAutoRows}
         onAddClick={() => setPickerOpen(true)}
       />
@@ -304,6 +338,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectEmbed={handleSelectEmbed}
           onSelectMap={handleSelectMap}
           onSelectHighlight={addHighlight}
+          onSelectChecklist={addChecklist}
         />
       )}
 
@@ -327,6 +362,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onSaveEmbed={saveEmbed}
         onSaveMap={saveMap}
         onSaveHighlight={saveHighlight}
+        onSaveChecklist={saveChecklist}
       />
     </JournalAuthorProvider>
   );

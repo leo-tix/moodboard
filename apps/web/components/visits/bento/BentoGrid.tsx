@@ -24,6 +24,7 @@ interface BentoGridProps {
   onSaveText?: (tile: BentoTileData, value: string) => void;
   onPersistText?: (tile: BentoTileData, value: string) => Promise<void>;
   onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
+  onToggleChecklistItem?: (checklistId: string, itemId: string) => void;
   onAutoRows?: (tile: BentoTileData, rows: number) => void;
   onAddClick?: () => void;
 }
@@ -45,6 +46,7 @@ export function BentoGrid({
   onSaveText,
   onPersistText,
   onPersistAudioTranscript,
+  onToggleChecklistItem,
   onAutoRows,
   onAddClick,
 }: BentoGridProps) {
@@ -83,6 +85,7 @@ export function BentoGrid({
             onSaveText={onSaveText}
             onPersistText={onPersistText}
             onPersistAudioTranscript={onPersistAudioTranscript}
+            onToggleChecklistItem={onToggleChecklistItem}
             onAutoRows={onAutoRows}
           />
         ))}

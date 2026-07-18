@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -20,9 +20,10 @@ interface BlockTypeModalProps {
   onSelectEmbed: (kind: "LINK" | "YOUTUBE", url: string) => void;
   onSelectMap: (locationName: string, latitude: number, longitude: number) => void;
   onSelectHighlight: () => void;
+  onSelectChecklist: () => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight }: BlockTypeModalProps) {
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist }: BlockTypeModalProps) {
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP">("menu");
 
   useEffect(() => {
@@ -84,6 +85,9 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
             </BlockSection>
             <BlockSection label="Musée">
               <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
+            </BlockSection>
+            <BlockSection label="Structure">
+              <BlockOption icon={ListChecks} label="Checklist" onClick={onSelectChecklist} />
             </BlockSection>
           </div>
         )}

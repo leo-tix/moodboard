@@ -9,6 +9,7 @@ import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
 import { useJournalAuthor } from "@/components/visits/JournalAuthorContext";
 import { MapTile } from "@/components/visits/bento/MapTile";
 import { HighlightTile } from "@/components/visits/bento/HighlightTile";
+import { ChecklistTile } from "@/components/visits/bento/ChecklistTile";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 export interface ImageNavItem {
@@ -22,6 +23,7 @@ interface TileContentProps {
   /** true = carnet en édition ; false = lecture seule (carnet public, sans session). */
   editable: boolean;
   onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
+  onToggleChecklistItem?: (checklistId: string, itemId: string) => void;
   imageNav?: ImageNavItem[];
 }
 
@@ -30,7 +32,7 @@ interface TileContentProps {
 // est dimensionnée par BentoTile pour tout afficher (auto-hauteur), donc plus
 // de coupe ni de centrage (qui rognait le texte des deux côtés). Le fond des
 // tuiles texte est porté par BentoTile.
-export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav }: TileContentProps) {
+export function TileContent({ tile, editable, onPersistAudioTranscript, onToggleChecklistItem, imageNav }: TileContentProps) {
   const author = useJournalAuthor();
 
   if (tile.content.type === "image") {
@@ -122,6 +124,11 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, imageNav
 
   if (tile.content.type === "highlight") {
     return <HighlightTile content={tile.content} w={tile.w} h={tile.h} />;
+  }
+
+  if (tile.content.type === "checklist") {
+    const c = tile.content;
+    return <ChecklistTile content={c} editable={editable} onToggle={editable && onToggleChecklistItem ? (itemId) => onToggleChecklistItem(c.id, itemId) : undefined} />;
   }
 
   // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)

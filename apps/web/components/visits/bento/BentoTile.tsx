@@ -73,6 +73,7 @@ interface BentoTileProps {
   onSaveText?: (tile: BentoTileData, value: string) => void;
   onPersistText?: (tile: BentoTileData, value: string) => Promise<void>;
   onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
+  onToggleChecklistItem?: (checklistId: string, itemId: string) => void;
   onAutoRows?: (tile: BentoTileData, rows: number) => void;
 }
 
@@ -109,6 +110,7 @@ export function BentoTile({
   onSaveText,
   onPersistText,
   onPersistAudioTranscript,
+  onToggleChecklistItem,
   onAutoRows,
 }: BentoTileProps) {
   const key = tileKey(tile);
@@ -175,7 +177,7 @@ export function BentoTile({
               />
             </div>
           ) : (
-            <TileContent tile={tile} editable={editable} />
+            <TileContent tile={tile} editable={editable} onToggleChecklistItem={onToggleChecklistItem} />
           )}
         </div>
       ) : (
