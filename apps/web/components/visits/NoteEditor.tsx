@@ -43,13 +43,21 @@ interface NoteEditorProps {
   onAutoSave?: (html: string) => Promise<void>;
   placeholder?: string;
   className?: string;
+  /**
+   * Barre d'outils de formatage TOUJOURS visible au-dessus du texte (au lieu
+   * de la barre-bulle au survol + barre mobile ancrée au clavier). Demande
+   * utilisateur 2026-07-18 : "remettre tous les paramètres d'édition de texte
+   * enrichi visibles directement dans la section d'édition". Utilisé par
+   * l'édition inline/pop-up du carnet bento.
+   */
+  showToolbar?: boolean;
 }
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
-export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placeholder, className }: NoteEditorProps) {
+export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placeholder, className, showToolbar = false }: NoteEditorProps) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   // Barre de formatage mobile : affichée quand l'éditeur est focus sur tactile.
   const [focused, setFocused] = useState(false);
@@ -143,9 +151,20 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
 
   return (
     <div className={cn("flex-1 min-w-0 relative", editable ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
+      {/* Barre d'outils persistante (édition du carnet) — tous les contrôles
+          de formatage visibles en continu. */}
+      {editable && showToolbar && (
+        <div
+          className="flex items-center gap-0.5 mb-2 pb-2 border-b border-[var(--border-subtle)] flex-wrap"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <BubbleButtons editor={editor} />
+        </div>
+      )}
+
       {/* Hint façon Notion sur bloc vide en édition — remplace la toolbar
           statique comme point de découverte des types de texte. */}
-      {editable && editor.isEmpty && (
+      {editable && editor.isEmpty && !showToolbar && (
         <span className="pointer-events-none absolute top-0 left-0 text-sm italic text-[var(--text-tertiary)]">
           Écris, ou tape «&nbsp;/&nbsp;» pour insérer un titre ou une liste…
         </span>

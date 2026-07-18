@@ -1,98 +1,264 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DragHandle } from "@/components/ui/DragHandle";
-import { spanClass, tileKey } from "@/lib/visits/bentoSpans";
+import { NoteEditor } from "@/components/visits/NoteEditor";
+import { TitleEditor } from "@/components/visits/TitleEditor";
+import { QuoteEditor } from "@/components/visits/QuoteEditor";
+import { FormatQuickBar } from "@/components/visits/bento/FormatPicker";
 import { TileContent, type ImageNavItem } from "@/components/visits/bento/TileContent";
+import { isTextType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { SortableGrid } from "@/hooks/useSortableGrid";
 import type { BentoTile as BentoTileData } from "@/lib/visits/bentoTypes";
+
+// Mesure le contenu d'une tuile texte et en déduit le nombre de lignes de
+// grille (row-span) nécessaire pour tout afficher, sans jamais couper. La
+// tuile s'étend par paliers entiers : la grille reste intacte (demande
+// utilisateur 2026-07-18). scrollHeight reflète la hauteur naturelle du
+// contenu même si la tuile le rogne (overflow hidden), d'où la convergence.
+function useMeasuredRows(enabled: boolean, initialRows: number, onRows?: (n: number) => void) {
+  const [rows, setRows] = useState(Math.max(1, initialRows));
+  const innerRef = useRef<HTMLDivElement>(null);
+  const tileRef = useRef<HTMLDivElement>(null);
+  const onRowsRef = useRef(onRows);
+  onRowsRef.current = onRows;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  useEffect(() => {
+    if (!enabled) return;
+    const inner = innerRef.current;
+    const tile = tileRef.current;
+    if (!inner || !tile) return;
+    const compute = () => {
+      const grid = tile.parentElement;
+      if (!grid) return;
+      const cs = getComputedStyle(grid);
+      const rowH = parseFloat(cs.gridAutoRows) || 180;
+      const gap = parseFloat(cs.rowGap) || 16;
+      const H = inner.scrollHeight;
+      let n = 1;
+      while (n < 12 && n * rowH + (n - 1) * gap < H - 1) n++;
+      if (n !== rowsRef.current) {
+        rowsRef.current = n;
+        setRows(n);
+        onRowsRef.current?.(n);
+      }
+    };
+    const ro = new ResizeObserver(compute);
+    ro.observe(inner);
+    compute();
+    return () => ro.disconnect();
+  }, [enabled]);
+
+  return { rows, innerRef, tileRef };
+}
 
 interface BentoTileProps {
   tile: BentoTileData;
   editable: boolean;
   sortable?: SortableGrid;
-  /** true si cette tuile est celle actuellement draguée — remplace son contenu par un placeholder vide (même esprit que le ghostBar de l'ancien carnet). */
   isDragging?: boolean;
-  /** true si son panneau d'édition est ouvert — surcouche de sélection (spec §3.1). */
+  /** true si son pop-up de réglages est ouvert — surcouche de sélection. */
   selected?: boolean;
-  onOpenEdit?: () => void;
-  onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
-  /** Images du carnet, transmis à TileContent pour le parcours ←/→ de la visionneuse. */
+  isMobile?: boolean;
   imageNav?: ImageNavItem[];
+  /** true si CE bloc texte est en cours d'édition inline (desktop). */
+  editingInline?: boolean;
+  onSetFormat?: (tile: BentoTileData, w: TileWidth, h: 1 | 2) => void;
+  onOpenSettings?: (tile: BentoTileData) => void;
+  onStartInlineEdit?: (tile: BentoTileData) => void;
+  onEndInlineEdit?: () => void;
+  onSaveText?: (tile: BentoTileData, value: string) => void;
+  onPersistText?: (tile: BentoTileData, value: string) => Promise<void>;
+  onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
+  onAutoRows?: (tile: BentoTileData, rows: number) => void;
 }
 
-// Le clic sur le CORPS de la tuile déclenche l'action naturelle du contenu
-// (ouvrir l'image en grand, suivre le lien, jouer le mémo…). Les types sans
-// action propre ouvrent directement le panneau d'édition — sinon un bloc de
-// texte ne réagirait à aucun clic. Réglages/format/suppression passent
-// TOUJOURS par le bouton dédié, quel que soit le type (audit 2026-07-17).
-const BODY_OPENS_EDIT = new Set<BentoTileData["type"]>(["note", "title", "quote", "map"]);
+// Types dont le clic sur le CORPS déclenche une action d'édition (les autres
+// ont une action propre : image → visionneuse, lien → URL, audio → lecture).
+const BODY_EDITS = new Set<BentoTileData["type"]>(["note", "title", "quote", "map"]);
 
-// "Widget Wrapper" (spec §3.1) — chrome commun à toute tuile : coins
-// arrondis, hover public (translateY + scale), drag, bouton "Modifier".
-// Le contenu réel est délégué à TileContent, identique en édition et en
-// lecture seule.
-export function BentoTile({ tile, editable, sortable, isDragging, selected, onOpenEdit, onPersistAudioTranscript, imageNav }: BentoTileProps) {
+// "Widget Wrapper" (spec §3.1). Chrome commun : coins arrondis, hover public,
+// drag, icônes de format au survol, bouton réglages. Contenu délégué à
+// TileContent, sauf pour un bloc texte en édition inline (éditeur rendu ici).
+export function BentoTile({
+  tile,
+  editable,
+  sortable,
+  isDragging,
+  selected,
+  isMobile,
+  imageNav,
+  editingInline,
+  onSetFormat,
+  onOpenSettings,
+  onStartInlineEdit,
+  onEndInlineEdit,
+  onSaveText,
+  onPersistText,
+  onPersistAudioTranscript,
+  onAutoRows,
+}: BentoTileProps) {
   const key = tileKey(tile);
-  const sortableProps = editable && sortable ? sortable.getContainerProps(key) : {};
-  const bodyOpensEdit = editable && BODY_OPENS_EDIT.has(tile.type);
+  const text = isTextType(tile.type);
+
+  const { rows, innerRef, tileRef } = useMeasuredRows(
+    text,
+    tile.h,
+    onAutoRows ? (n) => onAutoRows(tile, n) : undefined
+  );
+  const effectiveH = text ? rows : tile.h;
+
+  // Pas de drag pendant l'édition inline (Tiptap est un contenteditable, non
+  // exclu par le garde-fou pointerdown de useSortableGrid).
+  const sortableProps = editable && sortable && !editingInline ? sortable.getContainerProps(key) : {};
+
+  const bodyEdits = editable && BODY_EDITS.has(tile.type);
+
+  const handleBodyClick = () => {
+    if (!bodyEdits || editingInline) return;
+    if (sortable?.wasDragging()) return;
+    if (text && !isMobile) onStartInlineEdit?.(tile);
+    else onOpenSettings?.(tile); // texte mobile, ou carte → pop-up central
+  };
 
   return (
     <motion.div
-      layout
+      // Pas d'animation `layout` sur le texte : elle traduit un changement de
+      // hauteur par un scaleY transitoire (le texte « s'écrase » pendant la
+      // transition), très visible quand la tuile grandit à la frappe en
+      // auto-hauteur. Croissance instantanée à la place. Les médias gardent
+      // l'animation (réordonnancement fluide).
+      layout={!text && !editingInline}
+      ref={tileRef}
       {...sortableProps}
+      style={spanStyle(tile.w, effectiveH)}
       className={cn(
-        spanClass(tile.w, tile.h),
         "group/tile relative rounded-[20px] overflow-hidden",
-        editable && "cursor-grab active:cursor-grabbing",
+        text && "bg-[var(--bg-elevated)]",
+        editable && !editingInline && "cursor-grab active:cursor-grabbing",
         !editable && "transition-transform duration-300 ease-out hover:-translate-y-0.5 hover:scale-[1.02]",
         selected && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-base)]"
       )}
-      // Un drag qui se termine sur la tuile ne doit pas déclencher le clic qui
-      // suit (ouverture d'une image, navigation d'un lien…) — même garde que
-      // l'ancien carnet, en capture pour intercepter aussi les <a> internes.
       onClickCapture={(e) => {
         if (sortable?.wasDragging()) {
           e.preventDefault();
           e.stopPropagation();
         }
       }}
-      onClick={() => {
-        if (!bodyOpensEdit) return;
-        if (sortable?.wasDragging()) return;
-        onOpenEdit?.();
-      }}
+      onClick={handleBodyClick}
     >
       {isDragging ? (
         <div className="w-full h-full rounded-[20px] border-2 border-dashed border-[var(--border-default)] bg-[var(--bg-surface)]/60" />
+      ) : text ? (
+        <div ref={innerRef}>
+          {editingInline ? (
+            <div className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+              <InlineTextEditor
+                tile={tile}
+                onSave={(v) => { onSaveText?.(tile, v); onEndInlineEdit?.(); }}
+                onPersist={(v) => onPersistText?.(tile, v) ?? Promise.resolve()}
+              />
+            </div>
+          ) : (
+            <TileContent tile={tile} editable={editable} />
+          )}
+        </div>
       ) : (
-        <TileContent tile={tile} editable={editable} onPersistAudioTranscript={onPersistAudioTranscript} imageNav={imageNav} />
+        <TileContent
+          tile={tile}
+          editable={editable}
+          onPersistAudioTranscript={onPersistAudioTranscript}
+          imageNav={imageNav}
+        />
       )}
 
-      {editable && !isDragging && (
+      {editable && !isDragging && !editingInline && (
         <>
-          {/* Point d'entrée UNIQUE des réglages (format, contenu, suppression).
-              opacity-0 + group-hover ne se déclenche jamais au tactile (pas de
-              survol) — pointer-coarse:opacity-100 le garde visible sur
-              mobile/tablette. */}
+          {/* Icônes de format AU SURVOL (desktop) : clic = format appliqué
+              directement. Masqué au tactile (pas de survol) où le pop-up
+              central via le bouton réglages fait le même travail. */}
+          {onSetFormat && (
+            <div className="absolute top-2 left-2 z-20 opacity-0 group-hover/tile:opacity-100 transition-opacity hidden sm:[@media(hover:hover)]:block">
+              <FormatQuickBar
+                type={tile.type}
+                w={tile.w}
+                h={tile.h}
+                onChange={(w, h) => onSetFormat(tile, w, h)}
+              />
+            </div>
+          )}
+
+          {/* Bouton réglages → pop-up central (formats + champs + suppression).
+              Toujours visible au tactile (pointer-coarse), au survol sinon. */}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenEdit?.(); }}
+            onClick={(e) => { e.stopPropagation(); onOpenSettings?.(tile); }}
             className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm text-white/90 flex items-center justify-center opacity-0 group-hover/tile:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 transition-opacity"
-            title="Modifier la tuile"
-            aria-label="Modifier la tuile"
+            title="Réglages de la tuile"
+            aria-label="Réglages de la tuile"
           >
             <SlidersHorizontal size={14} strokeWidth={2} />
           </button>
 
-          {/* DragHandle est déjà `hidden pointer-coarse:flex` (réservée au
-              tactile — à la souris on saisit le corps de la carte n'importe
-              où, voir useSortableGrid) : pas de hover à ajouter par-dessus. */}
-          <DragHandle {...sortable!.getHandleProps(key)} className="absolute bottom-2 left-2 z-20" title="Glisser pour réordonner" />
+          {sortable && (
+            <DragHandle {...sortable.getHandleProps(key)} className="absolute bottom-2 left-2 z-20" title="Glisser pour réordonner" />
+          )}
         </>
       )}
     </motion.div>
   );
+}
+
+// Éditeur inline pour un bloc texte (desktop). Réutilise les éditeurs
+// existants (déjà éprouvés en inline dans l'ancien carnet) ; onBlur sauvegarde
+// et referme, onAutoSave persiste en continu.
+function InlineTextEditor({
+  tile,
+  onSave,
+  onPersist,
+}: {
+  tile: BentoTileData;
+  onSave: (value: string) => void;
+  onPersist: (value: string) => Promise<void>;
+}) {
+  if (tile.content.type === "note") {
+    return (
+      <NoteEditor
+        content={tile.content.content}
+        editable
+        showToolbar
+        onBlurSave={onSave}
+        onAutoSave={onPersist}
+        placeholder="Écris…"
+      />
+    );
+  }
+  if (tile.content.type === "title") {
+    return (
+      <TitleEditor
+        content={tile.content.content}
+        editable
+        onBlurSave={onSave}
+        onAutoSave={onPersist}
+        placeholder="Titre…"
+      />
+    );
+  }
+  if (tile.content.type === "quote") {
+    return (
+      <QuoteEditor
+        content={tile.content.content}
+        editable
+        onBlurSave={onSave}
+        onAutoSave={onPersist}
+        placeholder="Citation…"
+      />
+    );
+  }
+  return null;
 }

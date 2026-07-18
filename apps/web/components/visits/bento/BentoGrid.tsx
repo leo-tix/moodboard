@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { tileKey } from "@/lib/visits/bentoSpans";
+import { tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import { BentoTile } from "@/components/visits/bento/BentoTile";
 import { TileContent, type ImageNavItem } from "@/components/visits/bento/TileContent";
 import { AddTileButton } from "@/components/visits/bento/AddTileButton";
@@ -12,21 +12,44 @@ interface BentoGridProps {
   tiles: BentoTileData[];
   editable: boolean;
   sortable?: SortableGrid;
-  /** Clé de la tuile dont le panneau d'édition est ouvert (surcouche de sélection). */
+  isMobile?: boolean;
+  /** Clé de la tuile dont le pop-up de réglages est ouvert (surcouche de sélection). */
   selectedKey?: string | null;
-  onOpenEdit?: (tile: BentoTileData) => void;
+  /** Clé du bloc texte en édition inline (desktop). */
+  editingContentKey?: string | null;
+  onSetFormat?: (tile: BentoTileData, w: TileWidth, h: 1 | 2) => void;
+  onOpenSettings?: (tile: BentoTileData) => void;
+  onStartInlineEdit?: (tile: BentoTileData) => void;
+  onEndInlineEdit?: () => void;
+  onSaveText?: (tile: BentoTileData, value: string) => void;
+  onPersistText?: (tile: BentoTileData, value: string) => Promise<void>;
   onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
+  onAutoRows?: (tile: BentoTileData, rows: number) => void;
   onAddClick?: () => void;
 }
 
-// Grille dense façon Bento.me (spec §1.1) : 2 colonnes mobile / 3 tablette /
-// 4 desktop, `grid-auto-flow: dense` comble les trous laissés par les tuiles
-// 2x1/1x2/2x2. Les lignes ont une hauteur fixe par palier (auto-rows) pour
-// que les tuiles 1x1 restent à peu près carrées, comme sur bento.me.
-export function BentoGrid({ tiles, editable, sortable, selectedKey, onOpenEdit, onPersistAudioTranscript, onAddClick }: BentoGridProps) {
+// Grille dense façon Bento.me : 2 colonnes mobile / 3 tablette / 4 desktop,
+// `grid-auto-flow: dense` comble les trous. Les blocs texte s'étendent en
+// hauteur automatiquement (row-span mesuré dans BentoTile).
+export function BentoGrid({
+  tiles,
+  editable,
+  sortable,
+  isMobile,
+  selectedKey,
+  editingContentKey,
+  onSetFormat,
+  onOpenSettings,
+  onStartInlineEdit,
+  onEndInlineEdit,
+  onSaveText,
+  onPersistText,
+  onPersistAudioTranscript,
+  onAutoRows,
+  onAddClick,
+}: BentoGridProps) {
   const draggedTile = sortable?.draggingKey ? tiles.find((t) => tileKey(t) === sortable.draggingKey) : undefined;
 
-  // Parcours ←/→ de la visionneuse limité aux images de CETTE visite.
   const imageNav: ImageNavItem[] = tiles
     .filter((t) => t.content.type === "image")
     .map((t) => {
@@ -39,7 +62,7 @@ export function BentoGrid({ tiles, editable, sortable, selectedKey, onOpenEdit, 
       <div
         className={cn(
           "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6",
-          "[grid-auto-flow:dense] auto-rows-[160px] sm:auto-rows-[180px] lg:auto-rows-[200px]"
+          "[grid-auto-flow:dense] auto-rows-[150px] sm:auto-rows-[170px] lg:auto-rows-[190px]"
         )}
       >
         {tiles.map((tile) => (
@@ -48,29 +71,29 @@ export function BentoGrid({ tiles, editable, sortable, selectedKey, onOpenEdit, 
             tile={tile}
             editable={editable}
             sortable={sortable}
+            isMobile={isMobile}
             isDragging={sortable?.draggingKey === tileKey(tile)}
             selected={selectedKey === tileKey(tile)}
-            onOpenEdit={() => onOpenEdit?.(tile)}
-            onPersistAudioTranscript={onPersistAudioTranscript}
+            editingInline={editingContentKey === tileKey(tile)}
             imageNav={imageNav}
+            onSetFormat={onSetFormat}
+            onOpenSettings={onOpenSettings}
+            onStartInlineEdit={onStartInlineEdit}
+            onEndInlineEdit={onEndInlineEdit}
+            onSaveText={onSaveText}
+            onPersistText={onPersistText}
+            onPersistAudioTranscript={onPersistAudioTranscript}
+            onAutoRows={onAutoRows}
           />
         ))}
       </div>
 
-      {/* Ajout HORS de la grille : en tant que tuile 1x1, `grid-auto-flow:dense`
-          l'aspirait dans le premier trou disponible (donc souvent en haut de
-          carnet, au milieu des blocs — audit 2026-07-17). En bande sous la
-          grille, il reste là où on l'attend et offre une cible bien plus
-          confortable au doigt. */}
       {editable && <AddTileButton onClick={() => onAddClick?.()} />}
 
-      {/* Clone flottant pendant le drag — même contenu que la tuile réelle,
-          agrandi/ombré (spec §2.1). pointer-events-none + position:fixed
-          viennent de useSortableGrid (overlayStyle). */}
       {editable && sortable && (
         <div ref={sortable.overlayRef} style={sortable.overlayStyle}>
           {draggedTile && (
-            <div className="w-full h-full rounded-[20px] overflow-hidden shadow-2xl shadow-black/50">
+            <div className="w-full h-full rounded-[20px] overflow-hidden shadow-2xl shadow-black/50 bg-[var(--bg-elevated)]">
               <TileContent tile={draggedTile} editable={false} />
             </div>
           )}

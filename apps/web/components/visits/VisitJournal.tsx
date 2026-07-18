@@ -3,23 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
-import { EditDrawer } from "@/components/visits/bento/EditDrawer";
+import { TileSettingsModal } from "@/components/visits/bento/TileSettingsModal";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
-import { DEFAULT_SPAN, tileKey, type TileSpan } from "@/lib/visits/bentoSpans";
-import type { BentoTile, JournalTileType } from "@/lib/visits/bentoTypes";
+import { DEFAULT_SPAN, isTextType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
+import type { BentoTile } from "@/lib/visits/bentoTypes";
 
-// ── Carnet de visite — grille modulaire façon Bento.me (2026-07-15) ─────────
-// Remplace l'ancien système de blocs empilés + colonnes par une grille dense
-// à tuiles de format fixe (1x1/2x1/1x2/2x2), drag & drop, poignée de
-// redimensionnement (cycle les formats), édition via panneau latéral
-// (EditDrawer). Voir apps/web/lib/visits/bentoSpans.ts et bentoTypes.ts.
+// ── Carnet de visite — grille modulaire façon Bento.me ──────────────────────
+// Blocs texte : largeur choisie, hauteur automatique (paliers de grille),
+// édition inline (desktop) ou pop-up central (mobile). Médias : 4 formats
+// uniformes. Format via icônes au survol (desktop) / pop-up central (mobile).
 
 interface VisitJournalProps {
   visitId: string;
   initialTiles: BentoTile[];
-  /** Auteur du carnet (photo affichée sur les blocs mémo vocal, alignée sur le design des planches). */
   authorName?: string | null;
   authorImage?: string | null;
 }
@@ -29,25 +27,27 @@ const isEmptyHtml = (html: string) => !html.replace(/<[^>]*>/g, "").trim();
 
 export function VisitJournal({ visitId, initialTiles, authorName, authorImage }: VisitJournalProps) {
   const [tiles, setTiles] = useState<BentoTile[]>(initialTiles);
-  // On mémorise la CLÉ de la tuile en cours d'édition, pas l'objet : le
-  // panneau doit refléter les changements en direct (format, contenu) plutôt
-  // que la copie figée au moment du clic.
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const editingTile = tiles.find((t) => tileKey(t) === editingKey) ?? null;
+  const tilesRef = useRef(tiles);
+  tilesRef.current = tiles;
+
+  const [settingsKey, setSettingsKey] = useState<string | null>(null);
+  const [editingContentKey, setEditingContentKey] = useState<string | null>(null);
+  const settingsTile = tiles.find((t) => tileKey(t) === settingsKey) ?? null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [voiceMemoOpen, setVoiceMemoOpen] = useState(false);
 
-  // Resynchronise si le serveur renvoie de nouvelles données (ex. capture
-  // photo/mémo depuis VisitCaptureFab, qui fait un router.refresh() après
-  // upload plutôt que de manipuler l'état local de ce composant).
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const isFirstSync = useRef(true);
   useEffect(() => {
     setTiles(initialTiles);
-    // Filet de sécurité de buildBentoLayout : un bloc créé hors de ce
-    // composant (FAB, rejeu offline) atterrit en fin de grille avec son
-    // format par défaut, mais SANS entrée dans Visit.journalLayout tant que
-    // personne ne l'a persisté — on l'adopte silencieusement ici pour que le
-    // filet n'ait plus besoin de s'activer au prochain chargement.
     if (isFirstSync.current) { isFirstSync.current = false; return; }
     persistLayout(initialTiles);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -73,11 +73,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         return next;
       });
     },
-    onDrop: () => {
-      // `tiles` a déjà été réordonné en direct par onReorder pendant le
-      // drag — il ne reste qu'à persister l'état final.
-      persistLayout(tiles);
-    },
+    onDrop: () => persistLayout(tilesRef.current),
   });
 
   // ── Création ──────────────────────────────────────────────────────────────
@@ -96,7 +92,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     const next = [...tiles, tile];
     setTiles(next);
     persistLayout(next);
-    setEditingKey(tileKey(tile));
+    // Édition immédiate : inline sur desktop, pop-up central sur mobile.
+    if (isMobile) setSettingsKey(tileKey(tile));
+    else setEditingContentKey(tileKey(tile));
   };
 
   const handleAudioCreated = (created: CreatedAudioBlock) => {
@@ -160,7 +158,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
 
   // ── Suppression ───────────────────────────────────────────────────────────
 
-  const DELETE_ROUTE: Record<Exclude<JournalTileType, "image">, string> = {
+  const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
     note: "notes",
     title: "titles",
     quote: "quotes",
@@ -173,71 +171,58 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     const next = tiles.filter((t) => tileKey(t) !== tileKey(tile));
     setTiles(next);
     persistLayout(next);
-    if (editingKey === tileKey(tile)) setEditingKey(null);
+    if (settingsKey === tileKey(tile)) setSettingsKey(null);
+    if (editingContentKey === tileKey(tile)) setEditingContentKey(null);
     if (tile.type === "image") {
-      // Non destructif : l'image est seulement détachée de la visite et
-      // retourne dans la bibliothèque (voir la route /inspirations/[id]).
       await fetch(`/api/visits/${visitId}/inspirations/${tile.id}`, { method: "DELETE" }).catch(() => {});
     } else {
       await fetch(`/api/visits/${visitId}/${DELETE_ROUTE[tile.type]}/${tile.id}`, { method: "DELETE" }).catch(() => {});
     }
   };
 
-  // ── Format ───────────────────────────────────────────────────────────────
+  // ── Format & auto-hauteur ──────────────────────────────────────────────────
 
-  const setSpan = (tile: BentoTile, span: TileSpan) => {
-    const next = tiles.map((t) => (tileKey(t) === tileKey(tile) ? { ...t, w: span.w, h: span.h } : t));
+  const setFormat = (tile: BentoTile, w: TileWidth, h: 1 | 2) => {
+    const next = tilesRef.current.map((t) =>
+      // Texte : seule la largeur est réglable, la hauteur reste automatique.
+      tileKey(t) === tileKey(tile) ? { ...t, w, h: isTextType(t.type) ? t.h : h } : t
+    );
     setTiles(next);
     persistLayout(next);
   };
 
-  // ── Édition de texte (drawer) ────────────────────────────────────────────
-
-  const patchTileContent = (type: JournalTileType, id: string, patch: Record<string, unknown>) => {
-    setTiles((prev) => prev.map((t) => (t.type === type && t.id === id ? ({ ...t, content: { ...t.content, ...patch } } as BentoTile) : t)));
+  const setAutoRows = (tile: BentoTile, rows: number) => {
+    if (tile.h === rows) return;
+    const next = tilesRef.current.map((t) => (tileKey(t) === tileKey(tile) ? { ...t, h: rows } : t));
+    setTiles(next);
+    persistLayout(next);
   };
 
-  const persistNote = async (id: string, html: string) => {
-    patchTileContent("note", id, { content: html });
-    await fetch(`/api/visits/${visitId}/notes/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: html }) }).catch(() => { throw new Error("save failed"); });
-  };
-  const saveNote = (id: string, html: string) => {
-    if (isEmptyHtml(html)) {
-      const tile = tiles.find((t) => t.type === "note" && t.id === id);
-      if (tile) handleDelete(tile);
-      return;
-    }
-    persistNote(id, html).catch(() => {});
+  // ── Édition de texte ───────────────────────────────────────────────────────
+
+  const patchTileContent = (id: string, patch: Record<string, unknown>) => {
+    setTiles((prev) => prev.map((t) => (t.id === id ? ({ ...t, content: { ...t.content, ...patch } } as BentoTile) : t)));
   };
 
-  const persistTitle = async (id: string, text: string) => {
-    patchTileContent("title", id, { content: text });
-    await fetch(`/api/visits/${visitId}/titles/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text }) }).catch(() => { throw new Error("save failed"); });
-  };
-  const saveTitle = (id: string, text: string) => {
-    if (!text.trim()) {
-      const tile = tiles.find((t) => t.type === "title" && t.id === id);
-      if (tile) handleDelete(tile);
-      return;
-    }
-    persistTitle(id, text).catch(() => {});
+  const persistText = (tile: BentoTile, value: string): Promise<void> => {
+    if (!isTextType(tile.type)) return Promise.resolve();
+    patchTileContent(tile.id, { content: value });
+    const route = TEXT_ROUTE[tile.type as "note" | "title" | "quote"];
+    return fetch(`/api/visits/${visitId}/${route}/${tile.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: value }),
+    }).then((r) => { if (!r.ok) throw new Error("save failed"); });
   };
 
-  const persistQuote = async (id: string, text: string) => {
-    patchTileContent("quote", id, { content: text });
-    await fetch(`/api/visits/${visitId}/quotes/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: text }) }).catch(() => { throw new Error("save failed"); });
-  };
-  const saveQuote = (id: string, text: string) => {
-    if (!text.trim()) {
-      const tile = tiles.find((t) => t.type === "quote" && t.id === id);
-      if (tile) handleDelete(tile);
-      return;
-    }
-    persistQuote(id, text).catch(() => {});
+  const saveText = (tile: BentoTile, value: string) => {
+    const empty = tile.type === "note" ? isEmptyHtml(value) : !value.trim();
+    if (empty) { handleDelete(tile); return; }
+    persistText(tile, value).catch(() => {});
   };
 
   const persistAudioTranscript = async (audioId: string, transcript: string) => {
-    patchTileContent("audio", audioId, { transcript });
+    patchTileContent(audioId, { transcript });
     const res = await fetch(`/api/visits/${visitId}/audio/${audioId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript }) }).catch(() => null);
     if (!res?.ok) throw new Error("save failed");
   };
@@ -245,7 +230,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   const saveImage = (id: string, title: string, author: string, year: string) => {
     const trimmedTitle = title.trim() || "Sans titre";
     const y = year ? parseInt(year, 10) : null;
-    patchTileContent("image", id, { title: trimmedTitle, author: author.trim() || null, year: y });
+    patchTileContent(id, { title: trimmedTitle, author: author.trim() || null, year: y });
     const body: Record<string, unknown> = { title: trimmedTitle };
     if (author.trim()) body.author = author.trim();
     if (y) body.year = y;
@@ -253,21 +238,13 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
   };
 
   const saveEmbed = (id: string, title: string, description: string) => {
-    patchTileContent("embed", id, { title: title.trim() || null, description: description.trim() || null });
-    fetch(`/api/visits/${visitId}/embeds/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: title.trim() || null, description: description.trim() || null }),
-    }).catch(() => {});
+    patchTileContent(id, { title: title.trim() || null, description: description.trim() || null });
+    fetch(`/api/visits/${visitId}/embeds/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, description: description.trim() || null }) }).catch(() => {});
   };
 
   const saveMap = (id: string, locationName: string, latitude: number, longitude: number) => {
-    patchTileContent("map", id, { locationName, latitude, longitude });
-    fetch(`/api/visits/${visitId}/map/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ locationName, latitude, longitude }),
-    }).catch(() => {});
+    patchTileContent(id, { locationName, latitude, longitude });
+    fetch(`/api/visits/${visitId}/map/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locationName, latitude, longitude }) }).catch(() => {});
   };
 
   return (
@@ -276,9 +253,17 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         tiles={tiles}
         editable
         sortable={sortable}
-        selectedKey={editingKey}
-        onOpenEdit={(tile) => setEditingKey(tileKey(tile))}
+        isMobile={isMobile}
+        selectedKey={settingsKey}
+        editingContentKey={editingContentKey}
+        onSetFormat={setFormat}
+        onOpenSettings={(tile) => setSettingsKey(tileKey(tile))}
+        onStartInlineEdit={(tile) => setEditingContentKey(tileKey(tile))}
+        onEndInlineEdit={() => setEditingContentKey(null)}
+        onSaveText={saveText}
+        onPersistText={persistText}
         onPersistAudioTranscript={persistAudioTranscript}
+        onAutoRows={setAutoRows}
         onAddClick={() => setPickerOpen(true)}
       />
 
@@ -300,17 +285,14 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onCreated={handleAudioCreated}
       />
 
-      <EditDrawer
-        tile={editingTile}
-        onClose={() => setEditingKey(null)}
-        onSetSpan={setSpan}
+      <TileSettingsModal
+        tile={settingsTile}
+        isMobile={isMobile}
+        onClose={() => setSettingsKey(null)}
+        onSetFormat={setFormat}
         onDelete={handleDelete}
-        onSaveNote={saveNote}
-        onPersistNote={persistNote}
-        onSaveTitle={saveTitle}
-        onPersistTitle={persistTitle}
-        onSaveQuote={saveQuote}
-        onPersistQuote={persistQuote}
+        onSaveText={saveText}
+        onPersistText={persistText}
         onSaveImage={saveImage}
         onSaveEmbed={saveEmbed}
         onSaveMap={saveMap}

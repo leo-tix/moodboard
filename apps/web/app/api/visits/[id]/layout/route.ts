@@ -9,7 +9,10 @@ const tileSchema = z.object({
   type: z.enum(["image", "note", "title", "quote", "audio", "embed", "map"]),
   id: z.string().min(1),
   w: z.union([z.literal(1), z.literal(2)]),
-  h: z.union([z.literal(1), z.literal(2)]),
+  // Les médias tiennent en 1|2 (format fixe) ; les blocs texte s'étendent en
+  // hauteur automatique par paliers de grille — h peut donc dépasser 2 (borné
+  // à 12 comme garde-fou). Voir apps/web/lib/visits/bentoSpans.ts.
+  h: z.number().int().min(1).max(12),
 });
 
 // PATCH /api/visits/[id]/layout — remplace intégralement Visit.journalLayout.

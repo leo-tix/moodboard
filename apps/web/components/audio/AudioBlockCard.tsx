@@ -24,6 +24,13 @@ export interface AudioBlockCardProps {
       planches, où le mémo est immuable une fois enregistré. */
   editable?: boolean;
   onPersistTranscript?: (text: string) => Promise<void>;
+  /** Afficher la zone transcription/karaoké. `false` (petits formats du
+      carnet) : avatar + waveform + lecture seulement, la waveform récupère
+      toute la place — les mots qui défilent y seraient illisibles (demande
+      utilisateur 2026-07-18). Défaut `true` (planches). */
+  transcriptVisible?: boolean;
+  /** Format compact (tuile 1 ligne) : paddings resserrés pour laisser voir la waveform. */
+  dense?: boolean;
 }
 
 // Carte mémo vocal — dégradé sombre + fin contour, inspirée du "voice
@@ -43,6 +50,8 @@ function AudioBlockCardInner({
   square = false,
   editable = false,
   onPersistTranscript,
+  transcriptVisible = true,
+  dense = false,
 }: AudioBlockCardProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -146,11 +155,10 @@ function AudioBlockCardInner({
   const progress = duration > 0 ? currentTime / duration : 0;
 
   const cleanTranscript = transcript?.trim() || null;
-  // En mode éditable, la zone de transcription reste toujours visible (même
-  // vide, avec un placeholder) pour garder une carte de hauteur stable —
-  // sur les planches (non éditable), elle ne prend de la place que si un
-  // texte existe, et la waveform récupère l'espace libre sinon.
-  const showTranscriptSlot = editable || cleanTranscript;
+  // La zone transcription n'apparaît que si le format l'autorise
+  // (transcriptVisible) ET qu'il y a de quoi l'afficher (édition ou texte
+  // existant). Sinon la waveform récupère toute la place.
+  const showTranscriptSlot = transcriptVisible && (editable || cleanTranscript);
 
   const commitEdit = () => {
     setEditing(false);
@@ -168,7 +176,7 @@ function AudioBlockCardInner({
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
 
       {/* Auteur — avatar + nom, éventuellement un accès édition */}
-      <div className="flex items-center gap-2 px-4 pt-4 pb-1 flex-shrink-0">
+      <div className={cn("flex items-center gap-2 px-4 flex-shrink-0", dense ? "pt-2.5 pb-0.5" : "pt-4 pb-1")}>
         <div className="w-6 h-6 rounded-full overflow-hidden bg-white/10 flex-shrink-0 ring-1 ring-white/10 flex items-center justify-center">
           {authorImage ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -195,7 +203,7 @@ function AudioBlockCardInner({
 
       {/* Waveform — cliquable pour naviguer */}
       <div
-        className={cn("flex-shrink-0 px-4 py-2 cursor-pointer", showTranscriptSlot ? "h-14" : "flex-1 min-h-0")}
+        className={cn("flex-shrink-0 px-4 cursor-pointer", dense ? "py-1" : "py-2", showTranscriptSlot ? "h-14" : "flex-1 min-h-0")}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           seekTo((e.clientX - rect.left) / rect.width);
@@ -249,7 +257,8 @@ function AudioBlockCardInner({
       {/* Transport minimal */}
       <div
         className={cn(
-          "flex items-center gap-3 px-4 py-3 flex-shrink-0",
+          "flex items-center gap-3 px-4 flex-shrink-0",
+          dense ? "py-2" : "py-3",
           showTranscriptSlot && "border-t border-white/[0.06]"
         )}
       >
