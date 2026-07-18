@@ -11,6 +11,7 @@ import { MapTile } from "@/components/visits/bento/MapTile";
 import { HighlightTile } from "@/components/visits/bento/HighlightTile";
 import { ChecklistTile } from "@/components/visits/bento/ChecklistTile";
 import { TimelineTile } from "@/components/visits/bento/TimelineTile";
+import { CartelTile } from "@/components/visits/bento/CartelTile";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 export interface ImageNavItem {
@@ -134,6 +135,10 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
 
   if (tile.content.type === "timeline") {
     return <TimelineTile content={tile.content} />;
+  }
+
+  if (tile.content.type === "cartel") {
+    return <CartelTile content={tile.content} w={tile.w} h={tile.h} />;
   }
 
   // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)

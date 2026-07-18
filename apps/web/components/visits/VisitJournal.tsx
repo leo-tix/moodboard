@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
-import { TileSettingsModal } from "@/components/visits/bento/TileSettingsModal";
+import { TileSettingsModal, type CartelFormValues } from "@/components/visits/bento/TileSettingsModal";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
@@ -216,6 +216,26 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     setSettingsKey(tileKey(tile));
   };
 
+  const addCartel = async () => {
+    setPickerOpen(false);
+    const res = await fetch(`/api/visits/${visitId}/cartel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => null);
+    if (!res?.ok) return;
+    const c = await res.json();
+    const span = DEFAULT_SPAN.cartel;
+    const tile: BentoTile = {
+      type: "cartel", id: c.id, w: span.w, h: span.h,
+      content: { type: "cartel", id: c.id, artworkTitle: c.artworkTitle, artist: c.artist, dateText: c.dateText, medium: c.medium, dimensions: c.dimensions, room: c.room, notes: c.notes, storageKey: c.storageKey, thumbnailKey: c.thumbnailKey, width: c.width, height: c.height },
+    };
+    const next = [...tiles, tile];
+    setTiles(next);
+    persistLayout(next);
+    setSettingsKey(tileKey(tile));
+  };
+
   // ── Suppression ───────────────────────────────────────────────────────────
 
   const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
@@ -326,6 +346,29 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
     fetch(`/api/visits/${visitId}/timeline/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, events }) }).catch(() => {});
   };
 
+  const saveCartel = (id: string, v: CartelFormValues) => {
+    const patch = {
+      artworkTitle: v.artworkTitle,
+      artist: v.artist.trim() || null,
+      dateText: v.dateText.trim() || null,
+      medium: v.medium.trim() || null,
+      dimensions: v.dimensions.trim() || null,
+      room: v.room.trim() || null,
+      notes: v.notes.trim() || null,
+    };
+    patchTileContent(id, patch);
+    fetch(`/api/visits/${visitId}/cartel/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).catch(() => {});
+  };
+
+  const uploadCartelPhoto = async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/visits/${visitId}/cartel/${id}/photo`, { method: "POST", body: fd }).catch(() => null);
+    if (!res?.ok) return;
+    const updated = await res.json();
+    patchTileContent(id, { storageKey: updated.storageKey, thumbnailKey: updated.thumbnailKey, width: updated.width, height: updated.height });
+  };
+
   const toggleChecklistItem = (checklistId: string, itemId: string) => {
     const tile = tilesRef.current.find((t) => t.id === checklistId && t.content.type === "checklist");
     if (!tile || tile.content.type !== "checklist") return;
@@ -365,6 +408,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
           onSelectHighlight={addHighlight}
           onSelectChecklist={addChecklist}
           onSelectTimeline={addTimeline}
+          onSelectCartel={addCartel}
         />
       )}
 
@@ -390,6 +434,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage }:
         onSaveHighlight={saveHighlight}
         onSaveChecklist={saveChecklist}
         onSaveTimeline={saveTimeline}
+        onSaveCartel={saveCartel}
+        onUploadCartelPhoto={uploadCartelPhoto}
       />
     </JournalAuthorProvider>
   );

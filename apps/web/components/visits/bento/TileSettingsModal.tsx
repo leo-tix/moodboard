@@ -1,14 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Trash2, Star, Plus, CheckCircle2, Circle } from "lucide-react";
+import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loader2 } from "lucide-react";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
+import { getThumbnailUrl } from "@/lib/storage/urls";
+import { runCartelOcr, type CartelFields } from "@/lib/visits/cartelOcr";
 import type { BentoTile, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
+
+// Champs éditables d'un cartel (miroir des colonnes texte de VisitCartel).
+export interface CartelFormValues {
+  artworkTitle: string;
+  artist: string;
+  dateText: string;
+  medium: string;
+  dimensions: string;
+  room: string;
+  notes: string;
+}
 
 interface TileSettingsModalProps {
   tile: BentoTile | null;
@@ -24,6 +37,8 @@ interface TileSettingsModalProps {
   onSaveHighlight: (id: string, title: string, rating: number, note: string) => void;
   onSaveChecklist: (id: string, title: string, items: ChecklistItem[]) => void;
   onSaveTimeline: (id: string, title: string, events: TimelineEvent[]) => void;
+  onSaveCartel: (id: string, values: CartelFormValues) => void;
+  onUploadCartelPhoto: (id: string, file: File) => Promise<void>;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -44,6 +59,8 @@ export function TileSettingsModal({
   onSaveHighlight,
   onSaveChecklist,
   onSaveTimeline,
+  onSaveCartel,
+  onUploadCartelPhoto,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -124,6 +141,14 @@ export function TileSettingsModal({
               )}
               {tile.content.type === "timeline" && (
                 <TimelineForm key={tile.id} title={tile.content.title ?? ""} events={tile.content.events} onSave={(t, events) => onSaveTimeline(tile.id, t, events)} />
+              )}
+              {tile.content.type === "cartel" && (
+                <CartelForm
+                  key={tile.id}
+                  content={tile.content}
+                  onSave={(v) => onSaveCartel(tile.id, v)}
+                  onUploadPhoto={(file) => onUploadCartelPhoto(tile.id, file)}
+                />
               )}
             </div>
 
@@ -302,6 +327,103 @@ function TimelineForm({ title, events, onSave }: { title: string; events: Timeli
       <button type="button" onClick={addEvent} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
         <Plus size={14} strokeWidth={2} /> Ajouter un jalon
       </button>
+    </div>
+  );
+}
+
+function CartelForm({
+  content,
+  onSave,
+  onUploadPhoto,
+}: {
+  content: Extract<BentoTile["content"], { type: "cartel" }>;
+  onSave: (values: CartelFormValues) => void;
+  onUploadPhoto: (file: File) => Promise<void>;
+}) {
+  const [v, setV] = useState<CartelFormValues>({
+    artworkTitle: content.artworkTitle ?? "",
+    artist: content.artist ?? "",
+    dateText: content.dateText ?? "",
+    medium: content.medium ?? "",
+    dimensions: content.dimensions ?? "",
+    room: content.room ?? "",
+    notes: content.notes ?? "",
+  });
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [pct, setPct] = useState(0);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const set = (k: keyof CartelFormValues, val: string) => setV((p) => ({ ...p, [k]: val }));
+
+  const applyOcr = (f: CartelFields) => {
+    setV((prev) => {
+      const next: CartelFormValues = {
+        ...prev,
+        artworkTitle: f.artworkTitle || prev.artworkTitle,
+        artist: f.artist || prev.artist,
+        dateText: f.dateText || prev.dateText,
+        medium: f.medium || prev.medium,
+        dimensions: f.dimensions || prev.dimensions,
+      };
+      onSave(next);
+      return next;
+    });
+  };
+
+  const onScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setOcrBusy(true);
+    setPct(0);
+    try {
+      const { fields } = await runCartelOcr(file, setPct);
+      applyOcr(fields);
+    } catch {
+      /* OCR indisponible → saisie manuelle */
+    }
+    setOcrBusy(false);
+    setPhotoBusy(true);
+    try { await onUploadPhoto(file); } catch { /* upload échoué */ }
+    setPhotoBusy(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Aperçu photo + scan */}
+      <div className="flex items-center gap-3">
+        {content.thumbnailKey ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={getThumbnailUrl(content.thumbnailKey)} alt="" className="w-14 h-14 rounded-lg object-cover border border-[var(--border-subtle)] flex-shrink-0" />
+        ) : (
+          <div className="w-14 h-14 rounded-lg bg-[var(--bg-base)] border border-dashed border-[var(--border-default)] flex items-center justify-center flex-shrink-0">
+            <ImagePlus size={18} className="text-[var(--text-tertiary)]" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={ocrBusy || photoBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
+          >
+            {ocrBusy ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} strokeWidth={2} />}
+            {ocrBusy ? `Lecture… ${pct}%` : photoBusy ? "Envoi…" : "Scanner un cartel"}
+          </button>
+          <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">Photographie le cartel : les champs se pré-remplissent.</p>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onScan} className="hidden" />
+      </div>
+
+      <Field label="Titre de l'œuvre"><input value={v.artworkTitle} onChange={(e) => set("artworkTitle", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
+      <Field label="Artiste"><input value={v.artist} onChange={(e) => set("artist", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Date"><input value={v.dateText} onChange={(e) => set("dateText", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="1503-1519" /></Field>
+        <Field label="Dimensions"><input value={v.dimensions} onChange={(e) => set("dimensions", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="77 × 53 cm" /></Field>
+      </div>
+      <Field label="Technique"><input value={v.medium} onChange={(e) => set("medium", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="Huile sur toile" /></Field>
+      <Field label="Salle / section"><input value={v.room} onChange={(e) => set("room", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
+      <Field label="Notes"><textarea value={v.notes} onChange={(e) => set("notes", e.target.value)} onBlur={() => onSave(v)} rows={2} className={inputClass} /></Field>
     </div>
   );
 }
