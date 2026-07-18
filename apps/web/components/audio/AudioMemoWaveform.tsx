@@ -62,7 +62,12 @@ export function AudioMemoWaveform({ peaks, progress, playing, className }: Audio
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
-    window.addEventListener("resize", resize);
+    // Le canvas change de taille quand la tuile change de format (1x1 → 2x2…)
+    // ou au chargement des polices — sans resync la mémoire de dessin reste à
+    // l'ancienne taille et la waveform apparaît compressée / dédoublée
+    // (bug constaté 2026-07-18). ResizeObserver couvre tous ces cas.
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
 
     const roundBar = (x: number, y: number, w: number, h: number) => {
       const r = Math.min(w / 2, h / 2);
@@ -105,7 +110,13 @@ export function AudioMemoWaveform({ peaks, progress, playing, className }: Audio
         const target = Math.min(1, base * (1 + pulse * 0.7));
         heights[i] += (target - heights[i]) * (target > heights[i] ? 0.5 : 0.15);
         if (pulse > 0.3) pulseLevel = Math.max(pulseLevel, heights[i]);
-        const bh = Math.max(2, heights[i] * (h * 0.92));
+        // Hauteur de barre bornée : dans un conteneur haut (tuile format
+        // vertical/grand) `h * 0.92` produisait des barres démesurées façon
+        // fils (bug 2026-07-18). On plafonne la bande dessinée et on la centre
+        // (mid = h/2), pour une waveform d'aspect constant quel que soit le
+        // format de la tuile.
+        const band = Math.min(h * 0.92, 68);
+        const bh = Math.max(2, heights[i] * band);
         bars.push({ x: i * (barW + gap), bh, played: i / N < progressNow });
       }
 
@@ -139,7 +150,7 @@ export function AudioMemoWaveform({ peaks, progress, playing, className }: Audio
     return () => {
       stopped = true;
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
+      ro.disconnect();
     };
   }, []);
 

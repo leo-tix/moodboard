@@ -201,15 +201,21 @@ function AudioBlockCardInner({
         )}
       </div>
 
-      {/* Waveform — cliquable pour naviguer */}
-      <div
-        className={cn("flex-shrink-0 px-4 cursor-pointer", dense ? "py-1" : "py-2", showTranscriptSlot ? "h-14" : "flex-1 min-h-0")}
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          seekTo((e.clientX - rect.left) / rect.width);
-        }}
-      >
-        <AudioMemoWaveform peaks={peaks} progress={progress} playing={playing} className="w-full h-full" />
+      {/* Waveform — bande de HAUTEUR FIXE, centrée verticalement dans l'espace
+          disponible. Auparavant `flex-1` sans transcription : la waveform
+          s'étirait sur toute la hauteur (barres façon fils en format vertical,
+          bug 2026-07-18). Désormais une bande constante quel que soit le
+          format ; l'espace restant est neutre. */}
+      <div className={cn("px-4 flex items-center", showTranscriptSlot ? "flex-shrink-0" : "flex-1 min-h-0")}>
+        <div
+          className={cn("w-full cursor-pointer", dense ? "h-12" : "h-14")}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            seekTo((e.clientX - rect.left) / rect.width);
+          }}
+        >
+          <AudioMemoWaveform peaks={peaks} progress={progress} playing={playing} className="w-full h-full" />
+        </div>
       </div>
 
       {/* Transcription "karaoke" — le mot en cours de lecture se détache

@@ -191,21 +191,24 @@ export function BentoTile({
             </div>
           )}
 
-          {/* Bouton réglages → pop-up central (formats + champs + suppression).
-              Toujours visible au tactile (pointer-coarse), au survol sinon. */}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenSettings?.(tile); }}
-            className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm text-white/90 flex items-center justify-center opacity-0 group-hover/tile:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 transition-opacity"
-            title="Réglages de la tuile"
-            aria-label="Réglages de la tuile"
-          >
-            <SlidersHorizontal size={14} strokeWidth={2} />
-          </button>
-
-          {sortable && (
-            <DragHandle {...sortable.getHandleProps(key)} className="absolute bottom-2 left-2 z-20" title="Glisser pour réordonner" />
-          )}
+          {/* Contrôles groupés EN HAUT À DROITE : poignée de drag (tactile) +
+              réglages. Regroupés ici pour ne pas chevaucher le contenu — la
+              poignée était auparavant en bas à gauche, pile sur le bouton
+              lecture de la carte mémo vocal (bug 2026-07-18). */}
+          <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
+            {sortable && (
+              <DragHandle {...sortable.getHandleProps(key)} title="Glisser pour réordonner" />
+            )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onOpenSettings?.(tile); }}
+              className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-sm text-white/90 flex items-center justify-center opacity-0 group-hover/tile:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 transition-opacity"
+              title="Réglages de la tuile"
+              aria-label="Réglages de la tuile"
+            >
+              <SlidersHorizontal size={14} strokeWidth={2} />
+            </button>
+          </div>
         </>
       )}
     </motion.div>
