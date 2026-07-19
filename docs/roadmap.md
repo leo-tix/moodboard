@@ -617,6 +617,55 @@ traitement en arrière-plan) — même stack transformers.js locale, feature sé
 
 ---
 
+## 10. Couche sociale : connexions, profils, visibilité, messagerie, feed (✅ 2026-07-20)
+
+Transformation du produit mono-propriétaire en **réseau entre membres de
+l'instance**. Livré en 4 phases (plan détaillé validé dans le fichier de plan).
+Toutes les migrations `prisma db push` autorisées d'avance par l'utilisateur.
+
+**Phase 1 — Profils + connexions.** `User.username` (@handle unique) + `User.bio` ;
+model `Connection` (mutuelle, demande→acceptation, auto-accept si demande inverse).
+Helpers `lib/access/connections.ts` (getConnectionIds, areConnected, relationStatus).
+API `/api/connections`, `/api/members`, `/api/account/username`. Pages `/u/[username]`
+(profil + bouton connexion à états) et `/reseau` (recherche + demandes + connexions).
+
+**Phase 2 — Visibilité + ACL.** `Visibility` (PRIVATE défaut / CONNECTIONS / PUBLIC)
+sur Moodboard/Visit/Collection ; `ResourceGrant` polymorphe (rôles VIEWER/EDITOR,
+pas de FK → cleanup applicatif au DELETE). `lib/access/resolve.ts` : `resolveAccess`
+(owner>grant>public>connexions, non-accès=404), `accessibleWhere(ForOwner)`. API
+`/api/share/[resource]/[id]` + `/grants`. Panneau **ShareButton** (visibilité +
+personnes/rôles + envoi en message) sur les 3 ressources. Profil liste les
+ressources accessibles. **Planches : lecture partagée (visionneuse) + co-édition
+(grant Éditeur → PATCH canvasData autorisé).**
+
+**Phase 3 — Messagerie.** `Conversation` (paire canonique, status PENDING/ACTIVE,
+initiator) + `Message` (texte + réf ressource/image + readAt). Entre connexions →
+ACTIVE ; sinon PENDING (demande) jusqu'à réponse. API `/api/conversations(+/[id]
++/messages)` avec contrôle d'accès sur le contenu partagé. Page `/messages`
+(inbox non-lus + fil + composeur + bannière demande), bouton « Message » sur le
+profil, « Envoyer » une ressource depuis ShareButton.
+
+**Phase 4 — Feed + notifications.** `/feed` = ressources récentes des autres
+membres accessibles (`accessibleWhere`, byline auteur). Pastilles nav `SocialBadge`
+(poll 30s) : demandes entrantes (Réseau), messages non lus (Messagerie), somme sur
+« Plus » mobile. Entrées nav Réseau / Messagerie / Fil (Sidebar + BottomNav).
+
+**Vérif** : tests DB dédiés — connexions 12/12, résolution d'accès 10/10,
+messagerie 9/9 — + flux authentifiés live (connect, partage visibilité, envoi
+message, feed). tsc propre à chaque phase.
+
+**Reste à faire (suivi explicite, noté dans les commits)** :
+- **Ouverture par un tiers + co-édition des VISITES et COLLECTIONS** (leurs pages
+  détail restent owner-only ; seules les planches sont partagées en lecture/édition).
+  Sur le profil/feed, les cartes visite/collection tierces ne sont pas cliquables.
+- **Envoi d'IMAGE en message** depuis la visionneuse (le schéma `Message.sharedImageId`
+  est prêt et rendu dans le fil ; il manque l'entrée UI côté visionneuse).
+- Dédup des deux boutons « Partager » de l'éditeur de planche (token vs membres).
+- Auto-inscription ouverte, public web anonyme, likes/commentaires, temps réel :
+  hors périmètre (voir le plan).
+
+---
+
 ## Notes d'implémentation générales
 
 - Le schéma est déjà multi-profils (migration 2026-07-09) — toute feature
