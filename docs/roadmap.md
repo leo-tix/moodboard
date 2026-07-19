@@ -563,6 +563,60 @@ rendu depuis la base.
 
 ---
 
+## 9. Suggestions IA locales sur les images (✅ 2026-07-18 → 07-20)
+
+Analyse d'image **100 % dans le navigateur** (aucune API externe, aucune image
+envoyée) qui propose **titre + catégories + tags** à valider. Panneau
+`AiSuggestPanel` dans le **triage** et la **visionneuse** (`MetadataPanel`), plus
+un **toggle « auto »** dans le panneau d'upload (`AiAutoSuggestToggle`,
+localStorage `mb-ai-autosuggest`) — l'utilisateur clique ce qu'il garde.
+
+**Moteur — SigLIP zero-shot** (`Xenova/siglip-base-patch16-224`, transformers.js
+4.2, WASM). Astuce clé : le vocabulaire est FIXE, donc ses embeddings TEXTE sont
+**pré-calculés offline** (`lib/ai/siglipTextEmbeds.json`, 232 vecteurs × 768,
+base64 Float32) avec **ensembling de 3 gabarits** moyennés. Au runtime on ne
+charge QUE l'encodeur d'IMAGE (`SiglipVisionModel`, en Web Worker
+`vision.worker.ts`, repli thread principal) → chaque image = un encodage +
+un produit scalaire. `pooler_output` (vision) = embedding image ;
+`SiglipTextModel.pooler_output` == `text_embeds` (le pooler EST la projection).
+
+**Fichiers** (`apps/web/lib/ai/`) :
+- `imageVocab.data.mjs` — SOURCE UNIQUE du vocabulaire (JS pur, partagé
+  app/générateur/tests) : ~33 catégories + ~15 dimensions de tags (couleur,
+  teinte, technique, composition, cadrage, sujet, matière, lumière, ambiance,
+  style, époque, **typo à 22 tags**), `flatConcepts()` (ordre canonique =
+  contrat avec les embeds), `PROMPT_TEMPLATES`, `siglipText()`.
+- `imageVocab.ts` — façade TYPÉE au-dessus du `.mjs`.
+- `imageMap.mjs` — logique PURE `mapScores(scores)` → `{categories, tags,
+  titles}`. **z-score par image = confiance adaptative** ; titres à seuils par
+  rôle (`Z_SUBJECT 1.9`, `Z_TECH 1.2`, `Z_LUM 1.3`, `Z_TYPO 1.0`, `Z_QUAL 0.5`) ;
+  anti-doublon par radical ; garantie de présence du meilleur tag typo.
+- `siglipEmbeds.ts` (`scoreImageEmbedding`) + `vision.worker.ts`.
+
+**Régénérer les embeddings** (après modif du vocab) : le Node local n'a **PAS**
+accès à huggingface.co ici → générer DANS LE NAVIGATEUR via une page dev jetable
+(`SiglipTextModel` → ensemble → base64 **par paquets de 8192** sinon stack
+overflow → POST vers une route qui écrit le JSON), puis supprimer page+route.
+Détail dans la mémoire `reference_ai_image_embeds`.
+
+**Qualité / limites** (validé sur images réelles de la bibliothèque) :
+- Fiable : couleur, lumière (clair-obscur/néon), style (vaporwave/bauhaus/pop
+  art), **typographie** (serif/display/monospace/graffiti/logo, catégorie
+  Typographie), rendus 3D **isolés** (Noodles → 3D + Animation 3D).
+- Resserré : « nature morte » limité à la vraie nature morte peinte/photo → ne
+  se déclenche plus sur les rendus 3D d'objets.
+- **Limite de modèle assumée** : sur les **collages 3D chargés/multicolores**
+  (aplats fluo), SigLIP-base lit riso/collage/memphis — « 3D » ne monte même pas
+  dans le top-8 technique, non corrigeable par prompt. Franchir ce plafond
+  demanderait un modèle plus lourd (SigLIP-large / Florence-2 / Moondream, 500 Mo–
+  1 Go+) — écarté pour rester « local léger ». L'utilisateur ajoute « 3D » à la
+  main sur ces cas (l'indice « plastique » sort quand même).
+
+Voir aussi le mémo vocal (Whisper `whisper-base_timestamped`, karaoké mot-à-mot,
+traitement en arrière-plan) — même stack transformers.js locale, feature séparée.
+
+---
+
 ## Notes d'implémentation générales
 
 - Le schéma est déjà multi-profils (migration 2026-07-09) — toute feature
