@@ -16,6 +16,8 @@ export interface CategorySuggestion {
 export interface TagSuggestion {
   label: string;
   score: number;
+  /** Dimension sémantique (sujet, couleur, composition…) — sert à composer les titres. */
+  group: string;
 }
 export interface ImageAnalysis {
   categories: CategorySuggestion[];
@@ -58,15 +60,24 @@ function softmaxGroup(scored: Scored[]): Scored[] {
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
+  // Meilleur tag de chaque dimension → composition d'un descriptif français.
+  const top = (g: string) => tags.find((t) => t.group === g)?.label;
+  const subj = top("sujet");
+  const col = top("couleur");
+  const comp = top("composition");
+  const tech = top("technique");
   const sub = categories[0]?.subcategory;
-  const t0 = tags[0]?.label;
-  const t1 = tags[1]?.label;
   const out: string[] = [];
-  if (sub && t0) out.push(`${cap(sub)} ${t0}`);
+  // 1) Descriptif riche : sujet + couleur + composition (ce qui existe).
+  const desc = [subj, col, comp].filter(Boolean);
+  if (desc.length >= 2) out.push(cap(desc.join(" ")));
+  // 2) Angle technique : « Photographie — intérieur ».
+  if (tech && subj) out.push(`${cap(tech)} — ${subj}`);
+  // 3) Sous-catégorie + 1er tag.
+  if (sub && tags[0]) out.push(`${cap(sub)} ${tags[0].label}`);
+  // 4) Replis simples.
   if (sub) out.push(cap(sub));
-  if (t0 && t1) out.push(`${cap(t0)}, ${t1}`);
-  if (t0 && !sub) out.push(cap(t0));
-  // Dédup en préservant l'ordre, max 3.
+  if (subj) out.push(cap(subj));
   return [...new Set(out.filter(Boolean))].slice(0, 3);
 }
 
@@ -92,7 +103,7 @@ function mapResult(raw: Record<string, Scored[]>): ImageAnalysis {
     (result[key] ?? [])
       .map((r) => {
         const t = byTagPrompt.get(r.label);
-        return t ? { label: t.label, score: r.score } : null;
+        return t ? { label: t.label, score: r.score, group: key.replace("tag:", "") } : null;
       })
       .filter((x): x is TagSuggestion => x !== null && x.score >= MIN_TAG_SCORE)
       .sort((a, b) => b.score - a.score)
@@ -187,18 +198,61 @@ async function analyzeOnMainThread(imageUrl: string, onProgress?: (p: AnalysisPr
   return mapResult(result);
 }
 
-/** Analyse une image (URL publique) et retourne des suggestions de catégories/tags. */
-export async function analyzeImage(imageUrl: string, onProgress?: (p: AnalysisProgress) => void): Promise<ImageAnalysis> {
+// La visionneuse affiche l'image via un <img> SANS crossorigin → le navigateur
+// met en cache une réponse OPAQUE. Un fetch par défaut de la même URL réutilise
+// cette entrée opaque → échec CORS « Failed to fetch » (retour 2026-07-19
+// « échoue dans la visionneuse »). Une query unique force une VRAIE requête CORS
+// (entrée de cache distincte), qui récupère bien les en-têtes CORS de R2.
+function withCorsBust(url: string): string {
+  return url + (url.includes("?") ? "&" : "?") + "mbai=1";
+}
+
+async function runAnalysis(imageUrl: string, onProgress?: (p: AnalysisProgress) => void): Promise<ImageAnalysis> {
+  const fetchUrl = withCorsBust(imageUrl);
   const w = getWorker();
   if (w) {
     try {
-      return await analyzeInWorker(w, imageUrl, onProgress);
+      return await analyzeInWorker(w, fetchUrl, onProgress);
     } catch {
       workerUnavailable = true;
       try { worker?.terminate(); } catch { /* déjà mort */ }
       worker = null;
-      return analyzeOnMainThread(imageUrl, onProgress);
+      return analyzeOnMainThread(fetchUrl, onProgress);
     }
   }
-  return analyzeOnMainThread(imageUrl, onProgress);
+  return analyzeOnMainThread(fetchUrl, onProgress);
+}
+
+// SÉRIALISATION : le modèle CLIP (session ONNX) n'est PAS ré-entrant — deux
+// `model()` concurrents le corrompent. Or la visionneuse monte DEUX panneaux
+// (feuille mobile + colonne desktop) qui lancent l'analyse en même temps
+// (retour 2026-07-19 « échoue dans la visionneuse »). On enchaîne donc les
+// analyses, et on met en cache le résultat par URL → le 2e panneau réutilise
+// le 1er instantanément (même image), sans 2e inférence.
+const analysisCache = new Map<string, ImageAnalysis>();
+let analysisChain: Promise<unknown> = Promise.resolve();
+
+/** Analyse une image (URL publique) et retourne des suggestions de catégories/tags. */
+export function analyzeImage(imageUrl: string, onProgress?: (p: AnalysisProgress) => void): Promise<ImageAnalysis> {
+  const next = analysisChain.then(
+    async () => {
+      const cached = analysisCache.get(imageUrl);
+      if (cached) return cached;
+      const res = await runAnalysis(imageUrl, onProgress);
+      analysisCache.set(imageUrl, res);
+      return res;
+    },
+    async () => {
+      // Le maillon précédent a échoué — on tente quand même celui-ci.
+      const cached = analysisCache.get(imageUrl);
+      if (cached) return cached;
+      const res = await runAnalysis(imageUrl, onProgress);
+      analysisCache.set(imageUrl, res);
+      return res;
+    },
+  );
+  // La chaîne ne doit jamais rester en rejet (sinon tous les suivants tombent
+  // dans le 2e callback en boucle) — on l'assainit.
+  analysisChain = next.catch(() => {});
+  return next;
 }

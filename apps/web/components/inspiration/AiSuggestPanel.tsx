@@ -40,7 +40,8 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentC
     setProgress({ phase: "classifying" });
     try {
       setResult(await analyzeImage(url, setProgress));
-    } catch {
+    } catch (e) {
+      console.error("[AI SUGGEST]", e);
       setError("Analyse impossible sur cet appareil.");
     } finally {
       setProgress(null);
