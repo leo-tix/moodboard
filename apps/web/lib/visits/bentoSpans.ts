@@ -45,7 +45,9 @@ export interface JournalTile {
 
 // Types à hauteur automatique (largeur choisie, hauteur mesurée). Leur contenu
 // est de longueur variable → on les laisse s'étendre par paliers de grille.
-const AUTO_HEIGHT_TYPES = new Set<JournalTileType>(["note", "checklist", "timeline"]);
+// `cartel` en fait partie (2026-07-19) : une longue description/notes doit
+// rester entièrement lisible, comme le module texte.
+const AUTO_HEIGHT_TYPES = new Set<JournalTileType>(["note", "checklist", "timeline", "cartel"]);
 
 export function isAutoHeight(type: JournalTileType): boolean {
   return AUTO_HEIGHT_TYPES.has(type);
@@ -91,7 +93,7 @@ export const DEFAULT_SPAN: Record<JournalTileType, TileSpan> = {
   audio: { w: 1, h: 1 },
   embed: { w: 2, h: 2 },
   map: { w: 2, h: 1 },
-  cartel: { w: 1, h: 2 },
+  cartel: { w: 1, h: 1 },
   palette: { w: 2, h: 1 },
   ticket: { w: 2, h: 1 },
   sketch: { w: 1, h: 1 },

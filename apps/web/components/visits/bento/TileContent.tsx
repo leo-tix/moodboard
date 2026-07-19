@@ -141,7 +141,7 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
   }
 
   if (tile.content.type === "cartel") {
-    return <CartelTile content={tile.content} w={tile.w} h={tile.h} />;
+    return <CartelTile content={tile.content} />;
   }
 
   if (tile.content.type === "ticket") {

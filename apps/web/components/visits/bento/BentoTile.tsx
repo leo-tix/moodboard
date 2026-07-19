@@ -17,7 +17,10 @@ import type { BentoTile as BentoTileData } from "@/lib/visits/bentoTypes";
 // tuile s'étend par paliers entiers : la grille reste intacte (demande
 // utilisateur 2026-07-18). scrollHeight reflète la hauteur naturelle du
 // contenu même si la tuile le rogne (overflow hidden), d'où la convergence.
-function useMeasuredRows(enabled: boolean, initialRows: number, onRows?: (n: number) => void) {
+// `signal` : quand le CONTENU change (ex. notes du cartel éditées via le
+// pop-up, texte collé), on force un recalcul — le ResizeObserver seul ne
+// rattrape pas toujours un changement de hauteur « d'un bloc » (2026-07-19).
+function useMeasuredRows(enabled: boolean, initialRows: number, onRows?: (n: number) => void, signal?: unknown) {
   const [rows, setRows] = useState(Math.max(1, initialRows));
   const innerRef = useRef<HTMLDivElement>(null);
   const tileRef = useRef<HTMLDivElement>(null);
@@ -48,9 +51,11 @@ function useMeasuredRows(enabled: boolean, initialRows: number, onRows?: (n: num
     };
     const ro = new ResizeObserver(compute);
     ro.observe(inner);
+    // Deux frames pour laisser le DOM se peindre après un changement de contenu.
     compute();
-    return () => ro.disconnect();
-  }, [enabled]);
+    const raf = requestAnimationFrame(compute);
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+  }, [enabled, signal]);
 
   return { rows, innerRef, tileRef };
 }
@@ -121,7 +126,9 @@ export function BentoTile({
   const { rows, innerRef, tileRef } = useMeasuredRows(
     autoHeight,
     tile.h,
-    onAutoRows ? (n) => onAutoRows(tile, n) : undefined
+    onAutoRows ? (n) => onAutoRows(tile, n) : undefined,
+    // Recalcule dès que le contenu change (notes cartel éditées, texte, items…).
+    autoHeight ? JSON.stringify(tile.content) : null
   );
   const effectiveH = autoHeight ? rows : tile.h;
 
