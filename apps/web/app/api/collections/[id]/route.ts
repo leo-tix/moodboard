@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { deleteGrantsFor } from "@/lib/access/resolve";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -71,5 +72,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const { id } = await params;
   const res = await db.collection.deleteMany({ where: { id, userId: session.user.id } });
   if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  await deleteGrantsFor("COLLECTION", id); // ACL polymorphe : pas de cascade DB
   return NextResponse.json({ success: true });
 }

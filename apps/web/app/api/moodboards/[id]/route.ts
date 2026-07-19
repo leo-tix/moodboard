@@ -2,22 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { deleteFromR2 } from "@/lib/storage/r2";
+import { resolveAccess, canEdit, canView, deleteGrantsFor } from "@/lib/access/resolve";
 
 interface Params { params: Promise<{ id: string }> }
 
-// GET /api/moodboards/[id]
+// GET /api/moodboards/[id] — accessible à quiconque a un accès (lecture partagée).
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id } = await params;
-  const moodboard = await db.moodboard.findFirst({ where: { id, userId: session.user.id } });
+  if (!canView(await resolveAccess("MOODBOARD", id, session.user.id))) {
+    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  }
+  const moodboard = await db.moodboard.findUnique({ where: { id } });
   if (!moodboard) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
-
   return NextResponse.json(moodboard);
 }
 
-// PATCH /api/moodboards/[id]
+// PATCH /api/moodboards/[id] — propriétaire OU éditeur (co-édition planche).
 export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -25,11 +28,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const body = await req.json();
 
-  const owned = await db.moodboard.findFirst({
-    where: { id, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!canEdit(await resolveAccess("MOODBOARD", id, session.user.id))) {
+    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  }
 
   const data: Record<string, unknown> = {};
   if (body.title !== undefined) data.title = body.title;
@@ -59,6 +60,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const res = await db.moodboard.deleteMany({ where: { id, userId: session.user.id } });
   if (res.count === 0) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
+  await deleteGrantsFor("MOODBOARD", id); // ACL polymorphe : pas de cascade DB
   await Promise.allSettled(audioClips.map((a) => deleteFromR2(a.storageKey)));
   return NextResponse.json({ ok: true });
 }

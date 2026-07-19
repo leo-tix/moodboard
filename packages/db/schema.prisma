@@ -50,6 +50,7 @@ model User {
   // Graphe social (connexions mutuelles) — back-relations des deux côtés.
   connectionsRequested Connection[] @relation("ConnReq")
   connectionsReceived  Connection[] @relation("ConnAdr")
+  grants               ResourceGrant[]
 
   @@map("users")
 }
@@ -82,6 +83,46 @@ model Connection {
   @@index([addresseeId, status])
   @@index([requesterId, status])
   @@map("connections")
+}
+
+// ============================================================
+// VISIBILITÉ + PARTAGE EXPLICITE (ACL) — planches / visites / collections
+// ============================================================
+// PRIVATE (défaut) = propriétaire seul · CONNECTIONS = ses connexions ·
+// PUBLIC = tous les membres connectés de l'instance. Par-dessus, ResourceGrant
+// donne un accès nominatif (Lecteur/Éditeur) même si la ressource est PRIVATE.
+enum Visibility {
+  PRIVATE
+  CONNECTIONS
+  PUBLIC
+}
+
+enum GrantRole {
+  VIEWER
+  EDITOR
+}
+
+enum GrantResource {
+  MOODBOARD
+  VISIT
+  COLLECTION
+}
+
+model ResourceGrant {
+  id         String        @id @default(cuid())
+  // Polymorphe : pas de FK vers la table ressource (Prisma ne le permet pas) →
+  // les grants sont supprimés côté app quand la ressource est supprimée.
+  resource   GrantResource
+  resourceId String
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       GrantRole     @default(VIEWER)
+  createdAt  DateTime      @default(now())
+
+  @@unique([resource, resourceId, userId])
+  @@index([userId])
+  @@index([resource, resourceId])
+  @@map("resource_grants")
 }
 
 model ApiToken {
@@ -246,6 +287,8 @@ model Visit {
   // (non partagé) ; posé/révoqué via /api/visits/[id]/share.
   shareToken   String?       @unique
   shareExpiry  DateTime?
+  // Visibilité entre membres (orthogonale au lien-token public /carnet).
+  visibility   Visibility    @default(PRIVATE)
   // Couverture personnalisée : clé R2 d'UNE image (choisie parmi la visite ou
   // importée) affichée en couverture fixe. Null = carrousel des images par
   // défaut (2026-07-19).
@@ -676,7 +719,10 @@ model Collection {
   name           String
   description    String?
   coverImageKey  String?
+  // Déprécié au profit de `visibility` (migré isPublic=true → PUBLIC). Conservé
+  // le temps de valider, retrait dans un cleanup ultérieur.
   isPublic       Boolean         @default(false)
+  visibility     Visibility      @default(PRIVATE)
   order          Int             @default(0)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -769,6 +815,8 @@ model Moodboard {
   background     String    @default("#0a0a0a")
   shareToken     String?   @unique @default(uuid())
   shareExpiry    DateTime?
+  // Visibilité entre membres (orthogonale au lien-token public /share).
+  visibility     Visibility @default(PRIVATE)
   order          Int       @default(0)
   folderId       String?
   folder         MoodboardFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)

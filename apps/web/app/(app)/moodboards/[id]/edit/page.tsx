@@ -1,7 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
+import { resolveAccess } from "@/lib/access/resolve";
 import { MoodboardEditor } from "@/components/moodboard/MoodboardEditor";
+import { MoodboardViewer } from "@/components/moodboard/MoodboardViewer";
+import { ShareButton } from "@/components/social/ShareButton";
 import type { CanvasElement, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import { strokeToElement } from "@/lib/moodboard/pencil";
 
@@ -12,8 +15,12 @@ export default async function MoodboardEditPage({ params }: Props) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const moodboard = await db.moodboard.findFirst({ where: { id, userId: user.id } });
+  // Accès partagé : le propriétaire et les éditeurs éditent ; un lecteur autorisé
+  // (public / connexions / grant Lecteur) voit la planche en lecture seule.
+  const moodboard = await db.moodboard.findUnique({ where: { id } });
   if (!moodboard) notFound();
+  const access = await resolveAccess("MOODBOARD", id, user.id);
+  if (!access) notFound();
 
   // ── Legacy migration: pencilStrokes → StrokeElement[] ─────────────────────
   // Boards created before the StrokeElement refactor store strokes in a separate
@@ -35,20 +42,37 @@ export default async function MoodboardEditPage({ params }: Props) {
     mergedCanvasData = [...canvasData, ...strokeEls];
   }
 
+  // Lecteur → visionneuse (pas d'édition).
+  if (access === "viewer") {
+    return (
+      <div className="min-h-screen bg-[var(--bg-base)]">
+        <MoodboardViewer data={{ id: moodboard.id, title: moodboard.title, canvasData: mergedCanvasData, background: moodboard.background }} />
+      </div>
+    );
+  }
+
   return (
-    <MoodboardEditor
-      initialData={{
-        id: moodboard.id,
-        title: moodboard.title,
-        canvasData: mergedCanvasData,
-        background: moodboard.background,
-        shareToken: moodboard.shareToken,
-        shareExpiry: moodboard.shareExpiry?.toISOString() ?? null,
-        order: moodboard.order,
-        folderId: moodboard.folderId,
-        createdAt: moodboard.createdAt.toISOString(),
-        updatedAt: moodboard.updatedAt.toISOString(),
-      }}
-    />
+    <>
+      {/* Partage membre (visibilité + éditeurs) — le propriétaire seul le voit. */}
+      {access === "owner" && (
+        <div className="fixed top-2.5 right-2.5 z-[70]">
+          <ShareButton resource="moodboards" id={moodboard.id} allowEditor />
+        </div>
+      )}
+      <MoodboardEditor
+        initialData={{
+          id: moodboard.id,
+          title: moodboard.title,
+          canvasData: mergedCanvasData,
+          background: moodboard.background,
+          shareToken: moodboard.shareToken,
+          shareExpiry: moodboard.shareExpiry?.toISOString() ?? null,
+          order: moodboard.order,
+          folderId: moodboard.folderId,
+          createdAt: moodboard.createdAt.toISOString(),
+          updatedAt: moodboard.updatedAt.toISOString(),
+        }}
+      />
+    </>
   );
 }

@@ -12,6 +12,7 @@ import { BackgroundMemoProvider } from "@/components/visits/BackgroundMemoProvid
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
 import { VisitShareButton } from "@/components/visits/VisitShareButton";
 import { VisitTopBar } from "@/components/visits/VisitTopBar";
+import { ShareButton } from "@/components/social/ShareButton";
 import { buildBentoLayout } from "@/lib/visits/journalItems";
 
 export const revalidate = 0;
@@ -100,11 +101,14 @@ export default async function VisiteDetailPage({ params }: Props) {
     <VisitCoverEditor visitId={visit.id} currentCoverKey={visit.coverKey} images={pickerImages} />
   );
   const shareButton = (
-    <VisitShareButton
-      visitId={visit.id}
-      shareToken={visit.shareToken}
-      shareExpiry={visit.shareExpiry ? visit.shareExpiry.toISOString() : null}
-    />
+    <div className="flex items-center gap-2">
+      <ShareButton resource="visits" id={visit.id} />
+      <VisitShareButton
+        visitId={visit.id}
+        shareToken={visit.shareToken}
+        shareExpiry={visit.shareExpiry ? visit.shareExpiry.toISOString() : null}
+      />
+    </div>
   );
   const editableHeader = (
     <VisitHeaderEditable

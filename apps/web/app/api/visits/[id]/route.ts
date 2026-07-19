@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { deleteAllAudioForVisit } from "@/lib/visits/audioCleanup";
 import { nextBlockOrder } from "@/lib/visits/blockOrder";
+import { deleteGrantsFor } from "@/lib/access/resolve";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -92,5 +93,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   // purger AVANT le delete (après, on n'a plus les storageKey).
   await deleteAllAudioForVisit(id).catch(() => {});
   await db.visit.delete({ where: { id } });
+  await deleteGrantsFor("VISIT", id); // ACL polymorphe : pas de cascade DB
   return NextResponse.json({ ok: true });
 }

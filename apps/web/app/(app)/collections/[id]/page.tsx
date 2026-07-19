@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { CollectionDetailClient } from "@/components/collections/CollectionDetailClient";
 import { getSuggestedAdditions } from "@/lib/collections/suggestions";
+import { ShareButton } from "@/components/social/ShareButton";
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -65,6 +66,9 @@ export default async function CollectionDetailPage({ params }: Props) {
         <span className="text-xs text-[var(--text-tertiary)]">
           {collection._count.items} image{collection._count.items !== 1 ? "s" : ""}
         </span>
+        <div className="ml-auto">
+          <ShareButton resource="collections" id={collection.id} />
+        </div>
       </div>
 
       <CollectionDetailClient
