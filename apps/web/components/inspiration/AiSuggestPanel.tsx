@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import type { Category } from "@/components/inspiration/CategorySelect";
 import type { CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { analyzeImage, type AnalysisProgress, type ImageAnalysis } from "@/lib/ai/imageAnalysis";
-import { useAiAutoSuggest, Switch } from "@/components/inspiration/AiAutoSuggestToggle";
+import { useAiAutoSuggest } from "@/components/inspiration/AiAutoSuggestToggle";
 
 interface Props {
   imageUrl: string | null;
@@ -24,7 +24,9 @@ interface Props {
 // qu'il garde, rien n'est appliqué d'office. Toggle « auto » partagé avec les
 // espaces d'upload.
 export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentCategories, currentTags, onSetTitle, onAddCategory, onAddTag }: Props) {
-  const [auto, toggleAuto] = useAiAutoSuggest();
+  // Lit le réglage « auto » (configuré dans le panneau d'upload) pour lancer
+  // l'analyse automatiquement — pas de toggle dupliqué ici (retour 2026-07-19).
+  const [auto] = useAiAutoSuggest();
   const [progress, setProgress] = useState<AnalysisProgress | null>(null);
   const [result, setResult] = useState<ImageAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,8 +91,6 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentC
       <div className="flex items-center gap-2">
         <Sparkles size={14} strokeWidth={2} className="text-[var(--text-secondary)] shrink-0" />
         <span className="text-xs font-medium text-[var(--text-primary)] flex-1">Suggestions IA</span>
-        <span className="text-[11px] text-[var(--text-tertiary)]">Auto</span>
-        <Switch on={auto} onToggle={toggleAuto} title="Analyser automatiquement chaque image" />
       </div>
 
       {!result && !busy && (

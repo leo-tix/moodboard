@@ -502,6 +502,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             id={data.id}
             initialData={panelData}
             colorPalette={data.colorPalette}
+            imageStorageKey={data.mainImageStorageKey}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
             scrollable={false}
@@ -535,6 +536,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             id={data.id}
             initialData={panelData}
             colorPalette={data.colorPalette}
+            imageStorageKey={data.mainImageStorageKey}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
           />

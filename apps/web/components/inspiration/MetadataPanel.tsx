@@ -6,6 +6,8 @@ import { CategoryMultiSelect, type CategorySelection } from "./CategoryMultiSele
 import { TagInput } from "./TagInput";
 import { AutocompleteInput } from "./AutocompleteInput";
 import type { Category } from "./CategorySelect";
+import { AiSuggestPanel } from "./AiSuggestPanel";
+import { getImageUrl } from "@/lib/storage/urls";
 import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
 import { VisitPicker, type VisitRef } from "@/components/visits/VisitPicker";
 
@@ -25,6 +27,8 @@ interface MetadataPanelProps {
     tags?: string[];
   };
   colorPalette?: { id: string; hex: string; order: number }[];
+  /** Clé R2 de l'image principale — active les suggestions IA (analyse locale). */
+  imageStorageKey?: string | null;
   /** Collections auxquelles appartient cette inspiration */
   initialCollections?: { id: string; name: string }[];
   /** Visite (musée / expo) à laquelle cette inspiration est rattachée */
@@ -44,7 +48,7 @@ const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-wid
 const fld =
   "w-full bg-transparent border-b border-[var(--border-subtle)] focus:border-[var(--border-default)] text-[var(--text-primary)] text-xs py-1 focus:outline-none transition-colors placeholder:text-[var(--text-tertiary)]";
 
-export function MetadataPanel({ id, initialData, colorPalette, initialCollections, initialVisit, scrollable = true }: MetadataPanelProps) {
+export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, initialCollections, initialVisit, scrollable = true }: MetadataPanelProps) {
   const [data, setData] = useState(initialData);
   const [tags, setTags] = useState<string[]>(initialData.tags ?? []);
   const [categories, setCategories] = useState<CategorySelection[]>(initialData.categories ?? []);
@@ -146,6 +150,26 @@ export function MetadataPanel({ id, initialData, colorPalette, initialCollection
         <p className={lbl}>Tags</p>
         <TagInput value={tags} onChange={handleTagsChange} placeholder="Entrée pour valider…" withSuggestions />
       </div>
+
+      {/* Suggestions IA locales (CLIP) — titre / catégories / tags, validées. */}
+      {imageStorageKey && (
+        <AiSuggestPanel
+          imageUrl={getImageUrl(imageStorageKey)}
+          allCategories={allCategories}
+          currentTitle={data.title}
+          currentCategories={categories}
+          currentTags={tags}
+          onSetTitle={(t) => update("title", t)}
+          onAddCategory={(sel) =>
+            handleCategoriesChange(
+              categories.some((c) => c.categoryId === sel.categoryId && (c.subcategoryId ?? null) === (sel.subcategoryId ?? null))
+                ? categories
+                : [...categories, sel],
+            )
+          }
+          onAddTag={(name) => handleTagsChange(tags.includes(name) ? tags : [...tags, name])}
+        />
+      )}
 
       <div>
         <div className="flex items-center justify-between mb-1">

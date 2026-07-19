@@ -4,7 +4,7 @@
 // Aucune API externe — le modèle (~150 Mo) est téléchargé une fois puis mis en
 // cache (Cache Storage). L'utilisateur valide TOUJOURS les suggestions.
 
-import { CATEGORY_CONCEPTS, TAG_CONCEPTS, TAG_GROUPS, HYPOTHESIS_TEMPLATE } from "@/lib/ai/imageVocab";
+import { CATEGORY_CONCEPTS, TAG_CONCEPTS, TAG_GROUPS } from "@/lib/ai/imageVocab";
 
 export interface AnalysisProgress { phase: "downloading" | "classifying"; loadedMB?: number; totalMB?: number }
 
@@ -45,6 +45,16 @@ function buildGroups(): Groups {
   return groups;
 }
 
+// Le worker renvoie des LOGITS bruts (échelle CLIP) par groupe → softmax PAR
+// groupe ici (chaque dimension a sa propre distribution).
+function softmaxGroup(scored: Scored[]): Scored[] {
+  if (!scored.length) return scored;
+  const max = Math.max(...scored.map((s) => s.score));
+  const exps = scored.map((s) => Math.exp(s.score - max));
+  const sum = exps.reduce((a, b) => a + b, 0) || 1;
+  return scored.map((s, i) => ({ label: s.label, score: exps[i] / sum }));
+}
+
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
@@ -60,9 +70,13 @@ function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): s
   return [...new Set(out.filter(Boolean))].slice(0, 3);
 }
 
-function mapResult(result: Record<string, Scored[]>): ImageAnalysis {
+function mapResult(raw: Record<string, Scored[]>): ImageAnalysis {
   const byCatPrompt = new Map(CATEGORY_CONCEPTS.map((c) => [c.prompt, c]));
   const byTagPrompt = new Map(TAG_CONCEPTS.map((t) => [t.prompt, t]));
+
+  // Softmax PAR groupe (le worker renvoie des logits bruts).
+  const result: Record<string, Scored[]> = {};
+  for (const [key, scored] of Object.entries(raw)) result[key] = softmaxGroup(scored);
 
   const categories: CategorySuggestion[] = (result.categories ?? [])
     .map((r) => {
@@ -70,6 +84,7 @@ function mapResult(result: Record<string, Scored[]>): ImageAnalysis {
       return c ? { category: c.category, subcategory: c.subcategory, score: r.score } : null;
     })
     .filter((x): x is CategorySuggestion => x !== null && x.score >= MIN_CAT_SCORE)
+    .sort((a, b) => b.score - a.score)
     .slice(0, MAX_CATEGORIES);
 
   // Tags : top de CHAQUE groupe (softmax interne), fusionnés puis triés.
@@ -80,6 +95,7 @@ function mapResult(result: Record<string, Scored[]>): ImageAnalysis {
         return t ? { label: t.label, score: r.score } : null;
       })
       .filter((x): x is TagSuggestion => x !== null && x.score >= MIN_TAG_SCORE)
+      .sort((a, b) => b.score - a.score)
       .slice(0, PER_GROUP_KEEP),
   )
     .sort((a, b) => b.score - a.score)
@@ -118,34 +134,55 @@ function analyzeInWorker(w: Worker, imageUrl: string, onProgress?: (p: AnalysisP
     const cleanup = () => { w.removeEventListener("message", onMessage); w.removeEventListener("error", onError); };
     w.addEventListener("message", onMessage);
     w.addEventListener("error", onError);
-    w.postMessage({ id, imageUrl, groups: buildGroups(), template: HYPOTHESIS_TEMPLATE });
+    w.postMessage({ id, imageUrl, groups: buildGroups() });
   });
 }
 
-// ── Repli thread principal ───────────────────────────────────────────────────
-type ZeroShot = (image: string, labels: string[], opts?: { hypothesis_template?: string }) => Promise<Scored[]>;
-let clfPromise: Promise<ZeroShot> | null = null;
+// ── Repli thread principal (même encodage unique que le worker) ──────────────
+interface ClipLoaded {
+  model: (inputs: Record<string, unknown>) => Promise<{ logits_per_image: { tolist(): number[][] } }>;
+  processor: (img: unknown) => Promise<Record<string, unknown>>;
+  tokenizer: (texts: string[], opts: Record<string, unknown>) => Record<string, unknown>;
+  RawImage: { read(url: string): Promise<unknown> };
+}
+let clipPromise: Promise<ClipLoaded> | null = null;
 async function analyzeOnMainThread(imageUrl: string, onProgress?: (p: AnalysisProgress) => void): Promise<ImageAnalysis> {
-  if (!clfPromise) {
-    clfPromise = (async () => {
-      const { pipeline } = await import("@huggingface/transformers");
-      const clf = await pipeline("zero-shot-image-classification", "Xenova/clip-vit-base-patch16", {
-        progress_callback: (p: { status?: string; loaded?: number; total?: number }) => {
-          if (p.status === "progress" && p.loaded && p.total) {
-            onProgress?.({ phase: "downloading", loadedMB: Math.round(p.loaded / 1048576), totalMB: Math.round(p.total / 1048576) });
-          }
-        },
-      });
-      return clf as unknown as ZeroShot;
+  if (!clipPromise) {
+    clipPromise = (async () => {
+      const { CLIPModel, AutoProcessor, AutoTokenizer, RawImage } = await import("@huggingface/transformers");
+      const id = "Xenova/clip-vit-base-patch16";
+      const progress_callback = (p: { status?: string; loaded?: number; total?: number }) => {
+        if (p.status === "progress" && p.loaded && p.total) {
+          onProgress?.({ phase: "downloading", loadedMB: Math.round(p.loaded / 1048576), totalMB: Math.round(p.total / 1048576) });
+        }
+      };
+      const [model, processor, tokenizer] = await Promise.all([
+        CLIPModel.from_pretrained(id, { progress_callback }),
+        AutoProcessor.from_pretrained(id),
+        AutoTokenizer.from_pretrained(id),
+      ]);
+      return { model, processor, tokenizer, RawImage } as unknown as ClipLoaded;
     })();
-    clfPromise.catch(() => { clfPromise = null; });
+    clipPromise.catch(() => { clipPromise = null; });
   }
-  const clf = await clfPromise;
+  const { model, processor, tokenizer, RawImage } = await clipPromise;
   onProgress?.({ phase: "classifying" });
   const groups = buildGroups();
+  const allPrompts: string[] = [];
+  const ranges: Record<string, [number, number]> = {};
+  for (const [key, prompts] of Object.entries(groups)) {
+    const start = allPrompts.length;
+    allPrompts.push(...prompts);
+    ranges[key] = [start, allPrompts.length];
+  }
+  const image = await RawImage.read(imageUrl);
+  const imageInputs = await processor(image);
+  const textInputs = tokenizer(allPrompts, { padding: true, truncation: true });
+  const output = await model({ ...textInputs, ...imageInputs });
+  const logits = output.logits_per_image.tolist()[0];
   const result: Record<string, Scored[]> = {};
-  for (const [key, labels] of Object.entries(groups)) {
-    result[key] = labels.length ? await clf(imageUrl, labels, { hypothesis_template: HYPOTHESIS_TEMPLATE }) : [];
+  for (const [key, [start, end]] of Object.entries(ranges)) {
+    result[key] = groups[key].map((label, i) => ({ label, score: logits[start + i] }));
   }
   return mapResult(result);
 }
