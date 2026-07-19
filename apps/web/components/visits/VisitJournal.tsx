@@ -175,7 +175,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     const span = DEFAULT_SPAN.embed;
     const tile: BentoTile = {
       type: "embed", id: c.id, w: span.w, h: span.h,
-      content: { type: "embed", id: c.id, kind: c.kind, url: c.url, title: c.title, description: c.description, image: c.image, siteName: c.siteName },
+      content: { type: "embed", id: c.id, kind: c.kind, url: c.url, title: c.title, description: c.description, image: c.image, siteName: c.siteName, data: c.data ?? null },
     };
     const next = [...tilesRef.current, tile];
     commitLayout(next);
