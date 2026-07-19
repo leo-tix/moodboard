@@ -1,10 +1,14 @@
-// Analyse d'image locale (zero-shot CLIP) → suggestions de catégories et tags.
+// Analyse d'image locale (SigLIP, zero-shot) → suggestions de catégories/tags.
 // Orchestrateur côté thread principal : délègue l'inférence au Web Worker
 // (lib/ai/vision.worker.ts), repli sur le thread principal si le worker échoue.
-// Aucune API externe — le modèle (~150 Mo) est téléchargé une fois puis mis en
-// cache (Cache Storage). L'utilisateur valide TOUJOURS les suggestions.
+// Aucune API externe. Les embeddings texte du vocabulaire sont PRÉ-CALCULÉS
+// (siglipTextEmbeds.json) → au runtime seul l'encodeur d'IMAGE de SigLIP est
+// téléchargé/exécuté, chaque image = un encodage + un produit scalaire. Le
+// worker renvoie donc directement un COSINUS par libellé (ordre flatConcepts()).
+// L'utilisateur valide TOUJOURS les suggestions.
 
-import { CATEGORY_CONCEPTS, TAG_CONCEPTS, TAG_GROUPS } from "@/lib/ai/imageVocab";
+import { flatConcepts } from "@/lib/ai/imageVocab";
+import { scoreImageEmbedding } from "@/lib/ai/siglipEmbeds";
 
 export interface AnalysisProgress { phase: "downloading" | "classifying"; loadedMB?: number; totalMB?: number }
 
@@ -27,35 +31,13 @@ export interface ImageAnalysis {
 }
 
 const MAX_CATEGORIES = 3;
-const MIN_CAT_SCORE = 0.02;
-// Par groupe de tags : on garde le top 2 au-dessus d'un plancher (softmax
-// interne au groupe → un bon match sort nettement au-dessus de 0.18).
-const PER_GROUP_KEEP = 2;
-const MIN_TAG_SCORE = 0.18;
 const MAX_TAGS = 8;
-
-type Scored = { label: string; score: number };
-type Groups = Record<string, string[]>;
-
-const TAG_GROUP_KEYS = Object.keys(TAG_GROUPS).map((k) => `tag:${k}`);
-
-function buildGroups(): Groups {
-  const groups: Groups = { categories: CATEGORY_CONCEPTS.map((c) => c.prompt) };
-  for (const [name, concepts] of Object.entries(TAG_GROUPS)) {
-    groups[`tag:${name}`] = concepts.map((c) => c.prompt);
-  }
-  return groups;
-}
-
-// Le worker renvoie des LOGITS bruts (échelle CLIP) par groupe → softmax PAR
-// groupe ici (chaque dimension a sa propre distribution).
-function softmaxGroup(scored: Scored[]): Scored[] {
-  if (!scored.length) return scored;
-  const max = Math.max(...scored.map((s) => s.score));
-  const exps = scored.map((s) => Math.exp(s.score - max));
-  const sum = exps.reduce((a, b) => a + b, 0) || 1;
-  return scored.map((s, i) => ({ label: s.label, score: exps[i] / sum }));
-}
+const PER_GROUP_KEEP = 2;
+// Seuils RELATIFS au meilleur score de l'image (les cosinus SigLIP sont faibles
+// en absolu et varient d'une image à l'autre) : on garde ce qui est proche du
+// top et on écarte les dimensions non pertinentes (leur meilleur reste bas).
+const CAT_REL = 0.82; // catégories proches de la meilleure catégorie
+const TAG_REL = 0.6; // tags à ≥ 60 % du meilleur score global
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -67,52 +49,58 @@ function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): s
   const comp = top("composition");
   const tech = top("technique");
   const sub = categories[0]?.subcategory;
+  const inSub = (x?: string) => !!x && !!sub && sub.toLowerCase().includes(x.toLowerCase());
   const out: string[] = [];
-  // 1) Descriptif riche : sujet + couleur + composition (ce qui existe).
-  const desc = [subj, col, comp].filter(Boolean);
-  if (desc.length >= 2) out.push(cap(desc.join(" ")));
+  // 1) Descriptif riche à partir des dimensions concrètes (sujet/composition/couleur).
+  const dims = [subj, comp, col].filter(Boolean);
+  if (dims.length >= 2) out.push(cap(dims.join(" ")));
   // 2) Angle technique : « Photographie — intérieur ».
-  if (tech && subj) out.push(`${cap(tech)} — ${subj}`);
-  // 3) Sous-catégorie + 1er tag.
-  if (sub && tags[0]) out.push(`${cap(sub)} ${tags[0].label}`);
+  if (tech && subj && !inSub(tech)) out.push(`${cap(tech)} — ${subj}`);
+  // 3) Sous-catégorie enrichie d'un tag NON redondant (évite « Illustration illustration »).
+  const enrich = [col, comp, subj].find((x) => x && !inSub(x));
+  if (sub && enrich) out.push(`${cap(sub)} ${enrich}`);
   // 4) Replis simples.
   if (sub) out.push(cap(sub));
   if (subj) out.push(cap(subj));
   return [...new Set(out.filter(Boolean))].slice(0, 3);
 }
 
-function mapResult(raw: Record<string, Scored[]>): ImageAnalysis {
-  const byCatPrompt = new Map(CATEGORY_CONCEPTS.map((c) => [c.prompt, c]));
-  const byTagPrompt = new Map(TAG_CONCEPTS.map((t) => [t.prompt, t]));
+// `scores` = cosinus par libellé, aligné sur flatConcepts() (même ordre que les
+// embeddings pré-calculés).
+function mapResult(scores: number[]): ImageAnalysis {
+  const flats = flatConcepts();
+  const globalTop = scores.length ? Math.max(...scores) : 0;
 
-  // Softmax PAR groupe (le worker renvoie des logits bruts).
-  const result: Record<string, Scored[]> = {};
-  for (const [key, scored] of Object.entries(raw)) result[key] = softmaxGroup(scored);
+  // Catégories : proches de la meilleure catégorie.
+  const cats = flats
+    .map((c, i) => (c.kind === "category" ? { category: c.category, subcategory: c.subcategory, score: scores[i] } : null))
+    .filter((x): x is CategorySuggestion => x !== null)
+    .sort((a, b) => b.score - a.score);
+  const catTop = cats[0]?.score ?? 0;
+  const categories = cats.filter((c) => c.score >= catTop * CAT_REL).slice(0, MAX_CATEGORIES);
 
-  const categories: CategorySuggestion[] = (result.categories ?? [])
-    .map((r) => {
-      const c = byCatPrompt.get(r.label);
-      return c ? { category: c.category, subcategory: c.subcategory, score: r.score } : null;
-    })
-    .filter((x): x is CategorySuggestion => x !== null && x.score >= MIN_CAT_SCORE)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_CATEGORIES);
+  // Tags : meilleur(s) de CHAQUE groupe, conservé(s) seulement s'ils sont
+  // assez forts vis-à-vis du top global (une dimension non pertinente reste
+  // sous le seuil → pas de tag parasite).
+  const byGroup = new Map<string, TagSuggestion[]>();
+  flats.forEach((c, i) => {
+    if (c.kind === "tag") {
+      const arr = byGroup.get(c.group) ?? [];
+      arr.push({ label: c.label, score: scores[i], group: c.group });
+      byGroup.set(c.group, arr);
+    }
+  });
+  const tags: TagSuggestion[] = [];
+  for (const arr of byGroup.values()) {
+    arr.sort((a, b) => b.score - a.score);
+    for (const t of arr.slice(0, PER_GROUP_KEEP)) {
+      if (t.score >= globalTop * TAG_REL) tags.push(t);
+    }
+  }
+  tags.sort((a, b) => b.score - a.score);
+  const topTags = tags.slice(0, MAX_TAGS);
 
-  // Tags : top de CHAQUE groupe (softmax interne), fusionnés puis triés.
-  const tags: TagSuggestion[] = TAG_GROUP_KEYS.flatMap((key) =>
-    (result[key] ?? [])
-      .map((r) => {
-        const t = byTagPrompt.get(r.label);
-        return t ? { label: t.label, score: r.score, group: key.replace("tag:", "") } : null;
-      })
-      .filter((x): x is TagSuggestion => x !== null && x.score >= MIN_TAG_SCORE)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, PER_GROUP_KEEP),
-  )
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_TAGS);
-
-  return { categories, tags, titles: buildTitles(categories, tags) };
+  return { categories, tags: topTags, titles: buildTitles(categories, topTags) };
 }
 
 // ── Worker (par défaut) ──────────────────────────────────────────────────────
@@ -135,67 +123,52 @@ function analyzeInWorker(w: Worker, imageUrl: string, onProgress?: (p: AnalysisP
   const id = ++msgSeq;
   return new Promise((resolve, reject) => {
     const onMessage = (e: MessageEvent) => {
-      const data = e.data as { id: number; type: string; progress?: AnalysisProgress; result?: Record<string, Scored[]>; message?: string };
+      const data = e.data as { id: number; type: string; progress?: AnalysisProgress; result?: { scores: number[] }; message?: string };
       if (data.id !== id) return;
       if (data.type === "progress" && data.progress) onProgress?.(data.progress);
-      else if (data.type === "done" && data.result) { cleanup(); resolve(mapResult(data.result)); }
+      else if (data.type === "done" && data.result) { cleanup(); resolve(mapResult(data.result.scores)); }
       else if (data.type === "error") { cleanup(); reject(new Error(data.message ?? "worker error")); }
     };
     const onError = (err: ErrorEvent) => { cleanup(); reject(err.error ?? new Error(err.message)); };
     const cleanup = () => { w.removeEventListener("message", onMessage); w.removeEventListener("error", onError); };
     w.addEventListener("message", onMessage);
     w.addEventListener("error", onError);
-    w.postMessage({ id, imageUrl, groups: buildGroups() });
+    w.postMessage({ id, imageUrl });
   });
 }
 
-// ── Repli thread principal (même encodage unique que le worker) ──────────────
-interface ClipLoaded {
-  model: (inputs: Record<string, unknown>) => Promise<{ logits_per_image: { tolist(): number[][] } }>;
+// ── Repli thread principal (SigLIP vision-only, mêmes embeddings pré-calculés) ─
+interface SiglipLoaded {
+  model: (inputs: Record<string, unknown>) => Promise<{ pooler_output: { tolist(): number[][] } }>;
   processor: (img: unknown) => Promise<Record<string, unknown>>;
-  tokenizer: (texts: string[], opts: Record<string, unknown>) => Record<string, unknown>;
   RawImage: { read(url: string): Promise<unknown> };
 }
-let clipPromise: Promise<ClipLoaded> | null = null;
+let siglipPromise: Promise<SiglipLoaded> | null = null;
 async function analyzeOnMainThread(imageUrl: string, onProgress?: (p: AnalysisProgress) => void): Promise<ImageAnalysis> {
-  if (!clipPromise) {
-    clipPromise = (async () => {
-      const { CLIPModel, AutoProcessor, AutoTokenizer, RawImage } = await import("@huggingface/transformers");
-      const id = "Xenova/clip-vit-base-patch16";
+  if (!siglipPromise) {
+    siglipPromise = (async () => {
+      const { SiglipVisionModel, AutoProcessor, RawImage } = await import("@huggingface/transformers");
+      const id = "Xenova/siglip-base-patch16-224";
       const progress_callback = (p: { status?: string; loaded?: number; total?: number }) => {
         if (p.status === "progress" && p.loaded && p.total) {
           onProgress?.({ phase: "downloading", loadedMB: Math.round(p.loaded / 1048576), totalMB: Math.round(p.total / 1048576) });
         }
       };
-      const [model, processor, tokenizer] = await Promise.all([
-        CLIPModel.from_pretrained(id, { progress_callback }),
+      const [model, processor] = await Promise.all([
+        SiglipVisionModel.from_pretrained(id, { progress_callback }),
         AutoProcessor.from_pretrained(id),
-        AutoTokenizer.from_pretrained(id),
       ]);
-      return { model, processor, tokenizer, RawImage } as unknown as ClipLoaded;
+      return { model, processor, RawImage } as unknown as SiglipLoaded;
     })();
-    clipPromise.catch(() => { clipPromise = null; });
+    siglipPromise.catch(() => { siglipPromise = null; });
   }
-  const { model, processor, tokenizer, RawImage } = await clipPromise;
+  const { model, processor, RawImage } = await siglipPromise;
   onProgress?.({ phase: "classifying" });
-  const groups = buildGroups();
-  const allPrompts: string[] = [];
-  const ranges: Record<string, [number, number]> = {};
-  for (const [key, prompts] of Object.entries(groups)) {
-    const start = allPrompts.length;
-    allPrompts.push(...prompts);
-    ranges[key] = [start, allPrompts.length];
-  }
   const image = await RawImage.read(imageUrl);
-  const imageInputs = await processor(image);
-  const textInputs = tokenizer(allPrompts, { padding: true, truncation: true });
-  const output = await model({ ...textInputs, ...imageInputs });
-  const logits = output.logits_per_image.tolist()[0];
-  const result: Record<string, Scored[]> = {};
-  for (const [key, [start, end]] of Object.entries(ranges)) {
-    result[key] = groups[key].map((label, i) => ({ label, score: logits[start + i] }));
-  }
-  return mapResult(result);
+  const inputs = await processor(image);
+  const out = await model(inputs);
+  const emb = out.pooler_output.tolist()[0];
+  return mapResult(scoreImageEmbedding(emb));
 }
 
 // La visionneuse affiche l'image via un <img> SANS crossorigin → le navigateur
@@ -223,8 +196,8 @@ async function runAnalysis(imageUrl: string, onProgress?: (p: AnalysisProgress) 
   return analyzeOnMainThread(fetchUrl, onProgress);
 }
 
-// SÉRIALISATION : le modèle CLIP (session ONNX) n'est PAS ré-entrant — deux
-// `model()` concurrents le corrompent. Or la visionneuse monte DEUX panneaux
+// SÉRIALISATION : la session ONNX n'est PAS ré-entrante — deux `model()`
+// concurrents la corrompent. Or la visionneuse monte DEUX panneaux
 // (feuille mobile + colonne desktop) qui lancent l'analyse en même temps
 // (retour 2026-07-19 « échoue dans la visionneuse »). On enchaîne donc les
 // analyses, et on met en cache le résultat par URL → le 2e panneau réutilise

@@ -134,6 +134,28 @@ export const TAG_GROUPS: Record<string, TagConcept[]> = {
 // Tous les concepts de tags à plat (mapping prompt→label côté moteur).
 export const TAG_CONCEPTS: TagConcept[] = Object.values(TAG_GROUPS).flat();
 
+// ── Liste À PLAT canonique (ordre STABLE) ────────────────────────────────────
+// Catégories d'abord, puis les groupes de tags dans l'ordre de TAG_GROUPS. Cet
+// ordre EST le contrat entre la génération des embeddings SigLIP (offline) et
+// le moteur au runtime : l'embedding d'indice i correspond à flatConcepts()[i].
+export type FlatConcept =
+  | { kind: "category"; prompt: string; category: string; subcategory: string }
+  | { kind: "tag"; prompt: string; group: string; label: string };
+
+export function flatConcepts(): FlatConcept[] {
+  const out: FlatConcept[] = [];
+  for (const c of CATEGORY_CONCEPTS) out.push({ kind: "category", prompt: c.prompt, category: c.category, subcategory: c.subcategory });
+  for (const [group, concepts] of Object.entries(TAG_GROUPS)) {
+    for (const t of concepts) out.push({ kind: "tag", prompt: t.prompt, group, label: t.label });
+  }
+  return out;
+}
+
+// Texte réellement encodé par SigLIP (gabarit d'hypothèse intégré).
+export function siglipText(prompt: string): string {
+  return `This is a photo of ${prompt}.`;
+}
+
 // Formulation CLIP : « a photo of X » aide généralement, mais nos prompts sont
 // déjà des phrases descriptives → template neutre pour ne pas les dénaturer.
 export const HYPOTHESIS_TEMPLATE = "{}";
