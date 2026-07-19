@@ -45,6 +45,7 @@ interface TileSettingsModalProps {
   onPersistText: (tile: BentoTile, value: string) => Promise<void>;
   onSaveImage: (id: string, title: string, author: string, year: string) => void;
   onSetImageHideTitle: (id: string, hide: boolean) => void;
+  onSetFicheFlags: (id: string, patch: { hideImage?: boolean; hideInfo?: boolean; hideParagraph?: boolean }) => void;
   onSaveEmbed: (id: string, title: string, description: string) => void;
   onSaveMap: (id: string, locationName: string, latitude: number, longitude: number) => void;
   onSaveHighlight: (id: string, title: string, rating: number, note: string) => void;
@@ -72,6 +73,7 @@ export function TileSettingsModal({
   onPersistText,
   onSaveImage,
   onSetImageHideTitle,
+  onSetFicheFlags,
   onSaveEmbed,
   onSaveMap,
   onSaveHighlight,
@@ -151,8 +153,20 @@ export function TileSettingsModal({
                   onToggleHideTitle={(hide) => onSetImageHideTitle(tile.id, hide)}
                 />
               )}
-              {tile.content.type === "embed" && (tile.content.kind === "LINK" || tile.content.kind === "ARTIST") && (
+              {tile.content.type === "embed" && tile.content.kind === "LINK" && (
                 <EmbedForm key={tile.id} title={tile.content.title ?? ""} description={tile.content.description ?? ""} onSave={(t, d) => onSaveEmbed(tile.id, t, d)} />
+              )}
+              {tile.content.type === "embed" && tile.content.kind === "ARTIST" && (
+                <FicheForm
+                  key={tile.id}
+                  hasImage={!!tile.content.image}
+                  hasInfo={!!tile.content.data}
+                  hasParagraph={!!tile.content.description}
+                  hideImage={!!tile.hideImage}
+                  hideInfo={!!tile.hideInfo}
+                  hideParagraph={!!tile.hideParagraph}
+                  onChange={(patch) => onSetFicheFlags(tile.id, patch)}
+                />
               )}
               {tile.content.type === "embed" && tile.content.kind === "YOUTUBE" && (
                 <p className="text-xs text-[var(--text-tertiary)]">Vidéo YouTube — supprime et réajoute la tuile pour changer le lien.</p>
@@ -312,6 +326,40 @@ function EmbedForm({ title, description, onSave }: { title: string; description:
     <div className="space-y-3">
       <Field label="Titre"><input value={t} onChange={(e) => setT(e.target.value)} onBlur={() => onSave(t, d)} className={inputClass} /></Field>
       <Field label="Description"><textarea value={d} onChange={(e) => setD(e.target.value)} onBlur={() => onSave(t, d)} rows={3} className={inputClass} /></Field>
+    </div>
+  );
+}
+
+// Fiche wiki : uniquement des toggles d'affichage (le contenu vient de
+// Wikipédia). On masque une ligne quand la donnée correspondante n'existe pas.
+function FicheForm({
+  hasImage, hasInfo, hasParagraph, hideImage, hideInfo, hideParagraph, onChange,
+}: {
+  hasImage: boolean; hasInfo: boolean; hasParagraph: boolean;
+  hideImage: boolean; hideInfo: boolean; hideParagraph: boolean;
+  onChange: (patch: { hideImage?: boolean; hideInfo?: boolean; hideParagraph?: boolean }) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-[var(--text-tertiary)] uppercase tracking-wide">Affichage</p>
+      {hasImage && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-[var(--text-secondary)]">Portrait</span>
+          <Toggle on={!hideImage} onChange={(v) => onChange({ hideImage: !v })} label="Afficher le portrait" />
+        </div>
+      )}
+      {hasInfo && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-[var(--text-secondary)]">Informations</span>
+          <Toggle on={!hideInfo} onChange={(v) => onChange({ hideInfo: !v })} label="Afficher les informations" />
+        </div>
+      )}
+      {hasParagraph && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-[var(--text-secondary)]">Résumé de l&apos;article</span>
+          <Toggle on={!hideParagraph} onChange={(v) => onChange({ hideParagraph: !v })} label="Afficher le résumé" />
+        </div>
+      )}
     </div>
   );
 }

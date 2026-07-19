@@ -192,10 +192,10 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
       );
     }
 
-    // Fiche wiki (Wikipédia) — carte d'IDENTITÉ à hauteur automatique : portrait
-    // à gauche au ratio d'origine (ancré en haut), infobox structurée (Wikidata)
-    // à droite avec une icône par champ pour guider la lecture. La tuile s'étend
-    // pour tout afficher (BentoTile mesure la hauteur), donc plus de troncature.
+    // Fiche wiki (Wikipédia) — carte d'IDENTITÉ à hauteur automatique. Portrait
+    // au ratio d'origine (à gauche en format Large, centré au-dessus en format
+    // Normal), infobox structurée (Wikidata) à icônes, puis résumé de l'article.
+    // Chaque bloc (portrait / infos / résumé) est masquable via les réglages.
     if (c.kind === "ARTIST") {
       const d = c.data ?? null;
       const rows: { label: string; value: string; Icon: LucideIcon }[] = [];
@@ -211,16 +211,34 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
         const gen = join(d.genre); if (gen) rows.push({ label: "Genres", value: gen, Icon: Shapes });
         const wk = join(d.notableWorks); if (wk) rows.push({ label: "Œuvres notables", value: wk, Icon: Frame });
       }
-      // Repli sur les dates parsées du texte si aucune infobox.
-      const fallbackLife = rows.length === 0 ? parseLifeDates(c.description) : null;
+      const stacked = tile.w === 1; // format Normal (1 colonne) → image au-dessus
+      const showImage = !!c.image && !tile.hideImage;
+      const showInfo = !tile.hideInfo && rows.length > 0;
+      const showParagraph = !tile.hideParagraph && !!c.description;
+      // Repli sur les dates parsées du texte si aucune infobox affichée.
+      const fallbackLife = !tile.hideInfo && rows.length === 0 ? parseLifeDates(c.description) : null;
 
       return (
-        <a href={c.url} target="_blank" rel="noopener noreferrer" className="w-full flex flex-row items-stretch bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors">
-          {c.image && (
-            <div className="shrink-0 self-start w-[104px] sm:w-[120px] bg-[var(--bg-surface)]">
-              {/* Ratio d'origine préservé (h-auto), ancré en haut à gauche. */}
+        <a
+          href={c.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            "w-full flex bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors",
+            stacked ? "flex-col" : "flex-row items-stretch"
+          )}
+        >
+          {showImage && (
+            <div className={cn("shrink-0", stacked ? "pt-3 px-3 flex justify-center" : "self-start pl-3 py-3")}>
+              {/* Ratio d'origine préservé (h-auto), marge + coins arrondis. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={c.image} alt={c.title ?? ""} className="w-full h-auto block" loading="lazy" referrerPolicy="no-referrer" />
+              <img
+                src={c.image!}
+                alt={c.title ?? ""}
+                className={cn("h-auto block rounded-xl bg-[var(--bg-surface)]", stacked ? "w-full max-w-[180px]" : "w-[100px] sm:w-[116px]")}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
             </div>
           )}
           <div className="min-w-0 flex-1 px-3.5 py-3 flex flex-col gap-1.5">
@@ -229,7 +247,7 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
               {c.siteName && <p className="text-[11px] text-[var(--text-secondary)] italic leading-snug mt-0.5">{c.siteName}</p>}
               {fallbackLife && <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] mt-0.5">{fallbackLife}</p>}
             </div>
-            {rows.length > 0 && (
+            {showInfo && (
               <dl className="mt-0.5 space-y-1.5">
                 {rows.map((r) => (
                   <div key={r.label} className="flex items-start gap-2">
@@ -242,8 +260,10 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
                 ))}
               </dl>
             )}
-            {rows.length === 0 && c.description && (
-              <p className="text-[12px] text-[var(--text-secondary)] leading-snug">{c.description}</p>
+            {showParagraph && (
+              <p className={cn("text-[12px] text-[var(--text-secondary)] leading-relaxed", showInfo && "mt-1 pt-2 border-t border-[var(--border-subtle)]")}>
+                {c.description}
+              </p>
             )}
             <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1 mt-1">
               <ExternalLink size={10} strokeWidth={1.75} /> Wikipédia

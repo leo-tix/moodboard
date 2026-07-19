@@ -43,6 +43,10 @@ export interface JournalTile {
   h: number;
   /** Image : masquer le cartel (titre/auteur/année) en surimpression. */
   hideTitle?: boolean;
+  /** Fiche wiki : masquer respectivement le portrait, l'infobox, le résumé. */
+  hideImage?: boolean;
+  hideInfo?: boolean;
+  hideParagraph?: boolean;
 }
 
 // Types à hauteur automatique (largeur choisie, hauteur mesurée). Leur contenu

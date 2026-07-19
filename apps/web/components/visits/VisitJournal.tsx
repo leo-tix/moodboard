@@ -65,7 +65,15 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     fetch(`/api/visits/${visitId}/layout`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ layout: list.map((t) => ({ type: t.type, id: t.id, w: t.w, h: t.h, ...(t.hideTitle ? { hideTitle: true } : {}) })) }),
+      body: JSON.stringify({
+        layout: list.map((t) => ({
+          type: t.type, id: t.id, w: t.w, h: t.h,
+          ...(t.hideTitle ? { hideTitle: true } : {}),
+          ...(t.hideImage ? { hideImage: true } : {}),
+          ...(t.hideInfo ? { hideInfo: true } : {}),
+          ...(t.hideParagraph ? { hideParagraph: true } : {}),
+        })),
+      }),
     }).catch(() => {});
   };
 
@@ -442,6 +450,13 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     commitLayout(next);
   };
 
+  // Fiche wiki : toggles d'affichage (portrait / infobox / résumé) portés par le
+  // layout de la tuile.
+  const setFicheFlags = (id: string, patch: { hideImage?: boolean; hideInfo?: boolean; hideParagraph?: boolean }) => {
+    const next = tilesRef.current.map((t) => (t.id === id ? { ...t, ...patch } : t));
+    commitLayout(next);
+  };
+
   const saveEmbed = (id: string, title: string, description: string) => {
     patchTileContent(id, { title: title.trim() || null, description: description.trim() || null });
     fetch(`/api/visits/${visitId}/embeds/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, description: description.trim() || null }) }).catch(() => {});
@@ -581,6 +596,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         onPersistText={persistText}
         onSaveImage={saveImage}
         onSetImageHideTitle={setImageHideTitle}
+        onSetFicheFlags={setFicheFlags}
         onSaveEmbed={saveEmbed}
         onSaveMap={saveMap}
         onSaveHighlight={saveHighlight}

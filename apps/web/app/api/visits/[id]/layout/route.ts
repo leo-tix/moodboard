@@ -21,6 +21,9 @@ const tileSchema = z.object({
   // à 12 comme garde-fou). Voir apps/web/lib/visits/bentoSpans.ts.
   h: z.number().int().min(1).max(12),
   hideTitle: z.boolean().optional(),
+  hideImage: z.boolean().optional(),
+  hideInfo: z.boolean().optional(),
+  hideParagraph: z.boolean().optional(),
 });
 
 // PATCH /api/visits/[id]/layout — remplace intégralement Visit.journalLayout.
