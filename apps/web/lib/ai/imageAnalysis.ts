@@ -26,12 +26,15 @@ export interface TagSuggestion {
 export interface ImageAnalysis {
   categories: CategorySuggestion[];
   tags: TagSuggestion[];
-  /** Titres candidats (français), dérivés de la catégorie + tags dominants. */
+  /** Titres DESCRIPTIFS (français), dérivés de la catégorie + tags dominants. */
   titles: string[];
+  /** Titres CRÉATIFS / évocateurs, à partir des mêmes signaux. */
+  creativeTitles: string[];
 }
 
-const MAX_CATEGORIES = 2; // 2 meilleures catégories (l'utilisateur choisit, ex. Illustration vs BD)
-const MAX_TAGS = 6;
+const MAX_CATEGORIES = 3; // meilleures catégories (l'utilisateur choisit, ex. Illustration vs BD)
+const MAX_TAGS = 9;
+const PER_GROUP_KEEP = 2; // jusqu'à 2 tags par dimension → plus de suggestions
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -56,6 +59,63 @@ function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): s
   // 4) Replis simples.
   if (sub) out.push(cap(sub));
   if (subj) out.push(cap(subj));
+  return [...new Set(out.filter(Boolean))].slice(0, 3);
+}
+
+// Fragments ÉVOCATEURS par tag (pas de vrai LLM en local → banque de titres
+// « créatifs » associée aux tags dominants ; l'utilisateur choisit/édite).
+const CREATIVE_BY_TAG: Record<string, string[]> = {
+  "coloré": ["Explosion de couleurs", "Kaléidoscope", "Chromies"],
+  "pastel": ["Douceur pastel", "Rêverie tendre", "Guimauve"],
+  "noir et blanc": ["Clair-obscur", "En sourdine", "Gris sur gris"],
+  "monochrome": ["Ton sur ton", "Camaïeu"],
+  "tons chauds": ["Braise", "Heure dorée"],
+  "tons froids": ["Fraîcheur bleutée", "Grand bleu"],
+  "sépia": ["Souvenir jauni", "Vieux papier"],
+  "vintage": ["Nostalgie", "Écho rétro", "Machine à remonter"],
+  "géométrique": ["Géométries", "Lignes & formes", "Angles droits"],
+  "minimaliste": ["Épure", "Le vide habité", "Presque rien"],
+  "abstrait": ["Abstraction", "Sans titre", "Formes libres"],
+  "motif": ["Ritournelle", "Trame", "En boucle"],
+  "symétrique": ["Miroir", "Parfait équilibre"],
+  "gros plan": ["Au plus près", "Détail"],
+  "onirique": ["Songe éveillé", "Rêverie", "Hors du temps"],
+  "sombre": ["Pénombre", "Basse lumière", "Ombres portées"],
+  "lumineux": ["Pleine lumière", "Éclat", "À contre-jour"],
+  "contrasté": ["Tension", "Ombre & lumière", "Coup d'éclat"],
+  "doux": ["Tout en douceur", "Feutré"],
+  "nuit": ["Nocturne", "Sous la lune", "Après minuit"],
+  "brut": ["Sans filtre", "À vif", "Béton"],
+  "portrait": ["Face à face", "Le regard", "Présence"],
+  "personnage": ["Présence", "En scène", "Silhouettes"],
+  "nature": ["Éclosion", "Nature vive", "Grand air"],
+  "paysage": ["Horizon", "Grand large", "Point de fuite"],
+  "urbain": ["Béton & bruit", "Rumeur urbaine", "Bitume"],
+  "architecture": ["Lignes de fuite", "Béton & verre"],
+  "intérieur": ["Huis clos", "Entre quatre murs"],
+  "textile": ["Étoffe", "Au fil"],
+  "eau": ["Reflets", "Ondes", "À fleur d'eau"],
+  "ciel": ["Tête en l'air", "Nuages"],
+  "typographie": ["Lettres capitales", "Bouche à mot", "Caractères"],
+  "illustration": ["Coup de crayon", "Trait pour trait"],
+  "3D": ["Relief", "Volumes"],
+  "collage": ["Bric-à-brac", "Pièces rapportées"],
+};
+
+function buildCreativeTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
+  const out: string[] = [];
+  // 1) Puise dans les banques des tags dominants (dans l'ordre de pertinence).
+  for (const t of tags) {
+    const pool = CREATIVE_BY_TAG[t.label];
+    if (pool) out.push(...pool);
+    if (out.length >= 8) break;
+  }
+  // 2) Compléments par combinaison si trop peu.
+  const labels = tags.map((t) => t.label);
+  if (labels[0] && labels[1]) out.push(`${cap(labels[0])} & ${labels[1]}`);
+  if (labels[0]) out.push(`${cap(labels[0])}, encore`);
+  const sub = categories[0]?.subcategory;
+  if (sub) out.push(`${cap(sub)}, variation`);
   return [...new Set(out.filter(Boolean))].slice(0, 3);
 }
 
@@ -88,12 +148,12 @@ function mapResult(scores: number[]): ImageAnalysis {
   const topTags: TagSuggestion[] = [];
   for (const arr of byGroup.values()) {
     arr.sort((a, b) => b.score - a.score);
-    if (arr[0]) topTags.push(arr[0]);
+    topTags.push(...arr.slice(0, PER_GROUP_KEEP));
   }
   topTags.sort((a, b) => b.score - a.score);
   const tags = topTags.slice(0, MAX_TAGS);
 
-  return { categories, tags, titles: buildTitles(categories, tags) };
+  return { categories, tags, titles: buildTitles(categories, tags), creativeTitles: buildCreativeTitles(categories, tags) };
 }
 
 // ── Worker (par défaut) ──────────────────────────────────────────────────────
