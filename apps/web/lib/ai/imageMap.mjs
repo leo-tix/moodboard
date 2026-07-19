@@ -24,9 +24,10 @@ export const MAX_TITLES = 6;
 //  · TECHNIQUE en préfixe (« Risographie — … ») : moyennement exigeant (évite
 //    un « 3D — … » erroné sur une photo).
 //  · QUALIFICATIF (couleur, lumière, style, composition, ambiance) : permissif.
-export const Z_SUBJECT = 1.0;
+export const Z_SUBJECT = 1.9; // un sujet ne titre l'image que s'il est CLAIREMENT présent (sinon les images graphiques/typo hallucinent « véhicule/oiseau »)
 export const Z_TECH = 1.2; // évite « 3D — … » erroné sur une photo
 export const Z_LUM = 1.3; // lumière très évocatrice (clair-obscur, néon) mais bruitée → exigeant
+export const Z_TYPO = 1.0; // typographie : n'entre au titre que si le texte ressort clairement
 export const Z_QUAL = 0.5;
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
@@ -48,6 +49,7 @@ function buildTitles(categories, topByGroup) {
   const tech = conf("technique", Z_TECH);
   const amb = conf("ambiance", Z_QUAL);
   const styl = conf("style", Z_QUAL);
+  const typ = conf("typo", Z_TYPO);
   const sub = categories[0]?.subcategory; // ancre TOUJOURS fiable (classement catégorie robuste)
   const base = subj ?? sub; // sujet CONFIANT en priorité, sinon la sous-catégorie
 
@@ -66,6 +68,7 @@ function buildTitles(categories, topByGroup) {
   // on obtenait un titre d'un seul mot en doublon). Ordre = du plus évocateur au
   // moins : lumière, couleur, style, composition, ambiance.
   const combo = (q) => q && push(`${base} ${q}`);
+  combo(typ); // sur une image typographique, le trait typo mène (« Typographie serif »)
   combo(lum);
   combo(col);
   combo(styl);

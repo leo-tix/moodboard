@@ -22,7 +22,7 @@ export const CATEGORY_CONCEPTS = [
   { category: "Photographie", subcategory: "Portrait", prompt: "a portrait photograph of a person's face" },
   { category: "Photographie", subcategory: "Paysage", prompt: "a landscape nature photograph" },
   { category: "Photographie", subcategory: "Architecture", prompt: "an architectural photograph of a building" },
-  { category: "Photographie", subcategory: "Still life", prompt: "a still life photograph of arranged objects" },
+  { category: "Photographie", subcategory: "Still life", prompt: "a still life photograph of fruit, flowers or tableware" },
   { category: "Photographie", subcategory: "Street", prompt: "a candid street photograph of city life" },
   { category: "Photographie", subcategory: "Mode", prompt: "a fashion editorial photograph of a model" },
   // Art contemporain
@@ -55,7 +55,7 @@ export const CATEGORY_CONCEPTS = [
   { category: "Mode & Textile", subcategory: "Accessoires", prompt: "a fashion accessory (bag, shoes, jewelry)" },
   { category: "Mode & Textile", subcategory: "Textile", prompt: "a textile pattern or fabric" },
   // Motion Design
-  { category: "Motion Design", subcategory: "Animation 3D", prompt: "a 3D rendered animation still" },
+  { category: "Motion Design", subcategory: "Animation 3D", prompt: "a 3D CGI rendered scene with smooth shaded objects and studio lighting" },
   { category: "Motion Design", subcategory: "Motion graphics", prompt: "abstract motion graphics" },
   // Design industriel
   { category: "Design industriel", subcategory: "Product design", prompt: "an industrial product design object" },
@@ -108,10 +108,10 @@ export const TAG_GROUPS = {
     { label: "linogravure", prompt: "a linocut or woodcut print" },
     { label: "collage", prompt: "a collage of cut-out images" },
     { label: "photomontage", prompt: "a digital photomontage" },
-    { label: "3D", prompt: "a 3D computer render" },
+    { label: "3D", prompt: "a 3D CGI computer render with smooth shaded surfaces and studio lighting" },
     { label: "vectoriel", prompt: "a flat vector graphic" },
     { label: "pixel art", prompt: "pixel art, low-resolution retro game graphics" },
-    { label: "typographie", prompt: "text and lettering as the main subject" },
+    { label: "typographie", prompt: "typography, big letters and lettering as the main subject of the image" },
     { label: "argentique", prompt: "an analog film photograph with grain" },
   ],
   composition: [
@@ -169,7 +169,7 @@ export const TAG_GROUPS = {
     { label: "mode", prompt: "fashion clothing on a person" },
     { label: "textile", prompt: "fabric or textile material" },
     { label: "machine", prompt: "machinery or mechanical parts" },
-    { label: "nature morte", prompt: "a still life of arranged objects" },
+    { label: "nature morte", prompt: "a traditional painted or photographed still life of fruit, flowers and tableware on a table" },
     { label: "sculpture", prompt: "a sculpture or statue" },
   ],
   matiere: [
@@ -261,14 +261,33 @@ export const TAG_GROUPS = {
     { label: "victorien", prompt: "an ornate Victorian era aesthetic" },
     { label: "futuriste", prompt: "a futuristic sci-fi aesthetic" },
   ],
+  // Dimension typographique RICHE (classification + traitement + contexte). Sert
+  // sur les affiches, pochettes, logos, spécimens de police. Labels distincts de
+  // ceux des autres groupes (ex. « enseigne néon » ≠ lumière « néon ») pour éviter
+  // les doublons dans la liste de tags.
   typo: [
-    { label: "serif", prompt: "text set in a classic serif typeface" },
-    { label: "sans-serif", prompt: "text set in a clean sans-serif typeface" },
-    { label: "script", prompt: "text in a cursive handwritten script typeface" },
-    { label: "display", prompt: "big bold decorative display lettering" },
-    { label: "lettering manuel", prompt: "hand-lettered custom letters" },
+    { label: "serif", prompt: "text set in a classic serif typeface with small strokes at the ends of letters" },
+    { label: "sans-serif", prompt: "text set in a clean sans-serif typeface with no serifs" },
+    { label: "slab serif", prompt: "text in a bold slab serif typeface with thick rectangular serifs" },
+    { label: "grotesque", prompt: "text in a neo-grotesque helvetica-like sans-serif typeface" },
+    { label: "script", prompt: "text in a flowing cursive script typeface" },
+    { label: "calligraphie", prompt: "elegant hand calligraphy written with a pointed pen" },
+    { label: "lettering manuel", prompt: "custom letters drawn and lettered by hand" },
+    { label: "display", prompt: "big bold decorative display headline lettering" },
+    { label: "condensé", prompt: "very narrow tall condensed letters" },
+    { label: "gras", prompt: "very heavy bold thick black lettering" },
+    { label: "italique", prompt: "slanted oblique italic lettering" },
+    { label: "capitales", prompt: "text set entirely in uppercase capital letters" },
     { label: "monospace", prompt: "text in a monospace typewriter font" },
-    { label: "gothique", prompt: "blackletter gothic calligraphy lettering" },
+    { label: "blackletter", prompt: "blackletter gothic old-english calligraphy lettering" },
+    { label: "contour", prompt: "outlined hollow letters showing only their outline" },
+    { label: "lettrage 3D", prompt: "three-dimensional extruded chunky 3D letters" },
+    { label: "chromatique", prompt: "colorful multicolor layered chromatic lettering" },
+    { label: "lettrage vintage", prompt: "vintage retro hand-painted sign lettering" },
+    { label: "graffiti", prompt: "spray-painted graffiti tag lettering" },
+    { label: "enseigne néon", prompt: "glowing neon tube sign lettering" },
+    { label: "pixel", prompt: "pixelated bitmap digital letters" },
+    { label: "logo / logotype", prompt: "a logo or logotype wordmark" },
   ],
 };
 
