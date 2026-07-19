@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Mic } from "lucide-react";
+import { Mic, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   pickSupportedAudioMimeType,
   requestMicrophone,
@@ -31,9 +32,12 @@ export interface CreatedAudioBlock {
 type MemoPhase =
   | { step: "idle" }
   | { step: "onboarding" }
+  | { step: "mic-select" } // 1re utilisation multi-micros : choisir AVANT d'enregistrer
   | { step: "recording"; startedAt: number }
   | { step: "preview"; blob: Blob; durationSec: number }
   | { step: "saving" };
+
+const MIC_CHOSEN_KEY = "mb-mic-chosen";
 
 interface VoiceMemoRecorderProps {
   /** Endpoint d'upload — `/api/visits/[id]/audio` ou `/api/moodboards/[id]/audio`
@@ -78,6 +82,12 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string | null>(null);
   useEffect(() => { try { setMicId(localStorage.getItem("mb-mic-device") || null); } catch { /* pas de storage */ } }, []);
+  // Tactile (mobile) : on NE lance PAS la transcription live (Web Speech). Sur
+  // Android elle ouvre un 2e accès micro (« Reconnaissance vocale de Google »)
+  // qui se dispute la puce micro avec l'enregistrement → mauvais micro /
+  // qualité dégradée (capture 2026-07-19). La transcription est faite après,
+  // via Whisper (auto). Sur desktop (souris), pas ce conflit → live conservée.
+  const isTouch = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -102,30 +112,33 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memo.step]);
 
-  const beginRecording = async (deviceIdArg?: string) => {
-    localStorage.setItem(MIC_ONBOARD_KEY, "1");
+  // Acquiert le flux micro (deviceId optionnel), remplace le flux courant et met
+  // à jour la liste des micros. NE démarre PAS l'enregistrement. Renvoie le flux
+  // + la liste (l'état React étant asynchrone, on rend la liste directement).
+  const acquireMic = async (deviceIdArg?: string): Promise<{ stream: MediaStream; devices: MediaDeviceInfo[] } | null> => {
     const chosen = deviceIdArg ?? micId ?? undefined;
     let mic = await requestMicrophone(chosen);
-    // deviceId périmé (micro indisponible) → repli sur le micro par défaut.
-    if (!mic.ok && chosen) mic = await requestMicrophone(undefined);
-    if (!mic.ok) {
-      setError(mic.error);
-      setMemo({ step: "idle" });
-      return;
-    }
+    if (!mic.ok && chosen) mic = await requestMicrophone(undefined); // deviceId périmé → défaut
+    if (!mic.ok) { setError(mic.error); setMemo({ step: "idle" }); return null; }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = mic.stream;
     setMicStream(mic.stream);
-    // Les libellés des micros ne sont dispos qu'APRÈS l'autorisation.
+    let devices: MediaDeviceInfo[] = [];
     try {
-      const list = await navigator.mediaDevices.enumerateDevices();
-      setMicDevices(list.filter((d) => d.kind === "audioinput" && d.deviceId));
+      devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput" && d.deviceId);
     } catch { /* énumération indisponible */ }
+    setMicDevices(devices);
+    return { stream: mic.stream, devices };
+  };
+
+  // Démarre l'enregistrement sur un flux déjà acquis (+ transcription live).
+  const startRecorderOnStream = (stream: MediaStream) => {
     const mimeType = pickSupportedAudioMimeType();
     let recorder: MediaRecorder;
     try {
-      recorder = createAudioRecorder(mic.stream, mimeType);
+      recorder = createAudioRecorder(stream, mimeType);
     } catch {
-      mic.stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((t) => t.stop());
       setError("Format d'enregistrement non pris en charge par ce navigateur.");
       setMemo({ step: "idle" });
       return;
@@ -134,7 +147,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     chunksRef.current = [];
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
     recorder.onstop = () => {
-      mic.stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((t) => t.stop());
       if (chunksRef.current.length === 0) {
         setMemo({ step: "idle" });
         setError("Aucun son capté — réessaie l'enregistrement.");
@@ -144,7 +157,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
       const durationSec = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
       setMemo({ step: "preview", blob, durationSec });
     };
-    mic.stream.getAudioTracks().forEach((track) => {
+    stream.getAudioTracks().forEach((track) => {
       track.onended = () => {
         if (recorderRef.current && recorderRef.current.state !== "inactive") {
           try { recorderRef.current.stop(); } catch { /* déjà arrêté */ }
@@ -154,7 +167,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     recorder.onerror = () => {
       transcriberRef.current?.stop();
       transcriberRef.current = null;
-      mic.stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((t) => t.stop());
       setError("Erreur d'enregistrement — réessaie.");
       setMemo({ step: "idle" });
     };
@@ -165,17 +178,46 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     recorder.start();
     setMemo({ step: "recording", startedAt: startedAtRef.current });
     setSpeechAvailable(null);
-    window.setTimeout(() => {
-      if (recorderRef.current === recorder && recorder.state === "recording") {
-        transcriberRef.current = startLiveTranscription(setTranscript);
-        setSpeechAvailable(transcriberRef.current !== null);
-      }
-    }, 200);
+    if (isTouch) {
+      // Mobile : PAS de Web Speech (2e accès micro qui casse le routage/qualité).
+      // Transcription faite après, via Whisper (auto).
+      setSpeechAvailable(false);
+    } else {
+      window.setTimeout(() => {
+        if (recorderRef.current === recorder && recorder.state === "recording") {
+          transcriberRef.current = startLiveTranscription(setTranscript);
+          setSpeechAvailable(transcriberRef.current !== null);
+        }
+      }, 200);
+    }
   };
 
-  // Change de micro en cours d'enregistrement : on repart proprement sur le
-  // nouveau (le court extrait déjà capté est abandonné — on choisit le micro
-  // AVANT d'enregistrer pour de bon).
+  const beginRecording = async (deviceIdArg?: string) => {
+    localStorage.setItem(MIC_ONBOARD_KEY, "1");
+    const res = await acquireMic(deviceIdArg);
+    if (!res) return;
+    // 1re utilisation AVEC plusieurs micros : demander de choisir AVANT
+    // d'enregistrer (le changement de micro n'est fiable qu'en (ré)acquérant le
+    // flux — pas en cours d'enregistrement). Une fois choisi, on ne redemande plus.
+    const needChoice = res.devices.length > 1 && !localStorage.getItem(MIC_CHOSEN_KEY);
+    if (needChoice) { setMemo({ step: "mic-select" }); return; }
+    startRecorderOnStream(res.stream);
+  };
+
+  // Étape « choisir le micro » : chaque tap ré-acquiert le flux du micro visé
+  // (le waveform réagit → on voit lequel capte le mieux). Le choix est persisté.
+  const chooseMicPreview = async (id: string) => {
+    try { if (id) localStorage.setItem("mb-mic-device", id); else localStorage.removeItem("mb-mic-device"); } catch { /* pas de storage */ }
+    setMicId(id || null);
+    await acquireMic(id || undefined);
+  };
+  const startAfterMicSelect = () => {
+    try { localStorage.setItem(MIC_CHOSEN_KEY, "1"); } catch { /* pas de storage */ }
+    if (streamRef.current) startRecorderOnStream(streamRef.current);
+  };
+
+  // Change de micro EN COURS d'enregistrement : on repart proprement sur le
+  // nouveau (le court extrait déjà capté est abandonné).
   const switchMic = async (id: string) => {
     try { if (id) localStorage.setItem("mb-mic-device", id); else localStorage.removeItem("mb-mic-device"); } catch { /* pas de storage */ }
     setMicId(id || null);
@@ -183,9 +225,9 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     transcriberRef.current = null;
     const rec = recorderRef.current;
     if (rec && rec.state !== "inactive") { rec.onstop = null; try { rec.stop(); } catch { /* déjà arrêté */ } }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
     setTranscript("");
-    await beginRecording(id || undefined);
+    const res = await acquireMic(id || undefined);
+    if (res) startRecorderOnStream(res.stream);
   };
 
   const startMemo = async () => {
@@ -410,6 +452,55 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
               </div>
             )}
 
+            {memo.step === "mic-select" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-[var(--text-primary)]">Choisis le micro</p>
+                  <p className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed">
+                    Ton appareil a plusieurs micros. Sélectionne celui qui capte le mieux ta voix
+                    (souvent celui du bas), parle pour voir réagir la courbe, puis lance
+                    l&apos;enregistrement. Ce choix sera mémorisé.
+                  </p>
+                </div>
+                <VoiceWaveform stream={micStream} className="w-full h-14" />
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  <button
+                    onClick={() => chooseMicPreview("")}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition-colors",
+                      !micId ? "border-[var(--text-primary)] bg-[var(--bg-surface)] text-[var(--text-primary)]" : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]"
+                    )}
+                  >
+                    <Mic size={14} strokeWidth={2} className="shrink-0" />
+                    <span className="flex-1 min-w-0 truncate">Micro par défaut</span>
+                    {!micId && <Check size={15} strokeWidth={2.5} className="shrink-0" />}
+                  </button>
+                  {micDevices.map((d) => (
+                    <button
+                      key={d.deviceId}
+                      onClick={() => chooseMicPreview(d.deviceId)}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition-colors",
+                        micId === d.deviceId ? "border-[var(--text-primary)] bg-[var(--bg-surface)] text-[var(--text-primary)]" : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]"
+                      )}
+                    >
+                      <Mic size={14} strokeWidth={2} className="shrink-0" />
+                      <span className="flex-1 min-w-0 truncate">{d.label || "Micro"}</span>
+                      {micId === d.deviceId && <Check size={15} strokeWidth={2.5} className="shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={cancelMemo} className="flex-1 py-2.5 rounded-lg text-sm text-[var(--text-secondary)] border border-[var(--border-default)]">
+                    Annuler
+                  </button>
+                  <button onClick={startAfterMicSelect} className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-base)]">
+                    Commencer
+                  </button>
+                </div>
+              </div>
+            )}
+
             {memo.step === "recording" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -442,9 +533,11 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
                   {transcript || (
                     <span className="text-[var(--text-tertiary)] italic">
-                      {speechAvailable === false
-                        ? "Transcription non disponible sur ce navigateur — le mémo sera enregistré tel quel."
-                        : "La transcription apparaît ici…"}
+                      {isTouch
+                        ? "La transcription est générée à la fin de l'enregistrement."
+                        : speechAvailable === false
+                          ? "Transcription non disponible sur ce navigateur — le mémo sera enregistré tel quel."
+                          : "La transcription apparaît ici…"}
                     </span>
                   )}
                 </p>
