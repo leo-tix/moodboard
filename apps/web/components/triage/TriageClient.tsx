@@ -6,6 +6,7 @@ import { X, Check, ArrowUp, CircleSlash, RotateCcw, Copy, Maximize2, PartyPopper
 import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
 import { CategoryMultiSelect, type CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { TagInput } from "@/components/inspiration/TagInput";
+import { AiSuggestPanel } from "@/components/inspiration/AiSuggestPanel";
 import { AutocompleteInput } from "@/components/inspiration/AutocompleteInput";
 import type { Category } from "@/components/inspiration/CategorySelect";
 import { notifyTriageCountChanged } from "@/lib/triage/events";
@@ -549,6 +550,25 @@ export function TriageClient() {
         <p className={lbl}>Tags</p>
         <TagInput value={fields.tags} onChange={(v) => updateField("tags", v)} placeholder="Entrée pour valider…" withSuggestions />
       </div>
+      {/* Suggestions IA locales (CLIP zero-shot) — catégories + tags, validées par
+          l'utilisateur. Toggle « auto » persisté partagé avec les espaces d'upload. */}
+      {current?.images?.[0]?.storageKey && (
+        <AiSuggestPanel
+          imageUrl={getImageUrl(current.images[0].storageKey)}
+          allCategories={allCategories}
+          currentCategories={fields.categories}
+          currentTags={fields.tags}
+          onAddCategory={(sel) =>
+            updateField(
+              "categories",
+              fields.categories.some((c) => c.categoryId === sel.categoryId && (c.subcategoryId ?? null) === (sel.subcategoryId ?? null))
+                ? fields.categories
+                : [...fields.categories, sel],
+            )
+          }
+          onAddTag={(name) => updateField("tags", fields.tags.includes(name) ? fields.tags : [...fields.tags, name])}
+        />
+      )}
       <div>
         <p className={lbl}>Auteur</p>
         <AutocompleteInput field="author" value={fields.author} onChange={(v) => updateField("author", v)} placeholder="—" inputClassName={fld} />
