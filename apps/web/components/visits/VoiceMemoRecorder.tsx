@@ -156,6 +156,53 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memo.step]);
 
+  // Pipeline « occupé » : enregistrement, transcription (Whisper) ou upload en
+  // cours. Sert au Wake Lock, au verrou de sortie et au garde beforeunload.
+  const busy = memo.step === "recording" || memo.step === "saving" || transcribing !== null;
+  // Travail non sauvegardé présent (l'aperçu contient un clip pas encore
+  // enregistré) — la feuille ne doit pas se fermer par un tap à côté.
+  const hasUnsaved = memo.step === "recording" || memo.step === "preview" || memo.step === "saving";
+
+  // WAKE LOCK — empêche l'écran de s'éteindre pendant tout le pipeline actif
+  // (demande 2026-07-19). Un écran qui s'endort couperait l'enregistrement
+  // (Android suspend le micro) ET pourrait interrompre la transcription WASM /
+  // l'upload. Best-effort : l'API n'existe pas partout (Safari < 16.4…), on
+  // ignore silencieusement. Le lock saute quand l'onglet passe en arrière-plan
+  // → on le reprend au retour au premier plan tant que le pipeline tourne.
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  useEffect(() => {
+    if (!busy) return;
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<WakeLockSentinel> } };
+    if (!nav.wakeLock) return;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        const sentinel = await nav.wakeLock!.request("screen");
+        if (cancelled) { sentinel.release().catch(() => {}); return; }
+        wakeLockRef.current = sentinel;
+      } catch { /* refusé / non supporté */ }
+    };
+    const onVis = () => { if (!document.hidden && !wakeLockRef.current) acquire(); };
+    acquire();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, [busy]);
+
+  // Garde beforeunload — un rafraîchissement / fermeture d'onglet avec un mémo
+  // non enregistré affiche l'avertissement natif du navigateur (surtout utile
+  // sur desktop ; sur mobile le verrou de fermeture de la feuille prend le relais).
+  useEffect(() => {
+    if (!hasUnsaved) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasUnsaved]);
+
   // Démarre l'enregistrement sur un flux déjà acquis (+ transcription live).
   const startRecorderOnStream = (stream: MediaStream) => {
     const mimeType = pickSupportedAudioMimeType();
@@ -404,7 +451,10 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
         <>
           <div
             className="fixed inset-0 bg-black/60 z-[70]"
-            onClick={memo.step === "recording" || memo.step === "saving" ? undefined : cancelMemo}
+            // Non-fermable par tap à côté dès qu'un enregistrement existe
+            // (enregistrement / aperçu / transcription / upload) : évite de
+            // perdre le mémo par mégarde. On ne peut sortir que par « Annuler ».
+            onClick={hasUnsaved ? undefined : cancelMemo}
           />
           <div
             className="fixed inset-x-0 bottom-0 z-[71] bg-[var(--bg-elevated)] border-t border-[var(--border-default)] rounded-t-2xl p-5 md:max-w-md md:mx-auto md:rounded-2xl md:bottom-6"
@@ -509,14 +559,28 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                 <textarea
                   value={transcript}
                   onChange={(e) => { setTranscript(e.target.value); setWordTimings(null); }}
+                  disabled={memo.step === "saving"}
                   rows={3}
                   placeholder="Transcription (modifiable, ou vide)…"
-                  className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)] resize-y placeholder:text-[var(--text-tertiary)]"
+                  className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)] resize-y placeholder:text-[var(--text-tertiary)] disabled:opacity-60"
                 />
                 {/* Transcription EN COURS → barre de progression (où on en est).
                     Sinon, si le champ est vide → bouton pour (re)lancer à la main. */}
                 {memo.step === "preview" && transcribing !== null && (
                   <TranscribeProgressBar progress={transcribing} />
+                )}
+                {/* Upload EN COURS → barre indéterminée + libellé clair : l'action
+                    « travaille », ne quitte pas (la feuille est déjà verrouillée). */}
+                {memo.step === "saving" && (
+                  <div className="space-y-1.5">
+                    <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+                      <Loader2 size={12} className="animate-spin" strokeWidth={2.2} />
+                      Enregistrement du mémo…
+                    </span>
+                    <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-surface)]">
+                      <div className="mb-progress-sweep absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--text-primary)]" />
+                    </div>
+                  </div>
                 )}
                 {memo.step === "preview" && transcribing === null && !transcript.trim() && (
                   <button
