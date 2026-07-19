@@ -132,17 +132,9 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentC
         <div className="space-y-2.5">
           {result.titles.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Titre descriptif</p>
+              <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Titre</p>
               <div className="flex flex-wrap gap-1.5">
                 {result.titles.map((t) => chip(currentTitle.trim() === t, () => onSetTitle(t), t, t))}
-              </div>
-            </div>
-          )}
-          {result.creativeTitles.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Titre créatif</p>
-              <div className="flex flex-wrap gap-1.5">
-                {result.creativeTitles.map((t) => chip(currentTitle.trim() === t, () => onSetTitle(t), "cr-" + t, t))}
               </div>
             </div>
           )}

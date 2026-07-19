@@ -26,97 +26,43 @@ export interface TagSuggestion {
 export interface ImageAnalysis {
   categories: CategorySuggestion[];
   tags: TagSuggestion[];
-  /** Titres DESCRIPTIFS (français), dérivés de la catégorie + tags dominants. */
+  /** Titres candidats (français), dérivés de la catégorie + tags dominants. */
   titles: string[];
-  /** Titres CRÉATIFS / évocateurs, à partir des mêmes signaux. */
-  creativeTitles: string[];
 }
 
 const MAX_CATEGORIES = 3; // meilleures catégories (l'utilisateur choisit, ex. Illustration vs BD)
-const MAX_TAGS = 9;
+const MAX_TAGS = 10;
 const PER_GROUP_KEEP = 2; // jusqu'à 2 tags par dimension → plus de suggestions
+const MAX_TITLES = 6;
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
-  // Meilleur tag de chaque dimension → composition d'un descriptif français.
+  // Meilleur tag de chaque dimension → nombreuses compositions descriptives FR.
   const top = (g: string) => tags.find((t) => t.group === g)?.label;
   const subj = top("sujet");
   const col = top("couleur");
   const comp = top("composition");
   const tech = top("technique");
+  const amb = top("ambiance");
   const sub = categories[0]?.subcategory;
   const inSub = (x?: string) => !!x && !!sub && sub.toLowerCase().includes(x.toLowerCase());
   const out: string[] = [];
-  // 1) Descriptif riche à partir des dimensions concrètes (sujet/composition/couleur).
-  const dims = [subj, comp, col].filter(Boolean);
-  if (dims.length >= 2) out.push(cap(dims.join(" ")));
-  // 2) Angle technique : « Photographie — intérieur ».
-  if (tech && subj && !inSub(tech)) out.push(`${cap(tech)} — ${subj}`);
-  // 3) Sous-catégorie enrichie d'un tag NON redondant (évite « Illustration illustration »).
-  const enrich = [col, comp, subj].find((x) => x && !inSub(x));
-  if (sub && enrich) out.push(`${cap(sub)} ${enrich}`);
-  // 4) Replis simples.
-  if (sub) out.push(cap(sub));
-  if (subj) out.push(cap(subj));
-  return [...new Set(out.filter(Boolean))].slice(0, 3);
-}
-
-// Fragments ÉVOCATEURS par tag (pas de vrai LLM en local → banque de titres
-// « créatifs » associée aux tags dominants ; l'utilisateur choisit/édite).
-const CREATIVE_BY_TAG: Record<string, string[]> = {
-  "coloré": ["Explosion de couleurs", "Kaléidoscope", "Chromies"],
-  "pastel": ["Douceur pastel", "Rêverie tendre", "Guimauve"],
-  "noir et blanc": ["Clair-obscur", "En sourdine", "Gris sur gris"],
-  "monochrome": ["Ton sur ton", "Camaïeu"],
-  "tons chauds": ["Braise", "Heure dorée"],
-  "tons froids": ["Fraîcheur bleutée", "Grand bleu"],
-  "sépia": ["Souvenir jauni", "Vieux papier"],
-  "vintage": ["Nostalgie", "Écho rétro", "Machine à remonter"],
-  "géométrique": ["Géométries", "Lignes & formes", "Angles droits"],
-  "minimaliste": ["Épure", "Le vide habité", "Presque rien"],
-  "abstrait": ["Abstraction", "Sans titre", "Formes libres"],
-  "motif": ["Ritournelle", "Trame", "En boucle"],
-  "symétrique": ["Miroir", "Parfait équilibre"],
-  "gros plan": ["Au plus près", "Détail"],
-  "onirique": ["Songe éveillé", "Rêverie", "Hors du temps"],
-  "sombre": ["Pénombre", "Basse lumière", "Ombres portées"],
-  "lumineux": ["Pleine lumière", "Éclat", "À contre-jour"],
-  "contrasté": ["Tension", "Ombre & lumière", "Coup d'éclat"],
-  "doux": ["Tout en douceur", "Feutré"],
-  "nuit": ["Nocturne", "Sous la lune", "Après minuit"],
-  "brut": ["Sans filtre", "À vif", "Béton"],
-  "portrait": ["Face à face", "Le regard", "Présence"],
-  "personnage": ["Présence", "En scène", "Silhouettes"],
-  "nature": ["Éclosion", "Nature vive", "Grand air"],
-  "paysage": ["Horizon", "Grand large", "Point de fuite"],
-  "urbain": ["Béton & bruit", "Rumeur urbaine", "Bitume"],
-  "architecture": ["Lignes de fuite", "Béton & verre"],
-  "intérieur": ["Huis clos", "Entre quatre murs"],
-  "textile": ["Étoffe", "Au fil"],
-  "eau": ["Reflets", "Ondes", "À fleur d'eau"],
-  "ciel": ["Tête en l'air", "Nuages"],
-  "typographie": ["Lettres capitales", "Bouche à mot", "Caractères"],
-  "illustration": ["Coup de crayon", "Trait pour trait"],
-  "3D": ["Relief", "Volumes"],
-  "collage": ["Bric-à-brac", "Pièces rapportées"],
-};
-
-function buildCreativeTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
-  const out: string[] = [];
-  // 1) Puise dans les banques des tags dominants (dans l'ordre de pertinence).
-  for (const t of tags) {
-    const pool = CREATIVE_BY_TAG[t.label];
-    if (pool) out.push(...pool);
-    if (out.length >= 8) break;
-  }
-  // 2) Compléments par combinaison si trop peu.
-  const labels = tags.map((t) => t.label);
-  if (labels[0] && labels[1]) out.push(`${cap(labels[0])} & ${labels[1]}`);
-  if (labels[0]) out.push(`${cap(labels[0])}, encore`);
-  const sub = categories[0]?.subcategory;
-  if (sub) out.push(`${cap(sub)}, variation`);
-  return [...new Set(out.filter(Boolean))].slice(0, 3);
+  const push = (s?: string) => { if (s && s.trim().length >= 3) out.push(cap(s.trim())); };
+  // Combinaisons de dimensions concrètes (variété).
+  push([subj, comp, col].filter(Boolean).join(" "));
+  push([subj, col].filter(Boolean).join(" "));
+  push([comp, col].filter(Boolean).join(" "));
+  push([subj, amb].filter(Boolean).join(" "));
+  push([subj, comp].filter(Boolean).join(" "));
+  // Angle technique.
+  if (tech && subj && !inSub(tech)) push(`${cap(tech)} — ${subj}`);
+  // Sous-catégorie enrichie de chaque tag NON redondant.
+  for (const e of [col, comp, subj, amb]) if (sub && e && !inSub(e)) push(`${cap(sub)} ${e}`);
+  // Replis simples.
+  push(sub);
+  push(subj);
+  return [...new Set(out.filter(Boolean))].slice(0, MAX_TITLES);
 }
 
 // `scores` = cosinus par libellé, aligné sur flatConcepts() (même ordre que les
@@ -153,7 +99,7 @@ function mapResult(scores: number[]): ImageAnalysis {
   topTags.sort((a, b) => b.score - a.score);
   const tags = topTags.slice(0, MAX_TAGS);
 
-  return { categories, tags, titles: buildTitles(categories, tags), creativeTitles: buildCreativeTitles(categories, tags) };
+  return { categories, tags, titles: buildTitles(categories, tags) };
 }
 
 // ── Worker (par défaut) ──────────────────────────────────────────────────────
