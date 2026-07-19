@@ -51,13 +51,14 @@ interface TileContentProps {
 export function TileContent({ tile, editable, onPersistAudioTranscript, onToggleChecklistItem, imageNav }: TileContentProps) {
   const author = useJournalAuthor();
 
-  // Séparateur de section : ligne pleine largeur + puce centrée.
+  // Séparateur de section : ligne pleine largeur + puce centrée (multi-ligne si
+  // le titre est long — 2026-07-19).
   if (tile.content.type === "separator") {
     const label = tile.content.label.trim() || "Section";
     return (
       <div className="w-full h-full flex items-center gap-3 px-1">
         <span className="h-px flex-1 bg-[var(--border-default)]" />
-        <span className="shrink-0 max-w-[70%] truncate px-4 py-1.5 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[13px] font-medium text-[var(--text-primary)] tracking-wide">
+        <span className="shrink-0 max-w-[80%] text-center px-4 py-2 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[13px] font-medium text-[var(--text-primary)] tracking-wide leading-snug break-words">
           {label}
         </span>
         <span className="h-px flex-1 bg-[var(--border-default)]" />
