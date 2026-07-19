@@ -27,14 +27,20 @@ export function pickSupportedAudioMimeType(): string | undefined {
 // très en dessous du plafond serveur (15 Mo/clip, voir QUOTA.MAX_AUDIO_SIZE_BYTES).
 export const AUDIO_BITRATE = 128_000;
 
-// Contraintes micro explicites — sans elles, certains Android/Chrome
-// capturent à un sample rate bas (optimisé télécom, pas qualité d'enregistrement).
-// On VISE 48 kHz (le natif d'Opus) tout en gardant l'annulation d'écho/bruit
-// (utile en contexte musée/extérieur, pas juste pour la clarté vocale).
+// Contraintes micro explicites. DÉCISION QUALITÉ (2026-07-19, retour terrain
+// Android « on dirait le micro de communication ») : on DÉSACTIVE le triptyque
+// de traitement vocal (echoCancellation / noiseSuppression / autoGainControl).
+// Ces filtres font basculer Android/Chrome sur la source « communication »
+// (VOICE_COMMUNICATION, chaîne DSP téléphonie → bande étroite, pompage AGC,
+// suppression agressive qui étouffe l'ambiance et la musique d'une expo). Off,
+// le navigateur prend la source « média/non traitée », bien plus fidèle. On
+// vise 48 kHz (natif Opus). Contrepartie assumée : un peu plus d'écho/bruit
+// ambiant capté — c'est justement ce qu'on veut préserver pour un mémo de
+// visite, pas un appel « nettoyé ».
 const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
   channelCount: { ideal: 1 },
   sampleRate: { ideal: 48000 },
 };
@@ -84,7 +90,8 @@ interface SpeechRecognitionLike {
   continuous: boolean;
   interimResults: boolean;
   onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event?: { error?: string }) => void) | null;
+  onend: (() => void) | null;
   start: () => void;
   stop: () => void;
 }
@@ -113,6 +120,7 @@ export function startLiveTranscription(onUpdate: (text: string) => void): LiveTr
   recognition.interimResults = true;
 
   let finalText = "";
+  let stopped = false;
   recognition.onresult = (event) => {
     let interim = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -122,8 +130,22 @@ export function startLiveTranscription(onUpdate: (text: string) => void): LiveTr
     }
     onUpdate((finalText + interim).trim());
   };
-  // Erreurs (no-speech, aborted…) : non fatales, on garde ce qu'on a.
-  recognition.onerror = () => {};
+  // Erreurs (no-speech, aborted…) : non fatales, on garde ce qu'on a. Sur
+  // "not-allowed"/"service-not-allowed" on abandonne (sinon boucle de relance).
+  recognition.onerror = (e) => {
+    if (e?.error === "not-allowed" || e?.error === "service-not-allowed") stopped = true;
+  };
+  // ANDROID : `continuous` n'est PAS respecté — la reconnaissance s'arrête
+  // après chaque silence (`onend`). Sans relance on ne capte que la 1re
+  // phrase. On la RELANCE tant que l'enregistrement tourne → transcription
+  // réellement continue pendant qu'on parle (petit délai anti-boucle).
+  recognition.onend = () => {
+    if (stopped) return;
+    setTimeout(() => {
+      if (stopped) return;
+      try { recognition.start(); } catch { /* déjà relancée */ }
+    }, 250);
+  };
 
   try {
     recognition.start();
@@ -133,6 +155,7 @@ export function startLiveTranscription(onUpdate: (text: string) => void): LiveTr
 
   return {
     stop: () => {
+      stopped = true;
       try { recognition.stop(); } catch { /* déjà arrêtée */ }
       return finalText.trim();
     },
