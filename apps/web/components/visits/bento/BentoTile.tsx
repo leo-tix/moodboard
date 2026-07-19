@@ -211,13 +211,17 @@ export function BentoTile({
       {note && !editingInline && !isDragging && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 z-0"
+          className="pointer-events-none absolute z-0"
           style={{
+            // Démarre SOUS le sommet (20px) : sinon la trame répétée dessine
+            // aussi une réglure au-dessus de la 1re ligne → « double trait ».
+            top: 20,
+            bottom: 0,
             left: 16,
             right: 16,
             backgroundImage:
               "repeating-linear-gradient(to bottom, rgba(255,255,255,0.045) 0, rgba(255,255,255,0.045) 1px, transparent 1px, transparent 28px)",
-            backgroundPositionY: "33px",
+            backgroundPositionY: "13px",
           }}
         />
       )}
