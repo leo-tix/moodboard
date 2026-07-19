@@ -3,10 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, MessageCircle, type LucideIcon } from "lucide-react";
+import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, MessageCircle, Newspaper, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/lib/storage/urls";
 import { TriageBadge } from "@/components/triage/TriageBadge";
+import { SocialBadge } from "@/components/social/SocialBadge";
+
+// Pastille de notification selon la destination.
+function badgeFor(href: string) {
+  if (href === "/triage") return <TriageBadge />;
+  if (href === "/reseau") return <SocialBadge kind="requests" />;
+  if (href === "/messages") return <SocialBadge kind="messages" />;
+  return null;
+}
 
 interface SidebarUser {
   name: string | null;
@@ -28,6 +37,7 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/visites", label: "Visites", icon: Landmark },
   { href: "/reseau", label: "Réseau", icon: Users },
   { href: "/messages", label: "Messagerie", icon: MessageCircle },
+  { href: "/feed", label: "Fil", icon: Newspaper },
   { href: "/search", label: "Recherche", icon: Search },
   { href: "/upload",  label: "Ajouter",  icon: Plus },
   { href: "/triage",  label: "Triage",   icon: Inbox },
@@ -79,17 +89,17 @@ export function Sidebar({ user }: { user: SidebarUser }) {
               {/* Icon — with superposed badge in icon-only mode (md, not xl) */}
               <span className="relative z-10 flex-shrink-0">
                 <item.icon size={18} strokeWidth={1.75} />
-                {item.href === "/triage" && (
+                {badgeFor(item.href) && (
                   <span className="absolute -top-2 -right-2.5 xl:hidden pointer-events-none">
-                    <TriageBadge />
+                    {badgeFor(item.href)}
                   </span>
                 )}
               </span>
               <span className="relative z-10 hidden xl:block flex-1">{item.label}</span>
               {/* Badge inline on xl (full label visible) */}
-              {item.href === "/triage" && (
+              {badgeFor(item.href) && (
                 <span className="relative z-10 hidden xl:flex">
-                  <TriageBadge />
+                  {badgeFor(item.href)}
                 </span>
               )}
             </Link>

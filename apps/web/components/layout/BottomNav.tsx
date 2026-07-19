@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, Check, Users, MessageCircle, type LucideIcon } from "lucide-react";
+import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, Check, Users, MessageCircle, Newspaper, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TriageBadge } from "@/components/triage/TriageBadge";
+import { SocialBadge } from "@/components/social/SocialBadge";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 
 // 5 slots (4 items ici + le bouton "Plus" ajouté séparément dans le JSX) avec
@@ -27,6 +28,7 @@ const MORE_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/visites",         label: "Visites",  icon: Landmark },
   { href: "/reseau",          label: "Réseau",   icon: Users },
   { href: "/messages",        label: "Messagerie", icon: MessageCircle },
+  { href: "/feed",            label: "Fil",      icon: Newspaper },
   { href: "/settings/categories", label: "Réglages", icon: Settings },
   { href: "/settings/account", label: "Compte",   icon: CircleUser },
 ];
@@ -276,7 +278,10 @@ export function BottomNav() {
                 : "text-[var(--text-tertiary)]"
             )}
           >
-            <span className="leading-none"><MoreHorizontal size={20} strokeWidth={1.75} /></span>
+            <span className="relative leading-none">
+              <MoreHorizontal size={20} strokeWidth={1.75} />
+              <span className="absolute -top-2 -right-2.5 pointer-events-none"><SocialBadge kind="all" /></span>
+            </span>
             <span className="text-[9px] tracking-wide leading-none">Plus</span>
           </button>
         </div>
