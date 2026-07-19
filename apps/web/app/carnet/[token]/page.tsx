@@ -61,10 +61,14 @@ export default async function PublicCarnetPage({ params }: Props) {
   const orderedInspirations = [...visit.inspirations].sort(
     (a, b) => a.visitOrder - b.visitOrder || a.createdAt.getTime() - b.createdAt.getTime(),
   );
-  const coverImages = orderedInspirations
+  const carouselImages = orderedInspirations
     .slice(0, 12)
     .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey, width: i.images[0]?.width ?? null, height: i.images[0]?.height ?? null }))
     .filter((i): i is { id: string; storageKey: string; width: number | null; height: number | null } => Boolean(i.storageKey));
+  // Couverture personnalisée (image fixe) si l'auteur en a défini une.
+  const coverImages = visit.coverKey
+    ? [{ id: "custom-cover", storageKey: visit.coverKey, width: null as number | null, height: null as number | null }]
+    : carouselImages;
   const mapThumbnailKey = orderedInspirations[0]?.images[0]?.thumbnailKey ?? null;
 
   const hasCover = coverImages.length > 0;

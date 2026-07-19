@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/current";
 import { VisitJournal } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
+import { VisitCoverEditor } from "@/components/visits/VisitCoverEditor";
 import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
 import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
@@ -78,14 +79,25 @@ export default async function VisiteDetailPage({ params }: Props) {
   const orderedInspirations = [...visit.inspirations].sort(
     (a, b) => a.visitOrder - b.visitOrder || a.createdAt.getTime() - b.createdAt.getTime()
   );
-  const coverImages = orderedInspirations
+  const carouselImages = orderedInspirations
     .slice(0, 12)
     .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey, width: i.images[0]?.width ?? null, height: i.images[0]?.height ?? null }))
     .filter((i): i is { id: string; storageKey: string; width: number | null; height: number | null } => Boolean(i.storageKey));
+  // Couverture personnalisée (une image fixe) si définie, sinon le carrousel.
+  const coverImages = visit.coverKey
+    ? [{ id: "custom-cover", storageKey: visit.coverKey, width: null as number | null, height: null as number | null }]
+    : carouselImages;
+  // Toutes les photos de la visite — sélecteur de couverture personnalisée.
+  const pickerImages = orderedInspirations
+    .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey ?? "", thumbnailKey: i.images[0]?.thumbnailKey ?? null }))
+    .filter((i) => i.storageKey);
   // Même première image que la couverture, mais en vignette pour le pin de carte.
   const mapThumbnailKey = orderedInspirations[0]?.images[0]?.thumbnailKey ?? null;
 
   const hasCover = coverImages.length > 0;
+  const coverEditor = (
+    <VisitCoverEditor visitId={visit.id} currentCoverKey={visit.coverKey} images={pickerImages} />
+  );
   const shareButton = (
     <VisitShareButton
       visitId={visit.id}
@@ -125,11 +137,14 @@ export default async function VisiteDetailPage({ params }: Props) {
           classes par défaut de VisitCoverCarousel (partagées avec la page
           publique), plus besoin d'override ici. */}
       {hasCover ? (
-        <VisitCoverCarousel images={coverImages}>
+        <VisitCoverCarousel images={coverImages} topRight={coverEditor}>
           {editableHeader}
         </VisitCoverCarousel>
       ) : (
-        <header className="mb-5">{editableHeader}</header>
+        <header className="mb-5 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">{editableHeader}</div>
+          {coverEditor}
+        </header>
       )}
 
       {(visit.address || visit.notes) && (

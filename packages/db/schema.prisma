@@ -213,6 +213,10 @@ model Visit {
   // (non partagé) ; posé/révoqué via /api/visits/[id]/share.
   shareToken   String?       @unique
   shareExpiry  DateTime?
+  // Couverture personnalisée : clé R2 d'UNE image (choisie parmi la visite ou
+  // importée) affichée en couverture fixe. Null = carrousel des images par
+  // défaut (2026-07-19).
+  coverKey     String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   inspirations Inspiration[]
