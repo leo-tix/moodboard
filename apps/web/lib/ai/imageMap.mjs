@@ -126,5 +126,14 @@ export function mapScores(scores) {
   topTags.sort((a, b) => b.score - a.score);
   const tags = topTags.slice(0, MAX_TAGS);
 
+  // GARANTIE TYPO : quand le texte ressort vraiment (z ≥ seuil), on s'assure que
+  // le meilleur tag typographique figure dans la liste même s'il est évincé par
+  // des tags de style à z plus élevé — la typo est un signal décisif pour l'user.
+  const bestTypo = topByGroup.get("typo");
+  if (bestTypo && bestTypo.z >= Z_TYPO && !tags.some((t) => t.label === bestTypo.label)) {
+    tags[tags.length - 1] = bestTypo; // remplace le tag de plus faible z (liste triée desc.)
+    tags.sort((a, b) => b.score - a.score);
+  }
+
   return { categories, tags, titles: buildTitles(categories, topByGroup) };
 }
