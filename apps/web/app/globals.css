@@ -330,6 +330,24 @@ body {
 }
 
 /* ============================================================
+   BARRE DE PROGRESSION INDÉTERMINÉE — transcription Whisper
+   (voir VoiceMemoRecorder). CRUCIAL : animation en `transform` pur, donc
+   portée par le thread COMPOSITEUR — elle continue de défiler même quand
+   le thread principal JS est figé par l'inférence WASM (Whisper tourne sur
+   le thread principal, pas de worker fiable sous Turbopack). Une animation
+   pilotée en JS (width via setInterval/rAF) resterait bloquée pendant tout
+   le calcul ; celle-ci reste vivante et signale « ça travaille ».
+   ============================================================ */
+@keyframes mb-progress-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
+}
+.mb-progress-sweep {
+  animation: mb-progress-sweep 1.15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
+/* ============================================================
    ACCESSIBILITÉ — respect de prefers-reduced-motion
    Neutralise animations/transitions (skeletons, crossfade de page,
    framer-motion via useReducedMotion côté JS) pour les utilisateurs

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Loader2 } from "lucide-react";
 import {
   pickSupportedAudioMimeType,
   requestMicrophone,
@@ -12,6 +13,52 @@ import {
 import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
 import { enqueueCapture } from "@/lib/offline/outbox";
 import { VoiceWaveform } from "@/components/visits/VoiceWaveform";
+import { AudioPlayer } from "@/components/visits/AudioPlayer";
+
+// Barre de progression de la transcription Whisper — affichée pendant tout le
+// traitement pour que l'utilisateur sache OÙ on en est. Deux régimes :
+//  · « downloading » (1er usage, ~80 Mo) : barre DÉTERMINÉE (Mo réels) — cette
+//    phase est du réseau async, le thread principal est libre, la barre avance.
+//  · « decoding » / « transcribing » : barre INDÉTERMINÉE en CSS pur
+//    (mb-progress-sweep) — le calcul WASM fige le thread JS, seule une
+//    animation compositeur (transform) continue de défiler pendant le gel.
+function TranscribeProgressBar({ progress }: { progress: TranscribeProgress }) {
+  const pct =
+    progress.phase === "downloading" && progress.totalMB
+      ? Math.min(100, Math.round(((progress.loadedMB ?? 0) / progress.totalMB) * 100))
+      : null;
+  const label =
+    progress.phase === "downloading"
+      ? "Téléchargement du modèle (1re fois)"
+      : progress.phase === "decoding"
+        ? "Préparation de l'audio…"
+        : "Transcription en cours…";
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+          <Loader2 size={12} className="animate-spin" strokeWidth={2.2} />
+          {label}
+        </span>
+        {pct !== null && (
+          <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
+            {progress.loadedMB ?? 0}/{progress.totalMB} Mo · {pct}%
+          </span>
+        )}
+      </div>
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-surface)]">
+        {pct !== null ? (
+          <div
+            className="h-full rounded-full bg-[var(--text-primary)] transition-[width] duration-300 ease-out"
+            style={{ width: `${pct}%` }}
+          />
+        ) : (
+          <div className="mb-progress-sweep absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--text-primary)]" />
+        )}
+      </div>
+    </div>
+  );
+}
 
 const MIC_ONBOARD_KEY = "mb-mic-onboarded";
 
@@ -318,6 +365,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
   const previewBlob = memo.step === "preview" ? memo.blob : null;
+  const previewDurationSec = memo.step === "preview" ? memo.durationSec : null;
   const previewUrl = useMemo(() => (previewBlob ? URL.createObjectURL(previewBlob) : null), [previewBlob]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
@@ -429,7 +477,16 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
             {(memo.step === "preview" || memo.step === "saving") && (
               <div className="space-y-4">
                 <p className="text-sm font-medium text-[var(--text-primary)]">Mémo vocal</p>
-                {previewUrl && <audio controls src={previewUrl} className="w-full h-9" />}
+                {/* Lecteur custom dans notre DA (waveform réactive) au lieu du
+                    <audio controls> natif de Chrome (barre blanche + kebab).
+                    Écoutable PENDANT la transcription : le player est monté
+                    tout du long — l'audio joue même si le calcul WASM fige
+                    brièvement l'UI (le fil audio est séparé du fil JS). */}
+                {previewUrl && (
+                  <div className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] px-3 py-2.5">
+                    <AudioPlayer src={previewUrl} durationSec={previewDurationSec} />
+                  </div>
+                )}
                 <textarea
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
@@ -437,19 +494,17 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                   placeholder="Transcription (modifiable, ou vide)…"
                   className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)] resize-y placeholder:text-[var(--text-tertiary)]"
                 />
-                {!transcript.trim() && memo.step === "preview" && (
+                {/* Transcription EN COURS → barre de progression (où on en est).
+                    Sinon, si le champ est vide → bouton pour (re)lancer à la main. */}
+                {memo.step === "preview" && transcribing !== null && (
+                  <TranscribeProgressBar progress={transcribing} />
+                )}
+                {memo.step === "preview" && transcribing === null && !transcript.trim() && (
                   <button
                     onClick={transcribeMemo}
-                    disabled={transcribing !== null}
-                    className="w-full py-2 rounded-lg text-xs text-[var(--text-secondary)] border border-dashed border-[var(--border-default)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors disabled:opacity-60"
+                    className="w-full py-2 rounded-lg text-xs text-[var(--text-secondary)] border border-dashed border-[var(--border-default)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors"
                   >
-                    {transcribing === null
-                      ? "✎ Transcrire ce mémo (local, ~80 Mo au 1er usage)"
-                      : transcribing.phase === "downloading"
-                        ? `Téléchargement du modèle… ${transcribing.loadedMB ?? 0}/${transcribing.totalMB ?? "?"} Mo`
-                        : transcribing.phase === "transcribing"
-                          ? "Transcription en cours…"
-                          : "Préparation de l'audio…"}
+                    ✎ Transcrire ce mémo (local, ~80 Mo au 1er usage)
                   </button>
                 )}
                 {error && <p className="text-xs text-red-400">{error}</p>}
