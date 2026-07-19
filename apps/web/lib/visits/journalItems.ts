@@ -1,6 +1,7 @@
 import type { JournalItem, JournalBlock } from "@/lib/visits/legacyJournalTypes";
 import { DEFAULT_SPAN, type JournalTile } from "@/lib/visits/bentoSpans";
 import type { BentoTile, JournalTileContent, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
+import { parseWordTimings } from "@/lib/audio/wordTimings";
 
 // Construit la séquence de blocs du carnet (façon Notion) à partir des 6 tables
 // de blocs d'une visite. Extrait de la page de détail pour être réutilisé par la
@@ -24,7 +25,7 @@ export interface JournalSourceVisit {
   noteBlocks: { id: string; content: string; order: number; createdAt: Date }[];
   titleBlocks: { id: string; content: string; order: number; createdAt: Date }[];
   quoteBlocks: { id: string; content: string; order: number; createdAt: Date }[];
-  audioClips: { id: string; storageKey: string; durationSec: number | null; transcript: string | null; order: number; createdAt: Date }[];
+  audioClips: { id: string; storageKey: string; durationSec: number | null; transcript: string | null; wordTimings?: unknown; order: number; createdAt: Date }[];
   columnBlocks: { id: string; left: unknown; right: unknown; order: number; createdAt: Date }[];
   embeds: { id: string; kind: "LINK" | "YOUTUBE"; url: string; title: string | null; description: string | null; image: string | null; siteName: string | null; order: number; createdAt: Date }[];
 }
@@ -191,7 +192,7 @@ export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
   });
   visit.noteBlocks.forEach((n) => content.set(`note-${n.id}`, { type: "note", id: n.id, content: n.content }));
   visit.audioClips.forEach((a) =>
-    content.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript }),
+    content.set(`audio-${a.id}`, { type: "audio", id: a.id, storageKey: a.storageKey, durationSec: a.durationSec, transcript: a.transcript, wordTimings: parseWordTimings(a.wordTimings) }),
   );
   visit.embeds.forEach((e) =>
     content.set(`embed-${e.id}`, {

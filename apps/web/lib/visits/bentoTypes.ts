@@ -62,7 +62,15 @@ export type JournalTileContent =
       height: number | null;
     }
   | { type: "note"; id: string; content: string }
-  | { type: "audio"; id: string; storageKey: string; durationSec: number | null; transcript: string | null }
+  | {
+      type: "audio";
+      id: string;
+      storageKey: string;
+      durationSec: number | null;
+      transcript: string | null;
+      /** Timings par mot (Whisper) pour le karaoke synchronisé — null si absents. */
+      wordTimings: { word: string; start: number; end: number }[] | null;
+    }
   | {
       type: "embed";
       id: string;

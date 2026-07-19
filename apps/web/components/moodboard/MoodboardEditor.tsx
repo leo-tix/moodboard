@@ -2135,6 +2135,7 @@ export function MoodboardEditor({ initialData }: Props) {
         storageKey: created.storageKey,
         durationSec: created.durationSec,
         transcript: created.transcript,
+        wordTimings: created.wordTimings ?? null,
         authorName: created.authorName,
         authorImage: created.authorImage,
       };
@@ -3992,6 +3993,7 @@ function ElementContent({
           storageKey={el.storageKey}
           durationSec={el.durationSec}
           transcript={el.transcript}
+          wordTimings={el.wordTimings}
           authorName={el.authorName}
           authorImage={el.authorImage}
         />

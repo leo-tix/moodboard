@@ -134,6 +134,9 @@ export type AudioElement = CanvasElementBase & {
   storageKey: string;
   durationSec: number | null;
   transcript?: string | null;
+  /** Timings par mot (Whisper) pour le karaoke synchronisé — dénormalisés dans
+   *  le canvas comme le transcript ; null/absent → estimation. */
+  wordTimings?: { word: string; start: number; end: number }[] | null;
   /** Auteur du mémo — dénormalisé au moment de la création pour l'avatar
    *  affiché sur le bloc, sans jointure supplémentaire à l'affichage. */
   authorName?: string | null;

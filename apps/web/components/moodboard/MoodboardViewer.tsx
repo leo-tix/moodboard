@@ -875,6 +875,7 @@ function ViewerElement({
         storageKey={el.storageKey}
         durationSec={el.durationSec}
         transcript={el.transcript}
+        wordTimings={el.wordTimings}
         authorName={el.authorName}
         authorImage={el.authorImage}
       />

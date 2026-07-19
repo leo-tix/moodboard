@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { uploadToR2, deleteFromR2 } from "@/lib/storage/r2";
 import { checkUploadAllowed, checkAudioMimeType, QUOTA } from "@/lib/storage/quota";
+import { parseWordTimingsField } from "@/lib/audio/wordTimings";
 import { randomUUID } from "crypto";
 
 interface Params { params: Promise<{ id: string }> }
@@ -24,6 +26,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const file = formData.get("file") as File | null;
   const durationSec = Number(formData.get("durationSec") ?? 0) || null;
   const transcript = (formData.get("transcript") as string | null)?.trim() || null;
+  const wordTimings = parseWordTimingsField(formData.get("wordTimings"));
   if (!file) return NextResponse.json({ error: "Fichier manquant" }, { status: 400 });
 
   if (!checkAudioMimeType(file.type)) {
@@ -52,7 +55,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   try {
     const [audio, author] = await Promise.all([
       db.moodboardAudio.create({
-        data: { moodboardId: id, storageKey, size: buffer.length, durationSec, transcript, authorId: userId },
+        data: { moodboardId: id, storageKey, size: buffer.length, durationSec, transcript, wordTimings: (wordTimings ?? undefined) as Prisma.InputJsonValue | undefined, authorId: userId },
       }),
       db.user.findUnique({ where: { id: userId }, select: { name: true, image: true } }),
     ]);
@@ -63,6 +66,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       size: audio.size,
       durationSec: audio.durationSec,
       transcript: audio.transcript,
+      wordTimings: audio.wordTimings,
       authorName: author?.name ?? null,
       authorImage: author?.image ?? null,
     });

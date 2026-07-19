@@ -136,7 +136,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
       id: created.id,
       w: span.w,
       h: span.h,
-      content: { type: "audio", id: created.id, storageKey: created.storageKey, durationSec: created.durationSec, transcript: created.transcript ?? null },
+      content: { type: "audio", id: created.id, storageKey: created.storageKey, durationSec: created.durationSec, transcript: created.transcript ?? null, wordTimings: created.wordTimings ?? null },
     };
     const next = [...tilesRef.current, tile];
     commitLayout(next);
@@ -455,7 +455,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   };
 
   const persistAudioTranscript = async (audioId: string, transcript: string) => {
-    patchTileContent(audioId, { transcript });
+    // L'édition manuelle invalide l'alignement mot-à-mot → on efface aussi les
+    // timings localement (le serveur fait de même, voir la route PATCH audio).
+    patchTileContent(audioId, { transcript, wordTimings: null });
     const res = await fetch(`/api/visits/${visitId}/audio/${audioId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript }) }).catch(() => null);
     if (!res?.ok) throw new Error("save failed");
   };

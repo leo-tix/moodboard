@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
@@ -24,9 +25,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const audio = await db.visitAudio.findUnique({ where: { id: audioId } });
   if (!audio || audio.visitId !== id) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
+  // Éditer le transcript invalide l'alignement mot-à-mot de Whisper (les mots
+  // ne correspondent plus) → on efface les timings, l'UI retombe sur
+  // l'estimation. Prisma: `null` (pas `undefined`) pour vider un champ Json.
   const updated = await db.visitAudio.update({
     where: { id: audioId },
-    data: { transcript: parsed.data.transcript?.trim() || null },
+    data: { transcript: parsed.data.transcript?.trim() || null, wordTimings: Prisma.DbNull },
   });
   return NextResponse.json(updated);
 }

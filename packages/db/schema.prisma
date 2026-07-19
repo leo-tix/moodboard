@@ -433,6 +433,12 @@ model VisitAudio {
   // vide si non transcrit. Bloc autonome depuis le 2026-07-13 (avant : notes
   // avec bloc audio + paragraphe transcript intégrés).
   transcript  String?
+  // Timings PAR MOT produits par Whisper (return_timestamps: "word") —
+  // WordTiming[] = { word, start, end } (secondes). Permet la surbrillance
+  // karaoke réellement synchronisée à la voix à la relecture (pas la simple
+  // répartition estimée). Null si transcription live (Web Speech, sans timings)
+  // ou transcript édité à la main (les timings ne correspondent plus).
+  wordTimings Json?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
 
@@ -455,6 +461,8 @@ model MoodboardAudio {
   size        Int
   durationSec Int?
   transcript  String?
+  // Timings par mot (Whisper) pour le karaoke synchronisé — voir VisitAudio.
+  wordTimings Json?
   // Auteur du mémo (avatar affiché sur le bloc) — dénormalisé, pas de FK
   // stricte vers User : simple traçabilité, cohérente avec le mono-owner
   // actuel des planches (Moodboard.userId), prête pour une future

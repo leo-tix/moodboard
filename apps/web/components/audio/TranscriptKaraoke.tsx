@@ -47,6 +47,11 @@ export interface TranscriptKaraokeProps {
   currentTime: number;
   duration: number;
   playing: boolean;
+  /** Timings RÉELS par mot (Whisper) — s'ils sont fournis ET cohérents avec le
+   *  transcript (même nombre de mots), la surbrillance suit exactement la voix.
+   *  Sinon (absents, ou transcript édité depuis), on retombe sur l'estimation
+   *  pondérée par la longueur des mots. */
+  wordTimings?: WordTiming[] | null;
   className?: string;
   /**
    * `true` (défaut) : zone à hauteur fixe, défilement interne + fondus
@@ -71,6 +76,7 @@ export function TranscriptKaraoke({
   currentTime,
   duration,
   playing,
+  wordTimings: realTimings,
   className,
   scroll = true,
   fadeTop,
@@ -78,7 +84,16 @@ export function TranscriptKaraoke({
   activeColor = "#c4b5fd",
   baseColor = "#ffffff",
 }: TranscriptKaraokeProps) {
-  const wordTimings = useMemo(() => estimateWordTimings(transcript, duration), [transcript, duration]);
+  // Priorité aux timings RÉELS de Whisper — mais seulement s'ils correspondent
+  // au transcript affiché (même nombre de mots) : sinon (transcript édité, mots
+  // manquants) l'index de surbrillance se décalerait → repli sur l'estimation.
+  const wordTimings = useMemo(() => {
+    const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+    if (realTimings && realTimings.length > 0 && realTimings.length === wordCount) {
+      return realTimings;
+    }
+    return estimateWordTimings(transcript, duration);
+  }, [realTimings, transcript, duration]);
   const activeWordIndex = useMemo(
     () => findActiveWordIndex(wordTimings, currentTime, duration),
     [wordTimings, currentTime, duration]

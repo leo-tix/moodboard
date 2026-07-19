@@ -26,6 +26,8 @@ export interface OutboxItem {
   durationSec?: number;
   /** Mémo : transcription éditée par l'utilisateur, optionnelle. */
   transcript?: string;
+  /** Mémo : timings par mot (Whisper) pour le karaoke synchronisé, optionnels. */
+  wordTimings?: { word: string; start: number; end: number }[];
   createdAt: number;
   attempts: number;
   lastError?: string;
@@ -166,6 +168,7 @@ async function syncItem(item: OutboxItem): Promise<void> {
     fd.append("file", item.blob, item.filename);
     fd.append("durationSec", String(item.durationSec ?? 1));
     if (item.transcript) fd.append("transcript", item.transcript);
+    if (item.wordTimings?.length) fd.append("wordTimings", JSON.stringify(item.wordTimings));
     const res = await fetch(`/api/visits/${item.visitId}/audio`, { method: "POST", body: fd });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };

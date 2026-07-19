@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { uploadToR2, deleteFromR2 } from "@/lib/storage/r2";
 import { checkUploadAllowed, checkAudioMimeType, QUOTA } from "@/lib/storage/quota";
 import { nextBlockOrder } from "@/lib/visits/blockOrder";
+import { parseWordTimingsField } from "@/lib/audio/wordTimings";
 import { randomUUID } from "crypto";
 
 interface Params { params: Promise<{ id: string }> }
@@ -23,6 +25,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   const file = formData.get("file") as File | null;
   const durationSec = Number(formData.get("durationSec") ?? 0) || null;
   const transcript = (formData.get("transcript") as string | null)?.trim() || null;
+  // Timings par mot (Whisper) — JSON sérialisé, best-effort : parsé
+  // défensivement, ignoré si malformé (le mémo reste enregistrable sans).
+  const wordTimings = parseWordTimingsField(formData.get("wordTimings"));
   if (!file) return NextResponse.json({ error: "Fichier manquant" }, { status: 400 });
 
   if (!checkAudioMimeType(file.type)) {
@@ -51,7 +56,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   try {
     const order = await nextBlockOrder(id);
     const audio = await db.visitAudio.create({
-      data: { visitId: id, storageKey, size: buffer.length, durationSec, transcript, order },
+      data: { visitId: id, storageKey, size: buffer.length, durationSec, transcript, wordTimings: (wordTimings ?? undefined) as Prisma.InputJsonValue | undefined, order },
     });
 
     return NextResponse.json({
@@ -60,6 +65,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       size: audio.size,
       durationSec: audio.durationSec,
       transcript: audio.transcript,
+      wordTimings: audio.wordTimings,
     });
   } catch (error) {
     // L'upload R2 a réussi mais la création en base a échoué (visite

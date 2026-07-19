@@ -5,7 +5,7 @@ import { Play, Pause, Mic, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAudioUrl, getImageUrl } from "@/lib/storage/urls";
 import { AudioMemoWaveform } from "@/components/audio/AudioMemoWaveform";
-import { TranscriptKaraoke } from "@/components/audio/TranscriptKaraoke";
+import { TranscriptKaraoke, type WordTiming } from "@/components/audio/TranscriptKaraoke";
 import { AudioPlayerBoundary } from "@/components/visits/AudioPlayerBoundary";
 
 const BAR_COUNT = 64;
@@ -14,6 +14,8 @@ export interface AudioBlockCardProps {
   storageKey: string;
   durationSec: number | null;
   transcript?: string | null;
+  /** Timings par mot (Whisper) pour la surbrillance karaoke synchronisée. */
+  wordTimings?: WordTiming[] | null;
   authorName?: string | null;
   authorImage?: string | null;
   className?: string;
@@ -44,6 +46,7 @@ function AudioBlockCardInner({
   storageKey,
   durationSec,
   transcript,
+  wordTimings,
   authorName,
   authorImage,
   className,
@@ -240,6 +243,7 @@ function AudioBlockCardInner({
           >
             <TranscriptKaraoke
               transcript={cleanTranscript}
+              wordTimings={wordTimings}
               currentTime={currentTime}
               duration={duration}
               playing={playing}

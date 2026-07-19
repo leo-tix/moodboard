@@ -147,6 +147,7 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
         storageKey={c.storageKey}
         durationSec={c.durationSec}
         transcript={c.transcript}
+        wordTimings={c.wordTimings}
         authorName={author.name}
         authorImage={author.image}
         editable={editable}

@@ -11,6 +11,7 @@ import {
   type LiveTranscriber,
 } from "@/lib/audio/recorder";
 import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
+import type { WordTiming } from "@/lib/audio/wordTimings";
 import { enqueueCapture } from "@/lib/offline/outbox";
 import { VoiceWaveform } from "@/components/visits/VoiceWaveform";
 import { AudioPlayer } from "@/components/visits/AudioPlayer";
@@ -67,6 +68,8 @@ export interface CreatedAudioBlock {
   storageKey: string;
   durationSec: number | null;
   transcript: string | null;
+  /** Timings par mot (Whisper) — pour la surbrillance karaoke synchronisée. */
+  wordTimings?: WordTiming[] | null;
   /** Renvoyés uniquement par /api/moodboards/[id]/audio pour l'instant — le
    *  carnet de visite affiche l'auteur autrement (mono-utilisateur par
    *  visite, pas de bloc individuel). */
@@ -115,6 +118,10 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   const [memo, setMemo] = useState<MemoPhase>({ step: "idle" });
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [transcript, setTranscript] = useState("");
+  // Timings par mot produits par Whisper — persistés avec le mémo pour la
+  // surbrillance karaoke synchronisée. Invalidés (null) dès que l'utilisateur
+  // édite le transcript à la main (les mots ne correspondent plus).
+  const [wordTimings, setWordTimings] = useState<WordTiming[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
@@ -191,6 +198,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     };
 
     setTranscript("");
+    setWordTimings(null);
     startedAtRef.current = Date.now();
     setElapsed(0);
     recorder.start();
@@ -267,6 +275,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     streamRef.current?.getTracks().forEach((t) => t.stop());
     setMemo({ step: "idle" });
     setTranscript("");
+    setWordTimings(null);
     setError(null);
     onClose();
   };
@@ -276,9 +285,11 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     setError(null);
     setTranscribing({ phase: "decoding" });
     try {
-      const text = await transcribeBlobLocally(memo.blob, setTranscribing);
-      if (text) setTranscript(text);
-      else setError("Rien à transcrire (silence ou parole non détectée).");
+      const { text, words } = await transcribeBlobLocally(memo.blob, setTranscribing);
+      if (text) {
+        setTranscript(text);
+        setWordTimings(words.length > 0 ? words : null);
+      } else setError("Rien à transcrire (silence ou parole non détectée).");
     } catch (err) {
       const detail = err instanceof Error ? ` (${err.message.slice(0, 120)})` : "";
       setError(`Transcription impossible${detail} — le mémo reste enregistrable tel quel.`);
@@ -306,12 +317,16 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     const ext = blob.type.split(";")[0].split("/")[1] || "webm";
     const filename = `memo-${Date.now()}.${ext}`;
     const cleanTranscript = transcript.trim() || undefined;
+    // Timings envoyés seulement si toujours cohérents avec le transcript final
+    // (l'édition manuelle les met déjà à null) ET qu'il reste un transcript.
+    const timings = cleanTranscript && wordTimings && wordTimings.length > 0 ? wordTimings : undefined;
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       if (offlineQueue) {
-        await enqueueCapture({ kind: "memo", visitId: offlineQueue.visitId, blob, filename, durationSec, transcript: cleanTranscript });
+        await enqueueCapture({ kind: "memo", visitId: offlineQueue.visitId, blob, filename, durationSec, transcript: cleanTranscript, wordTimings: timings });
         setMemo({ step: "idle" });
         setTranscript("");
+        setWordTimings(null);
         onInfo?.("Mémo en attente de connexion — envoi automatique au retour du réseau.");
         onClose();
       } else {
@@ -330,6 +345,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
       fd.append("file", blob, filename);
       fd.append("durationSec", String(durationSec));
       if (cleanTranscript) fd.append("transcript", cleanTranscript);
+      if (timings) fd.append("wordTimings", JSON.stringify(timings));
       const res = await fetch(uploadUrl, { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -339,20 +355,23 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
       }
       setMemo({ step: "idle" });
       setTranscript("");
+      setWordTimings(null);
       onCreated({
         id: data.id,
         storageKey: data.storageKey,
         durationSec: data.durationSec,
         transcript: data.transcript ?? null,
+        wordTimings: (data.wordTimings as WordTiming[] | null) ?? timings ?? null,
         authorName: data.authorName ?? null,
         authorImage: data.authorImage ?? null,
       });
       onClose();
     } catch {
       if (offlineQueue) {
-        await enqueueCapture({ kind: "memo", visitId: offlineQueue.visitId, blob, filename, durationSec, transcript: cleanTranscript });
+        await enqueueCapture({ kind: "memo", visitId: offlineQueue.visitId, blob, filename, durationSec, transcript: cleanTranscript, wordTimings: timings });
         setMemo({ step: "idle" });
         setTranscript("");
+        setWordTimings(null);
         onInfo?.("Réseau indisponible — mémo mis en file, envoi automatique dès que possible.");
         onClose();
       } else {
@@ -489,7 +508,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                 )}
                 <textarea
                   value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
+                  onChange={(e) => { setTranscript(e.target.value); setWordTimings(null); }}
                   rows={3}
                   placeholder="Transcription (modifiable, ou vide)…"
                   className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)] resize-y placeholder:text-[var(--text-tertiary)]"

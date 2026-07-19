@@ -31,10 +31,30 @@ export interface TranscribeProgress {
   totalMB?: number;
 }
 
+/** Timing d'un mot transcrit (secondes) — pour la surbrillance karaoke synchro. */
+export interface WordTiming {
+  word: string;
+  start: number;
+  end: number;
+}
+
+export interface TranscriptResult {
+  text: string;
+  /** Timings par mot si le modèle a pu les produire, sinon [] (repli estimation). */
+  words: WordTiming[];
+}
+
+type AsrChunk = { text: string; timestamp: [number | null, number | null] };
 type AsrPipeline = (
   audio: Float32Array,
-  opts: { language: string; task: string; chunk_length_s?: number; stride_length_s?: number }
-) => Promise<{ text: string } | { text: string }[]>;
+  opts: {
+    language: string;
+    task: string;
+    chunk_length_s?: number;
+    stride_length_s?: number;
+    return_timestamps?: boolean | "word";
+  }
+) => Promise<{ text: string; chunks?: AsrChunk[] } | { text: string }[]>;
 
 let asrPromise: Promise<AsrPipeline> | null = null;
 
@@ -92,7 +112,7 @@ async function blobToWhisperInput(blob: Blob): Promise<Float32Array> {
 export async function transcribeBlobLocally(
   blob: Blob,
   onProgress?: (p: TranscribeProgress) => void
-): Promise<string> {
+): Promise<TranscriptResult> {
   onProgress?.({ phase: "decoding" });
   const audio = await blobToWhisperInput(blob);
 
@@ -105,7 +125,26 @@ export async function transcribeBlobLocally(
   // chunk_length_s : Whisper ne « voit » que 30 s à la fois — sans découpage,
   // un mémo plus long est tronqué ou part en boucle. 30 s + 5 s de recouvrement
   // = transcription cohérente sur toute la durée.
-  const out = await asr(audio, { language: "french", task: "transcribe", chunk_length_s: 30, stride_length_s: 5 });
-  const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "";
-  return text.trim();
+  //
+  // return_timestamps: "word" → alignement forcé (DTW sur les cross-attentions)
+  // qui donne un [début, fin] PAR MOT, pour une surbrillance karaoke réellement
+  // synchronisée à la voix. Best-effort : certains modèles/quantifications ne
+  // fournissent pas les `alignment_heads` requis → on retombe alors sur une
+  // transcription simple (timings vides = répartition estimée côté UI), sans
+  // jamais échouer la transcription elle-même.
+  const baseOpts = { language: "french", task: "transcribe", chunk_length_s: 30, stride_length_s: 5 } as const;
+  try {
+    const out = await asr(audio, { ...baseOpts, return_timestamps: "word" });
+    const chunks = (!Array.isArray(out) && out.chunks) || [];
+    const words: WordTiming[] = chunks
+      .filter((c) => Array.isArray(c.timestamp) && c.timestamp[0] != null && c.timestamp[1] != null)
+      .map((c) => ({ word: String(c.text).trim(), start: c.timestamp[0] as number, end: c.timestamp[1] as number }))
+      .filter((w) => w.word.length > 0);
+    const text = ((Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "").trim();
+    return { text: text || words.map((w) => w.word).join(" "), words };
+  } catch {
+    const out = await asr(audio, baseOpts);
+    const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "";
+    return { text: text.trim(), words: [] };
+  }
 }
