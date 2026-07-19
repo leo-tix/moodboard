@@ -490,6 +490,79 @@ reste identique au comportement actuel.
 
 ---
 
+## 8. Carnet « grille modulaire » façon Bento.me (✅ 2026-07-15 → 07-19)
+
+Refonte majeure du carnet de visite : on abandonne la pile de blocs pleine
+largeur + colonnes pour une **grille bento** (formats fixes, drag & resize,
+panneau de réglages), puis on étoffe le catalogue de modules « musée » et on
+peaufine l'ensemble. Source de vérité de la disposition : un seul champ JSON
+`Visit.journalLayout` (`JournalTile[]` — `{type,id,w,h, + flags}`), résolu vers
+son contenu par `buildBentoLayout()` (`lib/visits/journalItems.ts`), partagé
+éditeur (`VisitJournal`) **et** page publique (`VisitJournalReadOnly`).
+
+### 8.0 — Fondations grille bento
+- Registre des formats `lib/visits/bentoSpans.ts` : médias = 4 formats fixes
+  (Carré/Large/Vertical/Grand) ; auto-hauteur (note/checklist/frise/cartel +
+  fiche wiki) = largeur choisie, hauteur MESURÉE (`useMeasuredRows`, paliers de
+  grille). Grille dense CSS (`grid-auto-flow:dense`, désactivée dès qu'un
+  séparateur est présent pour garder des sections nettes).
+- Composants `components/visits/bento/` : `BentoGrid`, `BentoTile` (wrapper +
+  drag/resize/settings), `TileContent` (dispatch par type, partagé
+  affichage/lecture), `TileSettingsModal` (pop-up central), `FormatPicker`,
+  `AddTileButton`, `SectionNav`, + une tuile par module.
+- Persistance : `PATCH /api/visits/[id]/layout` (liste complète, `commitLayout`
+  = `tilesRef` source synchrone pour fiabiliser drop/resize).
+
+### 8.1 — Modules « carnet de visite musée/expo » (8 modules)
+Tables Prisma additives (`VisitCartel/Palette/Ticket/Sketch/Highlight/Checklist/
+Timeline`) + le séparateur SANS table (texte dans `journalLayout`) :
+- **Cartel** (fiche d'œuvre) + **OCR on-device** (Tesseract.js, dynamic import) :
+  recadrage avant OCR, parseur `parseCartel` validé sur 7 cartels réels (deux
+  conventions titre-d'abord / artiste-d'abord), image non stockée. Auto-hauteur.
+- **Billet** : pré-rempli depuis la visite, galerie/photo, look ticket
+  (perforation + **encoches demi-cercle** latérales).
+- **Palette** : extraction couleurs client (canvas) **depuis une ZONE choisie**
+  (`PaletteZoneModal`, aperçu live) au lieu de toute l'image.
+- **Fiche wiki** (Wikipédia FR) : recherche à autosuggestions →
+  **carte d'identité auto-hauteur** avec **infobox Wikidata structurée**
+  (naissance/décès + lieux, nationalité, activité, mouvement, genres, œuvres —
+  P569/P19/P570/P20/P27/P106/P135/P136/P800, labels FR), image à gauche au ratio
+  d'origine, résumé, **toggles** portrait/infos/résumé. `VisitEmbed.data Json`.
+- **Croquis** à main levée (réutilise le moteur crayon des planches,
+  `lib/moodboard/pencil.ts`).
+- **Coup de cœur / notation**, **Checklist** interactive, **Frise** (tri auto
+  des dates, siècles romains gérés).
+- **Séparateur de section** : bande pleine largeur (`grid-column:1/-1`) + puce
+  titrée multi-ligne, et **sommaire « Parcours de la visite »** en timeline
+  verticale cliquable (ancre `sep-<id>`, scroll).
+
+### 8.2 — Module texte « façon carnet de notes »
+- Réglures horizontales en overlay pleine hauteur DERRIÈRE le texte (inset,
+  grille de base 28px → chaque ligne tombe sur une réglure, démarrage à 20px
+  pour éviter un trait au-dessus de la 1re ligne), grain papier (SVG base64
+  inline — Lightning CSS/Tailwind v4 rejette le data-uri en feuille), coin corné
+  + ombre douce, titres serif. **OCR d'un panneau** d'expo → texte inséré dans
+  le bloc (généralisation de `CartelScanModal`, retour texte brut).
+
+### 8.3 — Page partagée : parité + auteur
+- Tous les réglages d'affichage transitent par `buildBentoLayout` → rendu
+  identique éditeur/public (vérifié : hideTitle, fitContain, flags fiche,
+  séparateurs, auto-hauteur). Carte alignée sur l'éditeur (`zoom=5` +
+  `countryOutline`). **Byline auteur** (nom + photo, repli initiales) — page
+  publique uniquement.
+- Option **« Ratio d'origine »** (image + croquis) : `object-contain` + marge +
+  coins arrondis, flag `fitContain` dans le layout.
+
+**Pièges outillage récurrents cette session** : (a) `computer{screenshot}` du
+navigateur de test se fige systématiquement → tout vérifié par mesure du DOM
+(`javascript_tool`) ; (b) Turbopack garde une **CSS compilée en cache** (règles
+fantômes, `56px` fantôme) — un simple restart ne suffit pas, il faut purger
+`.next` ; (c) les `<input>` contrôlés React n'enregistrent pas la frappe du
+clavier synthétique du sandbox → typer via `computer.type` réel ou valider le
+rendu depuis la base.
+
+---
+
 ## Notes d'implémentation générales
 
 - Le schéma est déjà multi-profils (migration 2026-07-09) — toute feature
