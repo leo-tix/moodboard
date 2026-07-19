@@ -4,10 +4,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
-import { Check } from "lucide-react";
+import { Check, ImagePlus, ScanText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlashCommand } from "./tiptap/SlashCommand";
 import { MobileFormatBar } from "./MobileFormatBar";
+import { CartelScanModal } from "./bento/CartelScanModal";
+
+// Texte OCR brut d'un panneau → HTML de paragraphes (échappé). Une ligne vide
+// sépare les paragraphes ; à l'intérieur, les retours de ligne (césures) sont
+// recollés en un flux.
+function rawTextToHtml(raw: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return raw
+    .trim()
+    .split(/\n{2,}/)
+    .map((para) => esc(para.replace(/\n/g, " ").trim()))
+    .filter(Boolean)
+    .map((p) => `<p>${p}</p>`)
+    .join("");
+}
 
 // ── Bloc de texte pur du carnet façon Notion ────────────────────────────────
 // `content` est stocké en HTML (sortie de `editor.getHTML()`) dans
@@ -60,6 +75,15 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
   const [saveState, setSaveState] = useState<SaveState>("idle");
   // Barre de formatage mobile : affichée quand l'éditeur est focus sur tactile.
   const [focused, setFocused] = useState(false);
+  // Scan OCR d'un panneau → insertion du texte reconnu dans le bloc.
+  const [scanFile, setScanFile] = useState<File | null>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const onScanPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (f) setScanFile(f);
+  };
   const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
   const debounceRef = useRef<number | null>(null);
   const savedFadeRef = useRef<number | null>(null);
@@ -161,6 +185,43 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
         >
           <BubbleButtons editor={editor} />
         </div>
+      )}
+
+      {/* Scan OCR d'un panneau — récupère tout le texte d'un panneau d'expo et
+          l'insère dans le bloc (miroir de l'OCR cartel/photo). Galerie + Photo. */}
+      {editable && (
+        <div className="flex items-center gap-1.5 mb-2" onMouseDown={(e) => e.preventDefault()}>
+          <button
+            type="button"
+            onClick={() => galleryRef.current?.click()}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <ImagePlus size={13} strokeWidth={2} /> Galerie
+          </button>
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <ScanText size={13} strokeWidth={2} /> Scanner un panneau
+          </button>
+          <input ref={galleryRef} type="file" accept="image/*" onChange={onScanPick} className="hidden" />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onScanPick} className="hidden" />
+        </div>
+      )}
+      {scanFile && (
+        <CartelScanModal
+          file={scanFile}
+          title="Scanner le panneau"
+          actionLabel="Extraire le texte"
+          hint="Cadre le texte du panneau puis « Extraire » — la photo n'est pas conservée."
+          onCancel={() => setScanFile(null)}
+          onResultRaw={(raw) => {
+            setScanFile(null);
+            const html = rawTextToHtml(raw);
+            if (html) editor.chain().focus("end").insertContent(html).run();
+          }}
+        />
       )}
 
       {/* Hint façon Notion sur bloc vide en édition — remplace la toolbar

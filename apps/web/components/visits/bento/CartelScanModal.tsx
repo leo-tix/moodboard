@@ -19,10 +19,20 @@ export function CartelScanModal({
   file,
   onCancel,
   onResult,
+  onResultRaw,
+  title = "Recadrer le cartel",
+  actionLabel = "Analyser",
+  hint = "Cadre la zone du cartel puis « Analyser » — la photo n'est pas conservée.",
 }: {
   file: File;
   onCancel: () => void;
-  onResult: (fields: CartelFields) => void;
+  /** Retour STRUCTURÉ (cartel/photo). */
+  onResult?: (fields: CartelFields) => void;
+  /** Retour TEXTE BRUT (module texte — récupérer tout un panneau). */
+  onResultRaw?: (raw: string) => void;
+  title?: string;
+  actionLabel?: string;
+  hint?: string;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -114,11 +124,13 @@ export function CartelScanModal({
       if (!ctx) throw new Error("no ctx");
       ctx.drawImage(img, box.x * scaleX, box.y * scaleY, sw, sh, 0, 0, outW, outH);
       const blob: Blob = await new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("toBlob"))), "image/png"));
-      const { fields } = await runCartelOcr(blob, setPct);
-      onResult(fields);
+      const { raw, fields } = await runCartelOcr(blob, setPct);
+      if (onResultRaw) onResultRaw(raw);
+      else onResult?.(fields);
     } catch {
       // OCR indisponible → on renvoie vide, l'utilisateur saisit à la main.
-      onResult({});
+      if (onResultRaw) onResultRaw("");
+      else onResult?.({});
     }
     setBusy(false);
   };
@@ -131,10 +143,10 @@ export function CartelScanModal({
         <button onClick={onCancel} disabled={busy} className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/90 hover:bg-white/20 disabled:opacity-50 transition-colors" aria-label="Annuler">
           <X size={18} strokeWidth={2} />
         </button>
-        <p className="text-sm font-medium text-white/90">Recadrer le cartel</p>
+        <p className="text-sm font-medium text-white/90">{title}</p>
         <button onClick={analyze} disabled={busy || !box} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-black text-sm font-medium disabled:opacity-40 transition-opacity">
           {busy ? <Loader2 size={15} className="animate-spin" /> : <ScanText size={15} strokeWidth={2.5} />}
-          {busy ? `Lecture… ${pct}%` : "Analyser"}
+          {busy ? `Lecture… ${pct}%` : actionLabel}
         </button>
       </div>
 
@@ -186,7 +198,7 @@ export function CartelScanModal({
       </div>
 
       <p className="flex-shrink-0 text-center text-[11px] text-white/60 pb-[calc(1rem+env(safe-area-inset-bottom))] px-4">
-        Cadre la zone du cartel puis « Analyser » — la photo n&apos;est pas conservée.
+        {hint}
       </p>
     </div>,
     document.body,
