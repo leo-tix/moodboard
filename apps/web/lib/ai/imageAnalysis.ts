@@ -31,7 +31,7 @@ export interface ImageAnalysis {
 }
 
 const MAX_CATEGORIES = 3; // meilleures catégories (l'utilisateur choisit, ex. Illustration vs BD)
-const MAX_TAGS = 10;
+const MAX_TAGS = 14; // vocabulaire large (~15 dimensions) → on montre le top de beaucoup d'entre elles
 const PER_GROUP_KEEP = 2; // jusqu'à 2 tags par dimension → plus de suggestions
 const MAX_TITLES = 6;
 
