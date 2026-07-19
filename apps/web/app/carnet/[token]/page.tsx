@@ -139,7 +139,9 @@ export default async function PublicCarnetPage({ params }: Props) {
               longitude={visit.longitude!}
               label={visit.place}
               thumbnailKey={mapThumbnailKey}
-              className="h-56 md:h-72 w-full"
+              zoom={5}
+              countryOutline
+              className="h-64 md:h-80 w-full"
             />
           </div>
         )}
