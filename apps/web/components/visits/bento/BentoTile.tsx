@@ -181,7 +181,7 @@ export function BentoTile({
       {isDragging ? (
         <div className="w-full h-full rounded-[20px] border-2 border-dashed border-[var(--border-default)] bg-[var(--bg-surface)]/60" />
       ) : autoHeight ? (
-        <div ref={innerRef}>
+        <div ref={innerRef} className={cn(note && "relative z-[1]")}>
           {editingInline && note ? (
             <div className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
               <InlineTextEditor
@@ -203,13 +203,32 @@ export function BentoTile({
         />
       )}
 
-      {/* Grain papier très léger (overlay inline — échappe à Lightning CSS). */}
+      {/* Réglures pleine hauteur DERRIÈRE le texte (affichage). Inset de 16px
+          (= px-4 du contenu), calées sur la grille 28px : 1re réglure à 33px
+          (12px py-3 + 21px ligne de base). En édition inline le texte est
+          décalé (barre de scan) → l'overlay est masqué, les réglures viennent
+          alors de .ProseMirror (CSS). z-0 sous le contenu (z-1). */}
+      {note && !editingInline && !isDragging && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 z-0"
+          style={{
+            left: 16,
+            right: 16,
+            backgroundImage:
+              "repeating-linear-gradient(to bottom, rgba(255,255,255,0.045) 0, rgba(255,255,255,0.045) 1px, transparent 1px, transparent 28px)",
+            backgroundPositionY: "33px",
+          }}
+        />
+      )}
+
+      {/* Grain papier (overlay inline — échappe à Lightning CSS). */}
       {note && !isDragging && (
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 z-0"
           style={{
-            opacity: 0.05,
+            opacity: 0.09,
             backgroundSize: "120px 120px",
             backgroundImage:
               'url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iMTIwIj48ZmlsdGVyIGlkPSJuIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iMC45IiBudW1PY3RhdmVzPSIyIiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI24pIi8+PC9zdmc+")',
