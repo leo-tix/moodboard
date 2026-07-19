@@ -30,14 +30,8 @@ export interface ImageAnalysis {
   titles: string[];
 }
 
-const MAX_CATEGORIES = 3;
-const MAX_TAGS = 8;
-const PER_GROUP_KEEP = 2;
-// Seuils RELATIFS au meilleur score de l'image (les cosinus SigLIP sont faibles
-// en absolu et varient d'une image à l'autre) : on garde ce qui est proche du
-// top et on écarte les dimensions non pertinentes (leur meilleur reste bas).
-const CAT_REL = 0.82; // catégories proches de la meilleure catégorie
-const TAG_REL = 0.6; // tags à ≥ 60 % du meilleur score global
+const MAX_CATEGORIES = 2; // 2 meilleures catégories (l'utilisateur choisit, ex. Illustration vs BD)
+const MAX_TAGS = 6;
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -69,19 +63,20 @@ function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): s
 // embeddings pré-calculés).
 function mapResult(scores: number[]): ImageAnalysis {
   const flats = flatConcepts();
-  const globalTop = scores.length ? Math.max(...scores) : 0;
 
   // Catégories : proches de la meilleure catégorie.
-  const cats = flats
+  // Les 2 meilleures catégories (classement SigLIP fiable ; l'utilisateur choisit).
+  const categories = flats
     .map((c, i) => (c.kind === "category" ? { category: c.category, subcategory: c.subcategory, score: scores[i] } : null))
     .filter((x): x is CategorySuggestion => x !== null)
-    .sort((a, b) => b.score - a.score);
-  const catTop = cats[0]?.score ?? 0;
-  const categories = cats.filter((c) => c.score >= catTop * CAT_REL).slice(0, MAX_CATEGORIES);
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_CATEGORIES);
 
-  // Tags : meilleur(s) de CHAQUE groupe, conservé(s) seulement s'ils sont
-  // assez forts vis-à-vis du top global (une dimension non pertinente reste
-  // sous le seuil → pas de tag parasite).
+  // Tags : LE MEILLEUR de chaque dimension (couleur, technique, composition,
+  // sujet, ambiance) → toujours ~5 suggestions DIVERSES, classées par pertinence.
+  // Pas de seuil relatif sur le score : les cosinus SigLIP peuvent être négatifs,
+  // un seuil multiplicatif s'effondrait alors (→ 0 tag, retour 2026-07-19). On
+  // s'appuie sur le CLASSEMENT (fiable) et l'utilisateur décoche l'inutile.
   const byGroup = new Map<string, TagSuggestion[]>();
   flats.forEach((c, i) => {
     if (c.kind === "tag") {
@@ -90,17 +85,15 @@ function mapResult(scores: number[]): ImageAnalysis {
       byGroup.set(c.group, arr);
     }
   });
-  const tags: TagSuggestion[] = [];
+  const topTags: TagSuggestion[] = [];
   for (const arr of byGroup.values()) {
     arr.sort((a, b) => b.score - a.score);
-    for (const t of arr.slice(0, PER_GROUP_KEEP)) {
-      if (t.score >= globalTop * TAG_REL) tags.push(t);
-    }
+    if (arr[0]) topTags.push(arr[0]);
   }
-  tags.sort((a, b) => b.score - a.score);
-  const topTags = tags.slice(0, MAX_TAGS);
+  topTags.sort((a, b) => b.score - a.score);
+  const tags = topTags.slice(0, MAX_TAGS);
 
-  return { categories, tags: topTags, titles: buildTitles(categories, topTags) };
+  return { categories, tags, titles: buildTitles(categories, tags) };
 }
 
 // ── Worker (par défaut) ──────────────────────────────────────────────────────
