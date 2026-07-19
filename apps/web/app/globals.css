@@ -276,8 +276,9 @@ body {
 .note-paper .ProseMirror blockquote p {
   line-height: 28px;
 }
-/* Titres : hauteur multiple de 28 + fond opaque pour que la réglure ne
-   traverse pas le titre. */
+/* Titres : hauteur multiple de 28 pour rester sur la grille. Pas de fond
+   opaque (créait un rectangle visible autour du titre) : la réglure passe donc
+   sous le titre comme sous le reste — il est « écrit sur les lignes ». */
 .note-paper .note-prose h1,
 .note-paper .note-prose h2,
 .note-paper .note-prose h3,
@@ -286,14 +287,6 @@ body {
 .note-paper .ProseMirror h3 {
   line-height: 28px;
   margin: 0;
-}
-.note-paper .note-prose h1,
-.note-paper .note-prose h2,
-.note-paper .note-prose h3,
-.note-paper .ProseMirror h1,
-.note-paper .ProseMirror h2,
-.note-paper .ProseMirror h3 {
-  background: var(--bg-elevated);
 }
 
 /* ============================================================
