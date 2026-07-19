@@ -164,6 +164,8 @@ export function BentoTile({
         "group/tile relative rounded-[20px] overflow-hidden",
         separator && "scroll-mt-24",
         autoHeight && "bg-[var(--bg-elevated)]",
+        // Bloc texte = feuille de carnet : réglures/grain + ombre douce.
+        note && "note-paper shadow-[0_6px_22px_-6px_rgba(0,0,0,0.55)]",
         editable && !editingInline && "cursor-grab active:cursor-grabbing",
         !editable && !separator && "transition-transform duration-300 ease-out hover:-translate-y-0.5 hover:scale-[1.02]",
         selected && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-base)]"
@@ -198,6 +200,34 @@ export function BentoTile({
           editable={editable}
           onPersistAudioTranscript={onPersistAudioTranscript}
           imageNav={imageNav}
+        />
+      )}
+
+      {/* Grain papier très léger (overlay inline — échappe à Lightning CSS). */}
+      {note && !isDragging && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            opacity: 0.05,
+            backgroundSize: "120px 120px",
+            backgroundImage:
+              'url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMjAiIGhlaWdodD0iMTIwIj48ZmlsdGVyIGlkPSJuIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iMC45IiBudW1PY3RhdmVzPSIyIiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI24pIi8+PC9zdmc+")',
+          }}
+        />
+      )}
+
+      {/* Coin corné (feuille de carnet) — petit triangle replié en bas à droite. */}
+      {note && !isDragging && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-0 right-0 z-10 w-6 h-6"
+          style={{
+            background:
+              "linear-gradient(315deg, color-mix(in srgb, var(--text-primary) 15%, var(--bg-elevated)) 0 50%, transparent 50% 100%)",
+            borderTopLeftRadius: 7,
+            boxShadow: "-3px -3px 8px -3px rgba(0,0,0,0.45)",
+          }}
         />
       )}
 

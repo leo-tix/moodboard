@@ -139,15 +139,17 @@ export function TileSettingsModal({
               )}
 
               {editTextHere && tile.content.type === "note" && (
-                <NoteEditor
-                  key={tile.id}
-                  content={tile.content.content}
-                  editable
-                  showToolbar
-                  onBlurSave={(html) => onSaveText(tile, html)}
-                  onAutoSave={(html) => onPersistText(tile, html)}
-                  placeholder="Écris… (titre, paragraphe, citation via la barre)"
-                />
+                <div className="note-paper rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-subtle)] px-3.5 py-3">
+                  <NoteEditor
+                    key={tile.id}
+                    content={tile.content.content}
+                    editable
+                    showToolbar
+                    onBlurSave={(html) => onSaveText(tile, html)}
+                    onAutoSave={(html) => onPersistText(tile, html)}
+                    placeholder="Écris… (titre, paragraphe, citation via la barre)"
+                  />
+                </div>
               )}
 
               {tile.content.type === "image" && (
