@@ -12,7 +12,7 @@ import { isAutoHeight, isFicheContent, isNoteType, type TileWidth } from "@/lib/
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { type CartelFields } from "@/lib/visits/cartelOcr";
 import { CartelScanModal } from "@/components/visits/bento/CartelScanModal";
-import { extractPalette } from "@/lib/visits/colorExtract";
+import { PaletteZoneModal } from "@/components/visits/bento/PaletteZoneModal";
 import type { BentoTile, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
 
 // Champs éditables d'un cartel (miroir des colonnes texte de VisitCartel).
@@ -658,23 +658,31 @@ function PaletteForm({
   const [title, setTitle] = useState(content.title ?? "");
   const [colors, setColors] = useState<string[]>(content.colors);
   const [busy, setBusy] = useState(false);
+  const [zoneFile, setZoneFile] = useState<File | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
-  const onExtract = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // On ne fait plus l'extraction sur toute l'image : l'utilisateur choisit
+  // d'abord une zone (PaletteZoneModal), les couleurs en sont extraites.
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
+    if (file) setZoneFile(file);
+  };
+
+  const applyZone = async (extracted: string[]) => {
+    const file = zoneFile;
+    setZoneFile(null);
+    if (extracted.length) {
+      setColors(extracted);
+      onSave(title, extracted);
+    }
     if (!file) return;
     setBusy(true);
     try {
-      const extracted = await extractPalette(file, 6);
-      if (extracted.length) {
-        setColors(extracted);
-        onSave(title, extracted);
-      }
       await onUploadSource(file);
     } catch {
-      /* extraction/upload échoué → l'utilisateur peut réessayer */
+      /* upload de la source échoué → sans conséquence pour les couleurs */
     }
     setBusy(false);
   };
@@ -705,8 +713,11 @@ function PaletteForm({
           {busy ? "Extraction…" : "Photo"}
         </button>
       </div>
-      <input ref={galleryRef} type="file" accept="image/*" onChange={onExtract} className="hidden" />
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onExtract} className="hidden" />
+      <input ref={galleryRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
+      {zoneFile && (
+        <PaletteZoneModal file={zoneFile} onCancel={() => setZoneFile(null)} onResult={applyZone} />
+      )}
 
       {colors.length > 0 && (
         <div className="space-y-1.5">
