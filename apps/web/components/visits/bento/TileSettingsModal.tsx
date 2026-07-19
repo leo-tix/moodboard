@@ -45,6 +45,7 @@ interface TileSettingsModalProps {
   onPersistText: (tile: BentoTile, value: string) => Promise<void>;
   onSaveImage: (id: string, title: string, author: string, year: string) => void;
   onSetImageHideTitle: (id: string, hide: boolean) => void;
+  onSetFitContain: (id: string, fit: boolean) => void;
   onSetFicheFlags: (id: string, patch: { hideImage?: boolean; hideInfo?: boolean; hideParagraph?: boolean }) => void;
   onSaveEmbed: (id: string, title: string, description: string) => void;
   onSaveMap: (id: string, locationName: string, latitude: number, longitude: number) => void;
@@ -74,6 +75,7 @@ export function TileSettingsModal({
   onPersistText,
   onSaveImage,
   onSetImageHideTitle,
+  onSetFitContain,
   onSetFicheFlags,
   onSaveEmbed,
   onSaveMap,
@@ -159,8 +161,10 @@ export function TileSettingsModal({
                   author={tile.content.author ?? ""}
                   year={tile.content.year ?? null}
                   hideTitle={!!tile.hideTitle}
+                  fitContain={!!tile.fitContain}
                   onSave={(t, a, y) => onSaveImage(tile.id, t, a, y)}
                   onToggleHideTitle={(hide) => onSetImageHideTitle(tile.id, hide)}
+                  onToggleFitContain={(fit) => onSetFitContain(tile.id, fit)}
                 />
               )}
               {tile.content.type === "embed" && tile.content.kind === "LINK" && (
@@ -220,12 +224,18 @@ export function TileSettingsModal({
                 />
               )}
               {tile.content.type === "sketch" && (
-                <button
-                  onClick={() => onRedrawSketch(tile.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors hover:border-[var(--border-strong)]"
-                >
-                  <Pencil size={13} strokeWidth={2} /> Redessiner
-                </button>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => onRedrawSketch(tile.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors hover:border-[var(--border-strong)]"
+                  >
+                    <Pencil size={13} strokeWidth={2} /> Redessiner
+                  </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--text-secondary)]">Ratio d&apos;origine</span>
+                    <Toggle on={!!tile.fitContain} onChange={(v) => onSetFitContain(tile.id, v)} label="Afficher au ratio d'origine" />
+                  </div>
+                </div>
               )}
             </div>
 
@@ -268,10 +278,11 @@ const DRAWER_TITLES: Record<BentoTile["type"], string> = {
   separator: "Séparateur",
 };
 
-function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }: {
-  title: string; author: string; year: number | null; hideTitle: boolean;
+function ImageForm({ title, author, year, hideTitle, fitContain, onSave, onToggleHideTitle, onToggleFitContain }: {
+  title: string; author: string; year: number | null; hideTitle: boolean; fitContain: boolean;
   onSave: (title: string, author: string, year: string) => void;
   onToggleHideTitle: (hide: boolean) => void;
+  onToggleFitContain: (fit: boolean) => void;
 }) {
   const [t, setT] = useState(title);
   const [a, setA] = useState(author);
@@ -325,6 +336,10 @@ function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-[var(--text-secondary)]">Afficher le cartel sur l&apos;image</span>
         <Toggle on={!hideTitle} onChange={(v) => onToggleHideTitle(!v)} label="Afficher le cartel" />
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-[var(--text-secondary)]">Ratio d&apos;origine</span>
+        <Toggle on={fitContain} onChange={(v) => onToggleFitContain(v)} label="Afficher au ratio d'origine" />
       </div>
     </div>
   );

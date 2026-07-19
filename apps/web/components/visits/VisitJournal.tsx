@@ -74,6 +74,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
           ...(t.hideInfo ? { hideInfo: true } : {}),
           ...(t.hideParagraph ? { hideParagraph: true } : {}),
           ...(t.type === "separator" ? { label: t.content.type === "separator" ? t.content.label : (t.label ?? "") } : {}),
+          ...(t.fitContain ? { fitContain: true } : {}),
         })),
       }),
     }).catch(() => {});
@@ -476,6 +477,12 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     commitLayout(next);
   };
 
+  // Ratio d'origine (contain) — image ou croquis.
+  const setFitContain = (id: string, fit: boolean) => {
+    const next = tilesRef.current.map((t) => (t.id === id ? { ...t, fitContain: fit } : t));
+    commitLayout(next);
+  };
+
   // Fiche wiki : toggles d'affichage (portrait / infobox / résumé) portés par le
   // layout de la tuile.
   const setFicheFlags = (id: string, patch: { hideImage?: boolean; hideInfo?: boolean; hideParagraph?: boolean }) => {
@@ -624,6 +631,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         onPersistText={persistText}
         onSaveImage={saveImage}
         onSetImageHideTitle={setImageHideTitle}
+        onSetFitContain={setFitContain}
         onSetFicheFlags={setFicheFlags}
         onSaveEmbed={saveEmbed}
         onSaveMap={saveMap}

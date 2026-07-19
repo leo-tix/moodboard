@@ -25,6 +25,7 @@ const tileSchema = z.object({
   hideInfo: z.boolean().optional(),
   hideParagraph: z.boolean().optional(),
   label: z.string().max(120).optional(), // texte du séparateur
+  fitContain: z.boolean().optional(), // image/croquis au ratio d'origine
 });
 
 // PATCH /api/visits/[id]/layout — remplace intégralement Visit.journalLayout.

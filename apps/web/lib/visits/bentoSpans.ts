@@ -50,6 +50,9 @@ export interface JournalTile {
   hideParagraph?: boolean;
   /** Séparateur : texte de la puce (le contenu vit ici, pas de table dédiée). */
   label?: string;
+  /** Image / croquis : afficher au ratio d'origine (contain + marge) au lieu
+   *  de remplir la tuile (cover). */
+  fitContain?: boolean;
 }
 
 // Types à hauteur automatique (largeur choisie, hauteur mesurée). Leur contenu

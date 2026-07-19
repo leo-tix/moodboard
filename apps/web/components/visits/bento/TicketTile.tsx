@@ -53,6 +53,11 @@ export function TicketTile({ content, w, h }: { content: TicketContent; w: numbe
       {/* Halo accent */}
       <div className="pointer-events-none absolute -bottom-10 -left-10 w-32 h-32 rounded-full opacity-[0.10]" style={{ background: "radial-gradient(circle, var(--accent) 0%, transparent 70%)" }} />
 
+      {/* Encoches latérales façon billet : deux demi-cercles « découpés » sur les
+          bords gauche/droite (cercles couleur du fond, coupés par overflow-hidden). */}
+      <span aria-hidden className="pointer-events-none absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-[var(--bg-base)] z-20" />
+      <span aria-hidden className="pointer-events-none absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-[var(--bg-base)] z-20" />
+
       <div className={cn("relative w-full h-full flex", horizontal ? "flex-row items-stretch" : "flex-col")}>
         {main}
         {stub && !compact && (

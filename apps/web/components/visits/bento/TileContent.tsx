@@ -85,8 +85,16 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
     const picture = (
       <>
         {c.thumbnailKey ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={getThumbnailUrl(c.thumbnailKey)} alt={c.title} loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+          tile.fitContain ? (
+            // Ratio d'origine : image entière, marge + coins arrondis.
+            <div className="absolute inset-0 flex items-center justify-center p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={getThumbnailUrl(c.thumbnailKey)} alt={c.title} loading="lazy" draggable={false} className="max-w-full max-h-full w-auto h-auto object-contain rounded-xl" />
+            </div>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={getThumbnailUrl(c.thumbnailKey)} alt={c.title} loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+          )
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-[var(--text-tertiary)] text-xs">—</span>
@@ -181,7 +189,7 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
   }
 
   if (tile.content.type === "sketch") {
-    return <SketchTile content={tile.content} />;
+    return <SketchTile content={tile.content} fitContain={!!tile.fitContain} />;
   }
 
   // embed — YouTube (iframe) ou lien externe / fiche artiste (carte d'aperçu)
