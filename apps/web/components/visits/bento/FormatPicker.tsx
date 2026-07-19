@@ -1,7 +1,14 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { formatOptions, type FormatOption, type JournalTileType, type TileWidth } from "@/lib/visits/bentoSpans";
+import { formatOptions, MEDIA_FORMATS, TEXT_WIDTHS, type FormatOption, type JournalTileType, type TileWidth } from "@/lib/visits/bentoSpans";
+
+// La fiche wiki est un `embed` mais se comporte en auto-hauteur : on force
+// alors les largeurs (Normal/Large) au lieu des 4 formats médias.
+function pickOptions(type: JournalTileType, autoHeight?: boolean): FormatOption[] {
+  if (autoHeight === undefined) return formatOptions(type);
+  return autoHeight ? TEXT_WIDTHS : MEDIA_FORMATS;
+}
 
 // Petit schéma à l'échelle du format (largeur × hauteur) — bien plus lisible
 // qu'une icône générique : on voit la FORME que prendra la tuile.
@@ -24,12 +31,14 @@ interface FormatPickerProps {
   w: number;
   h: number;
   onChange: (w: TileWidth, h: 1 | 2) => void;
+  /** Force le régime largeurs (true) / médias (false) ; sinon déduit du type. */
+  autoHeight?: boolean;
 }
 
 // Sélecteur de format LABELLISÉ — utilisé dans le pop-up central (mobile,
 // et desktop pour les réglages). Chaque format dessiné à l'échelle + nommé.
-export function FormatPicker({ type, w, h, onChange }: FormatPickerProps) {
-  const options = formatOptions(type);
+export function FormatPicker({ type, w, h, onChange, autoHeight }: FormatPickerProps) {
+  const options = pickOptions(type, autoHeight);
   const textOnly = options.length === 2 && options.every((o) => o.h === 1);
   return (
     <div className="space-y-1.5">
@@ -64,8 +73,8 @@ export function FormatPicker({ type, w, h, onChange }: FormatPickerProps) {
 // Rangée d'icônes compacte — apparaît AU SURVOL d'une tuile sur desktop, dans
 // un coin. Clic = format appliqué directement, sans ouvrir le pop-up (demande
 // utilisateur 2026-07-18).
-export function FormatQuickBar({ type, w, h, onChange }: FormatPickerProps) {
-  const options = formatOptions(type);
+export function FormatQuickBar({ type, w, h, onChange, autoHeight }: FormatPickerProps) {
+  const options = pickOptions(type, autoHeight);
   const textOnly = options.length === 2 && options.every((o) => o.h === 1);
   return (
     <div className="flex items-center gap-0.5 rounded-lg bg-black/60 backdrop-blur-sm px-1 py-1">

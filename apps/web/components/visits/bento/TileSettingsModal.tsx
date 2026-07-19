@@ -8,7 +8,7 @@ import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { cn } from "@/lib/utils";
-import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
+import { isAutoHeight, isFicheContent, isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { type CartelFields } from "@/lib/visits/cartelOcr";
 import { CartelScanModal } from "@/components/visits/bento/CartelScanModal";
@@ -126,7 +126,7 @@ export function TileSettingsModal({
             </div>
 
             <div className="p-4 overflow-y-auto flex-1 space-y-5">
-              <FormatPicker type={tile.type} w={tile.w} h={tile.h} onChange={(w, h) => onSetFormat(tile, w, h)} />
+              <FormatPicker type={tile.type} w={tile.w} h={tile.h} autoHeight={isAutoHeight(tile.type) || isFicheContent(tile.content)} onChange={(w, h) => onSetFormat(tile, w, h)} />
 
               {editTextHere && tile.content.type === "note" && (
                 <NoteEditor

@@ -8,7 +8,7 @@ import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { SketchPad } from "@/components/visits/bento/SketchPad";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
-import { DEFAULT_SPAN, isAutoHeight, isNoteType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
+import { DEFAULT_SPAN, isAutoHeight, isFicheContent, isNoteType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 // ── Carnet de visite — grille modulaire façon Bento.me ──────────────────────
@@ -383,7 +383,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     const next = tilesRef.current.map((t) =>
       // Auto-hauteur (texte/checklist/frise) : seule la largeur est réglable,
       // la hauteur reste automatique.
-      tileKey(t) === tileKey(tile) ? { ...t, w, h: isAutoHeight(t.type) ? t.h : h } : t
+      tileKey(t) === tileKey(tile) ? { ...t, w, h: isAutoHeight(t.type) || isFicheContent(t.content) ? t.h : h } : t
     );
     commitLayout(next);
   };

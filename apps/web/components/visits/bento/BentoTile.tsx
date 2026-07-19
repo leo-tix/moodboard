@@ -8,7 +8,7 @@ import { DragHandle } from "@/components/ui/DragHandle";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { FormatQuickBar } from "@/components/visits/bento/FormatPicker";
 import { TileContent, type ImageNavItem } from "@/components/visits/bento/TileContent";
-import { isAutoHeight, isNoteType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
+import { isAutoHeight, isFicheContent, isNoteType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { SortableGrid } from "@/hooks/useSortableGrid";
 import type { BentoTile as BentoTileData } from "@/lib/visits/bentoTypes";
 
@@ -119,8 +119,9 @@ export function BentoTile({
   onAutoRows,
 }: BentoTileProps) {
   const key = tileKey(tile);
-  // autoHeight : mesuré (note/checklist/frise). note : édition Tiptap inline.
-  const autoHeight = isAutoHeight(tile.type);
+  // autoHeight : mesuré (note/checklist/frise + fiche wiki). note : Tiptap inline.
+  const fiche = isFicheContent(tile.content);
+  const autoHeight = isAutoHeight(tile.type) || fiche;
   const note = isNoteType(tile.type);
 
   const { rows, innerRef, tileRef } = useMeasuredRows(
@@ -207,6 +208,7 @@ export function BentoTile({
                 type={tile.type}
                 w={tile.w}
                 h={tile.h}
+                autoHeight={autoHeight}
                 onChange={(w, h) => onSetFormat(tile, w, h)}
               />
             </div>

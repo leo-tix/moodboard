@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Sprout, Cross, Flag, Briefcase, Brush, Shapes, Frame, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
@@ -192,69 +192,60 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
       );
     }
 
-    // Fiche wiki (Wikipédia) — carte structurée « infobox » (Wikidata) : portrait
-    // + nom + description courte + lignes hiérarchisées (naissance/décès,
-    // nationalité, activité, mouvement, genres, œuvres) + notice.
+    // Fiche wiki (Wikipédia) — carte d'IDENTITÉ à hauteur automatique : portrait
+    // à gauche au ratio d'origine (ancré en haut), infobox structurée (Wikidata)
+    // à droite avec une icône par champ pour guider la lecture. La tuile s'étend
+    // pour tout afficher (BentoTile mesure la hauteur), donc plus de troncature.
     if (c.kind === "ARTIST") {
-      const stacked = tile.h === 2;
-      const compact = tile.w === 1 && tile.h === 1;
       const d = c.data ?? null;
-      const rows: { label: string; value: string }[] = [];
+      const rows: { label: string; value: string; Icon: LucideIcon }[] = [];
       const join = (a?: string[]) => (a && a.length ? a.join(", ") : "");
       const dateAndPlace = (x?: { date?: string; place?: string }) =>
         x ? [x.date, x.place ? `à ${x.place}` : ""].filter(Boolean).join(" ") : "";
       if (d) {
-        const b = dateAndPlace(d.birth); if (b) rows.push({ label: "Naissance", value: b });
-        const dt = dateAndPlace(d.death); if (dt) rows.push({ label: "Décès", value: dt });
-        const nat = join(d.nationality); if (nat) rows.push({ label: "Nationalité", value: nat });
-        const occ = join(d.occupation); if (occ) rows.push({ label: "Activité", value: occ });
-        const mov = join(d.movement); if (mov) rows.push({ label: "Mouvement", value: mov });
-        const gen = join(d.genre); if (gen) rows.push({ label: "Genres", value: gen });
-        const wk = join(d.notableWorks); if (wk) rows.push({ label: "Œuvres", value: wk });
+        const b = dateAndPlace(d.birth); if (b) rows.push({ label: "Naissance", value: b, Icon: Sprout });
+        const dt = dateAndPlace(d.death); if (dt) rows.push({ label: "Décès", value: dt, Icon: Cross });
+        const nat = join(d.nationality); if (nat) rows.push({ label: "Nationalité", value: nat, Icon: Flag });
+        const occ = join(d.occupation); if (occ) rows.push({ label: "Activité", value: occ, Icon: Briefcase });
+        const mov = join(d.movement); if (mov) rows.push({ label: "Mouvement", value: mov, Icon: Brush });
+        const gen = join(d.genre); if (gen) rows.push({ label: "Genres", value: gen, Icon: Shapes });
+        const wk = join(d.notableWorks); if (wk) rows.push({ label: "Œuvres notables", value: wk, Icon: Frame });
       }
       // Repli sur les dates parsées du texte si aucune infobox.
       const fallbackLife = rows.length === 0 ? parseLifeDates(c.description) : null;
 
-      if (compact) {
-        return (
-          <a href={c.url} target="_blank" rel="noopener noreferrer" className="w-full h-full relative bg-[var(--bg-surface)] block">
-            {c.image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={c.image} alt={c.title ?? ""} className="absolute inset-0 w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
-            ) : <div className="absolute inset-0 bg-[var(--bg-elevated)]" />}
-            <div className="absolute bottom-0 inset-x-0 px-2.5 py-2 bg-gradient-to-t from-black/80 to-transparent">
-              <p className="font-serif text-[13px] text-white leading-tight line-clamp-2">{c.title || "Fiche"}</p>
-            </div>
-          </a>
-        );
-      }
-
       return (
-        <a href={c.url} target="_blank" rel="noopener noreferrer" className={cn("w-full h-full bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors flex", stacked ? "flex-col" : "flex-row items-stretch")}>
+        <a href={c.url} target="_blank" rel="noopener noreferrer" className="w-full flex flex-row items-stretch bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors">
           {c.image && (
-            <div className={cn("flex-shrink-0 bg-[var(--bg-surface)] overflow-hidden", stacked ? "w-full h-2/5" : "w-24")}>
+            <div className="shrink-0 self-start w-[104px] sm:w-[120px] bg-[var(--bg-surface)]">
+              {/* Ratio d'origine préservé (h-auto), ancré en haut à gauche. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={c.image} alt={c.title ?? ""} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+              <img src={c.image} alt={c.title ?? ""} className="w-full h-auto block" loading="lazy" referrerPolicy="no-referrer" />
             </div>
           )}
-          <div className="min-w-0 px-3.5 py-3 flex flex-col gap-1 flex-1 overflow-hidden">
-            <p className={cn("font-serif text-[var(--text-primary)] leading-tight break-words", stacked ? "text-lg line-clamp-2" : "text-base line-clamp-2")}>{c.title || "Fiche"}</p>
-            {c.siteName && <p className="text-[11px] text-[var(--text-secondary)] italic leading-snug line-clamp-1">{c.siteName}</p>}
-            {fallbackLife && <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{fallbackLife}</p>}
+          <div className="min-w-0 flex-1 px-3.5 py-3 flex flex-col gap-1.5">
+            <div>
+              <p className="font-serif text-[15px] text-[var(--text-primary)] leading-tight break-words">{c.title || "Fiche"}</p>
+              {c.siteName && <p className="text-[11px] text-[var(--text-secondary)] italic leading-snug mt-0.5">{c.siteName}</p>}
+              {fallbackLife && <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] mt-0.5">{fallbackLife}</p>}
+            </div>
             {rows.length > 0 && (
-              <dl className="mt-0.5 space-y-0.5">
+              <dl className="mt-0.5 space-y-1.5">
                 {rows.map((r) => (
-                  <div key={r.label} className="flex gap-1.5">
-                    <dt className="text-[9px] uppercase tracking-wide text-[var(--text-tertiary)] shrink-0 w-[62px] pt-px">{r.label}</dt>
-                    <dd className="text-[11px] text-[var(--text-primary)] leading-snug break-words line-clamp-2">{r.value}</dd>
+                  <div key={r.label} className="flex items-start gap-2">
+                    <r.Icon size={13} strokeWidth={1.75} className="text-[var(--text-tertiary)] shrink-0 mt-[3px]" />
+                    <div className="min-w-0 flex-1">
+                      <dt className="text-[9px] uppercase tracking-wide text-[var(--text-tertiary)] leading-none">{r.label}</dt>
+                      <dd className="text-[12px] text-[var(--text-primary)] leading-snug break-words mt-[1px]">{r.value}</dd>
+                    </div>
                   </div>
                 ))}
               </dl>
             )}
-            {c.description && rows.length < 4 && (
-              <p className="text-[11px] text-[var(--text-secondary)] leading-snug mt-0.5 line-clamp-3">{c.description}</p>
+            {rows.length === 0 && c.description && (
+              <p className="text-[12px] text-[var(--text-secondary)] leading-snug">{c.description}</p>
             )}
-            <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1 mt-auto pt-1 truncate">
+            <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1 mt-1">
               <ExternalLink size={10} strokeWidth={1.75} /> Wikipédia
             </p>
           </div>

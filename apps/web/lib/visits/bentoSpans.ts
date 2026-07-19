@@ -55,6 +55,15 @@ export function isAutoHeight(type: JournalTileType): boolean {
   return AUTO_HEIGHT_TYPES.has(type);
 }
 
+// La fiche wiki (type `embed`, kind ARTIST) est aussi à hauteur automatique
+// (2026-07-19) : c'est une carte d'identité — portrait à gauche au ratio
+// d'origine + infobox à droite — dont le nombre de champs varie. On la laisse
+// s'étendre par paliers de grille comme le texte, plutôt que de tronquer.
+// (Les autres embeds — LINK/YOUTUBE — restent à format fixe.)
+export function isFicheContent(content: { type: string; kind?: string } | null | undefined): boolean {
+  return !!content && content.type === "embed" && content.kind === "ARTIST";
+}
+
 // Le module texte riche (Tiptap) — édition inline sur desktop. Distinct des
 // autres types auto-hauteur (checklist/frise) qui s'éditent via le pop-up.
 export function isNoteType(type: JournalTileType): boolean {
