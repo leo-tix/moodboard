@@ -7,6 +7,7 @@ import { accessibleWhereForOwner } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { ConnectButton } from "@/components/social/ConnectButton";
+import { MessageButton } from "@/components/social/MessageButton";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,10 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                 Modifier mon profil
               </Link>
             ) : (
-              <ConnectButton targetUserId={user.id} initialStatus={rel.status} connectionId={rel.connectionId} />
+              <div className="flex items-center gap-2">
+                <ConnectButton targetUserId={user.id} initialStatus={rel.status} connectionId={rel.connectionId} />
+                <MessageButton targetUserId={user.id} />
+              </div>
             )}
           </div>
         </div>

@@ -51,6 +51,9 @@ model User {
   connectionsRequested Connection[] @relation("ConnReq")
   connectionsReceived  Connection[] @relation("ConnAdr")
   grants               ResourceGrant[]
+  conversationsA       Conversation[] @relation("ConvA")
+  conversationsB       Conversation[] @relation("ConvB")
+  messagesSent         Message[]      @relation("MsgSender")
 
   @@map("users")
 }
@@ -123,6 +126,53 @@ model ResourceGrant {
   @@index([userId])
   @@index([resource, resourceId])
   @@map("resource_grants")
+}
+
+// ============================================================
+// MESSAGERIE — conversations 1:1 + messages (+ partage ressource/image)
+// ============================================================
+// Paire canonique (userAId < userBId) → une seule conversation par paire.
+// Entre connexions : ACTIVE d'emblée. Vers un non-connecté : PENDING (demande)
+// jusqu'à ce que le destinataire réponde/accepte.
+enum ConversationStatus {
+  PENDING
+  ACTIVE
+}
+
+model Conversation {
+  id            String             @id @default(cuid())
+  userAId       String
+  userBId       String
+  userA         User               @relation("ConvA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB         User               @relation("ConvB", fields: [userBId], references: [id], onDelete: Cascade)
+  status        ConversationStatus @default(ACTIVE)
+  initiatorId   String
+  createdAt     DateTime           @default(now())
+  lastMessageAt DateTime           @default(now())
+  messages      Message[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@map("conversations")
+}
+
+model Message {
+  id               String         @id @default(cuid())
+  conversationId   String
+  conversation     Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId         String
+  sender           User           @relation("MsgSender", fields: [senderId], references: [id], onDelete: Cascade)
+  body             String?
+  // Partage optionnel : une ressource (planche/visite/collection) ou une image.
+  sharedResource   GrantResource?
+  sharedResourceId String?
+  sharedImageId    String?
+  createdAt        DateTime       @default(now())
+  readAt           DateTime?
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 model ApiToken {

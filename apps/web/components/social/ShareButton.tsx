@@ -65,6 +65,22 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
 
   const grantedIds = new Set(grants.map((g) => g.user.id));
 
+  // Envoi de la ressource en message à un membre (partage via messagerie).
+  const grantResourceEnum = resource === "moodboards" ? "MOODBOARD" : resource === "visits" ? "VISIT" : "COLLECTION";
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const sendResource = async (userId: string) => {
+    setBusy(userId);
+    try {
+      const r = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }) });
+      const d = await r.json().catch(() => ({}));
+      if (d.conversationId) {
+        await fetch(`/api/conversations/${d.conversationId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharedResource: grantResourceEnum, sharedResourceId: id }) });
+        setSentTo(userId);
+        setTimeout(() => setSentTo(null), 1500);
+      }
+    } finally { setBusy(null); }
+  };
+
   return (
     <>
       <button
@@ -145,16 +161,16 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
                   />
                 </div>
                 {results.filter((m) => !grantedIds.has(m.id)).map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => { addGrant(m.id, "VIEWER"); setQ(""); setResults([]); }}
-                    disabled={busy === m.id}
-                    className="w-full flex items-center gap-2.5 px-1 py-1.5 rounded-md hover:bg-[var(--bg-elevated)] text-left"
-                  >
+                  <div key={m.id} className="flex items-center gap-2.5 px-1 py-1.5">
                     <UserAvatar name={m.name} username={m.username} image={m.image} size={30} />
                     <span className="flex-1 min-w-0 text-sm text-[var(--text-primary)] truncate">{m.name || `@${m.username}`}</span>
-                    <span className="text-[11px] text-[var(--accent,#a78bfa)]">Ajouter</span>
-                  </button>
+                    <button onClick={() => sendResource(m.id)} disabled={busy === m.id} className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
+                      {sentTo === m.id ? "Envoyé ✓" : "Envoyer"}
+                    </button>
+                    <button onClick={() => { addGrant(m.id, "VIEWER"); setQ(""); setResults([]); }} disabled={busy === m.id} className="text-[11px] text-[var(--accent,#a78bfa)]">
+                      Ajouter
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>

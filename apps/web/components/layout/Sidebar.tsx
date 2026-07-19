@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, type LucideIcon } from "lucide-react";
+import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, MessageCircle, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/lib/storage/urls";
 import { TriageBadge } from "@/components/triage/TriageBadge";
@@ -27,6 +27,7 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/moodboards", label: "Planches", icon: LayoutDashboard },
   { href: "/visites", label: "Visites", icon: Landmark },
   { href: "/reseau", label: "Réseau", icon: Users },
+  { href: "/messages", label: "Messagerie", icon: MessageCircle },
   { href: "/search", label: "Recherche", icon: Search },
   { href: "/upload",  label: "Ajouter",  icon: Plus },
   { href: "/triage",  label: "Triage",   icon: Inbox },
