@@ -27,20 +27,23 @@ export function pickSupportedAudioMimeType(): string | undefined {
 // très en dessous du plafond serveur (15 Mo/clip, voir QUOTA.MAX_AUDIO_SIZE_BYTES).
 export const AUDIO_BITRATE = 128_000;
 
-// Contraintes micro explicites. DÉCISION QUALITÉ (2026-07-19, retour terrain
-// Android « on dirait le micro de communication ») : on DÉSACTIVE le triptyque
-// de traitement vocal (echoCancellation / noiseSuppression / autoGainControl).
-// Ces filtres font basculer Android/Chrome sur la source « communication »
-// (VOICE_COMMUNICATION, chaîne DSP téléphonie → bande étroite, pompage AGC,
-// suppression agressive qui étouffe l'ambiance et la musique d'une expo). Off,
-// le navigateur prend la source « média/non traitée », bien plus fidèle. On
-// vise 48 kHz (natif Opus). Contrepartie assumée : un peu plus d'écho/bruit
-// ambiant capté — c'est justement ce qu'on veut préserver pour un mémo de
-// visite, pas un appel « nettoyé ».
+// Contraintes micro — SÉLECTION DU BON MICRO sur Android (retours terrain
+// 2026-07-19). Trois régimes observés selon la combinaison de flags :
+//  · echoCancellation:true → source VOICE_COMMUNICATION (micro d'appel, bande
+//    étroite, très dégradé) → « on dirait le micro de communication ».
+//  · les TROIS à false → Chrome demande le préréglage UNPROCESSED d'Android,
+//    qui route sur le micro de RÉFÉRENCE (souvent près de la caméra) → son
+//    creux/lointain → « il utilise le micro de la caméra ».
+//  · echoCancellation:false SANS tout couper → source MIC/VOICE_RECOGNITION,
+//    le micro PRINCIPAL du bas (celui du dictaphone), proche de la bouche.
+// On vise donc ce 3e régime : echo OFF (pas de micro d'appel), suppression de
+// bruit OFF (l'« effet » le plus audible, on garde la fidélité), et on laisse
+// juste la normalisation de niveau (autoGainControl) pour un rendu présent
+// façon dictaphone — sans basculer sur le préréglage non-traité (caméra).
 const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: false,
   noiseSuppression: false,
-  autoGainControl: false,
+  autoGainControl: true,
   channelCount: { ideal: 1 },
   sampleRate: { ideal: 48000 },
 };

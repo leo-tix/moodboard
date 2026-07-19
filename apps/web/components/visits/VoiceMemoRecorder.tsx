@@ -226,6 +226,19 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     }
   };
 
+  // Transcription AUTOMATIQUE dès l'aperçu (demande 2026-07-19). Utile surtout
+  // sur mobile où la transcription live est indisponible (iOS) ou incompatible
+  // avec l'enregistrement haute qualité (Android). Sautée si une transcription
+  // live a déjà rempli le champ (desktop) ou si l'utilisateur a déjà tapé.
+  const autoTranscribedRef = useRef(false);
+  useEffect(() => {
+    if (memo.step !== "preview") { autoTranscribedRef.current = false; return; }
+    if (autoTranscribedRef.current || transcript.trim() || transcribing) return;
+    autoTranscribedRef.current = true;
+    void transcribeMemo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memo.step]);
+
   const saveMemo = async () => {
     if (memo.step !== "preview") return;
     const { blob, durationSec } = memo;
