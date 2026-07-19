@@ -5,6 +5,7 @@ import { buildBentoLayout } from "@/lib/visits/journalItems";
 import { VisitJournalReadOnly } from "@/components/visits/VisitJournalReadOnly";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitMap } from "@/components/visits/VisitMap";
+import { getImageUrl } from "@/lib/storage/urls";
 
 export const metadata: Metadata = { robots: "noindex" };
 
@@ -70,6 +71,19 @@ export default async function PublicCarnetPage({ params }: Props) {
   const coverTitle = visit.exhibition || visit.place;
   const date = new Date(visit.visitDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
+  // Auteur du carnet — affiché UNIQUEMENT sur la page publique (identité du
+  // créateur). image = clé R2 (getImageUrl) ou URL absolue (OAuth) ; sinon
+  // initiales.
+  const author = visit.user;
+  const authorAvatar = author.image ? (/^https?:\/\//.test(author.image) ? author.image : getImageUrl(author.image)) : null;
+  const authorInitials = (author.name ?? "")
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
       <div className="max-w-4xl mx-auto p-4 md:p-6">
@@ -94,6 +108,24 @@ export default async function PublicCarnetPage({ params }: Props) {
             {visit.exhibition && <p className="text-sm text-[var(--text-secondary)] mt-1">{visit.place}</p>}
             <p className="text-xs text-[var(--text-tertiary)] mt-1">{date}</p>
           </header>
+        )}
+
+        {/* Auteur du carnet (page publique uniquement). */}
+        {author.name && (
+          <div className="flex items-center gap-3 mt-5 mb-6">
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-[var(--bg-surface)] ring-1 ring-[var(--border-subtle)] flex items-center justify-center shrink-0">
+              {authorAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={authorAvatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-[12px] font-medium text-[var(--text-secondary)]">{authorInitials}</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-[var(--text-primary)] leading-tight truncate">{author.name}</p>
+              <p className="text-[11px] text-[var(--text-tertiary)]">Carnet de visite partagé</p>
+            </div>
+          </div>
         )}
 
         {visit.notes && (
