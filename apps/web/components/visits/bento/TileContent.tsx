@@ -51,6 +51,20 @@ interface TileContentProps {
 export function TileContent({ tile, editable, onPersistAudioTranscript, onToggleChecklistItem, imageNav }: TileContentProps) {
   const author = useJournalAuthor();
 
+  // Séparateur de section : ligne pleine largeur + puce centrée.
+  if (tile.content.type === "separator") {
+    const label = tile.content.label.trim() || "Section";
+    return (
+      <div className="w-full h-full flex items-center gap-3 px-1">
+        <span className="h-px flex-1 bg-[var(--border-default)]" />
+        <span className="shrink-0 max-w-[70%] truncate px-4 py-1.5 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[13px] font-medium text-[var(--text-primary)] tracking-wide">
+          {label}
+        </span>
+        <span className="h-px flex-1 bg-[var(--border-default)]" />
+      </div>
+    );
+  }
+
   if (tile.content.type === "image") {
     const c = tile.content;
     // Cartel masquable par tuile (retour utilisateur 2026-07-19 : choisir

@@ -8,7 +8,7 @@ import { DragHandle } from "@/components/ui/DragHandle";
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { FormatQuickBar } from "@/components/visits/bento/FormatPicker";
 import { TileContent, type ImageNavItem } from "@/components/visits/bento/TileContent";
-import { isAutoHeight, isFicheContent, isNoteType, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
+import { isAutoHeight, isFicheContent, isNoteType, isSeparator, spanStyle, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { SortableGrid } from "@/hooks/useSortableGrid";
 import type { BentoTile as BentoTileData } from "@/lib/visits/bentoTypes";
 
@@ -94,6 +94,7 @@ const BODY_EDITS = new Set<BentoTileData["type"]>([
   "timeline",
   "palette",
   "sketch",
+  "separator",
 ]);
 
 // "Widget Wrapper" (spec §3.1). Chrome commun : coins arrondis, hover public,
@@ -123,6 +124,7 @@ export function BentoTile({
   const fiche = isFicheContent(tile.content);
   const autoHeight = isAutoHeight(tile.type) || fiche;
   const note = isNoteType(tile.type);
+  const separator = isSeparator(tile.type); // bande pleine largeur, sans carte
 
   const { rows, innerRef, tileRef } = useMeasuredRows(
     autoHeight,
@@ -155,13 +157,15 @@ export function BentoTile({
       // l'animation (réordonnancement fluide).
       layout={!autoHeight && !editingInline}
       ref={tileRef}
+      id={separator ? `sep-${tile.id}` : undefined}
       {...sortableProps}
-      style={spanStyle(tile.w, effectiveH)}
+      style={separator ? { gridColumn: "1 / -1", gridRow: "span 1" } : spanStyle(tile.w, effectiveH)}
       className={cn(
         "group/tile relative rounded-[20px] overflow-hidden",
+        separator && "scroll-mt-24",
         autoHeight && "bg-[var(--bg-elevated)]",
         editable && !editingInline && "cursor-grab active:cursor-grabbing",
-        !editable && "transition-transform duration-300 ease-out hover:-translate-y-0.5 hover:scale-[1.02]",
+        !editable && !separator && "transition-transform duration-300 ease-out hover:-translate-y-0.5 hover:scale-[1.02]",
         selected && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-base)]"
       )}
       onClickCapture={(e) => {
@@ -202,7 +206,7 @@ export function BentoTile({
           {/* Icônes de format AU SURVOL (desktop) : clic = format appliqué
               directement. Masqué au tactile (pas de survol) où le pop-up
               central via le bouton réglages fait le même travail. */}
-          {onSetFormat && (
+          {onSetFormat && !separator && (
             <div className="absolute top-2 left-2 z-20 opacity-0 group-hover/tile:opacity-100 transition-opacity hidden sm:[@media(hover:hover)]:block">
               <FormatQuickBar
                 type={tile.type}

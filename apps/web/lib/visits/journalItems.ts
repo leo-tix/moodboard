@@ -242,6 +242,11 @@ export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
   const seen = new Set<string>();
   const resolved: BentoTile[] = [];
   for (const tile of layout) {
+    // Le séparateur n'a pas de table : son texte vit dans le layout (tile.label).
+    if (tile.type === "separator") {
+      resolved.push({ ...tile, content: { type: "separator", id: tile.id, label: typeof tile.label === "string" ? tile.label : "" } });
+      continue;
+    }
     const key = `${tile.type}-${tile.id}`;
     const c = content.get(key);
     if (!c) continue; // référence obsolète (contenu supprimé) — abandonnée silencieusement, même filet que resolveStack ci-dessus

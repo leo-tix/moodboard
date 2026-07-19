@@ -52,6 +52,12 @@ export function BentoGrid({
 }: BentoGridProps) {
   const draggedTile = sortable?.draggingKey ? tiles.find((t) => tileKey(t) === sortable.draggingKey) : undefined;
 
+  // Avec des séparateurs, on veut des SECTIONS nettes : le flux dense
+  // remonterait des tuiles d'une section dans les trous d'une section
+  // précédente. On coupe donc `dense` dès qu'un séparateur est présent (les
+  // séparateurs pleine largeur cassent alors proprement les lignes).
+  const hasSeparator = tiles.some((t) => t.content.type === "separator");
+
   const imageNav: ImageNavItem[] = tiles
     .filter((t) => t.content.type === "image")
     .map((t) => {
@@ -64,7 +70,8 @@ export function BentoGrid({
       <div
         className={cn(
           "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6",
-          "[grid-auto-flow:dense] auto-rows-[150px] sm:auto-rows-[170px] lg:auto-rows-[190px]"
+          "auto-rows-[150px] sm:auto-rows-[170px] lg:auto-rows-[190px]",
+          !hasSeparator && "[grid-auto-flow:dense]"
         )}
       >
         {tiles.map((tile) => (

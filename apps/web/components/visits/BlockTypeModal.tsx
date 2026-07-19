@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, BookOpen, PenLine, Loader2, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, BookOpen, PenLine, SeparatorHorizontal, Loader2, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -28,9 +28,10 @@ interface BlockTypeModalProps {
   /** Fiche wiki : `title` (page exacte choisie) OU `name` (recherche libre). */
   onSelectArtist: (payload: { title?: string; name?: string }) => void;
   onSelectSketch: () => void;
+  onSelectSeparator: () => void;
 }
 
-export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette, onSelectArtist, onSelectSketch }: BlockTypeModalProps) {
+export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette, onSelectArtist, onSelectSketch, onSelectSeparator }: BlockTypeModalProps) {
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP" | "ARTIST">("menu");
 
   useEffect(() => {
@@ -101,6 +102,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
             <BlockSection label="Structure">
               <BlockOption icon={ListChecks} label="Checklist" onClick={onSelectChecklist} />
               <BlockOption icon={Milestone} label="Frise" onClick={onSelectTimeline} />
+              <BlockOption icon={SeparatorHorizontal} label="Séparateur" onClick={onSelectSeparator} />
             </BlockSection>
           </div>
         )}

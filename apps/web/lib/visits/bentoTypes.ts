@@ -108,7 +108,8 @@ export type JournalTileContent =
   | { type: "sketch"; id: string; storageKey: string; thumbnailKey: string | null; width: number | null; height: number | null }
   | { type: "highlight"; id: string; title: string; rating: number; note: string | null }
   | { type: "checklist"; id: string; title: string | null; items: ChecklistItem[] }
-  | { type: "timeline"; id: string; title: string | null; events: TimelineEvent[] };
+  | { type: "timeline"; id: string; title: string | null; events: TimelineEvent[] }
+  | { type: "separator"; id: string; label: string };
 
 export type BentoTile = JournalTile & { content: JournalTileContent };
 

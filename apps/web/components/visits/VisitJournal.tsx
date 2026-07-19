@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
+import { SectionNav } from "@/components/visits/bento/SectionNav";
 import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from "@/components/visits/bento/TileSettingsModal";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { SketchPad } from "@/components/visits/bento/SketchPad";
@@ -72,6 +73,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
           ...(t.hideImage ? { hideImage: true } : {}),
           ...(t.hideInfo ? { hideInfo: true } : {}),
           ...(t.hideParagraph ? { hideParagraph: true } : {}),
+          ...(t.type === "separator" ? { label: t.content.type === "separator" ? t.content.label : (t.label ?? "") } : {}),
         })),
       }),
     }).catch(() => {});
@@ -199,6 +201,29 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
       content: { type: "map", id: created.id, locationName: created.locationName, latitude: created.latitude, longitude: created.longitude },
     };
     const next = [...tilesRef.current, tile];
+    commitLayout(next);
+  };
+
+  // Séparateur : pas de table dédiée — le texte vit dans le layout (tile.label).
+  // Id généré côté client (unique dans le layout, pas de ligne en base).
+  const addSeparator = () => {
+    setPickerOpen(false);
+    const id = crypto.randomUUID();
+    const span = DEFAULT_SPAN.separator;
+    const tile: BentoTile = {
+      type: "separator", id, w: span.w, h: span.h, label: "",
+      content: { type: "separator", id, label: "" },
+    };
+    commitLayout([...tilesRef.current, tile]);
+    setSettingsKey(tileKey(tile)); // ouvre aussitôt pour saisir le titre
+  };
+
+  const saveSeparator = (id: string, label: string) => {
+    const next = tilesRef.current.map((t) =>
+      t.id === id && t.type === "separator"
+        ? { ...t, label, content: { ...t.content, label } as BentoTile["content"] }
+        : t
+    );
     commitLayout(next);
   };
 
@@ -359,7 +384,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
 
   // ── Suppression ───────────────────────────────────────────────────────────
 
-  const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image">, string> = {
+  const DELETE_ROUTE: Record<Exclude<BentoTile["type"], "image" | "separator">, string> = {
     note: "notes",
     audio: "audio",
     embed: "embeds",
@@ -380,7 +405,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     if (editingContentKey === tileKey(tile)) setEditingContentKey(null);
     if (tile.type === "image") {
       await fetch(`/api/visits/${visitId}/inspirations/${tile.id}`, { method: "DELETE" }).catch(() => {});
-    } else {
+    } else if (tile.type !== "separator") {
+      // Le séparateur n'a pas de table : sa suppression se limite au layout.
       await fetch(`/api/visits/${visitId}/${DELETE_ROUTE[tile.type]}/${tile.id}`, { method: "DELETE" }).catch(() => {});
     }
   };
@@ -541,6 +567,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
 
   return (
     <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
+      <SectionNav tiles={tiles} />
       <BentoGrid
         tiles={tiles}
         editable
@@ -575,6 +602,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
           onSelectPalette={addPalette}
           onSelectArtist={handleSelectArtist}
           onSelectSketch={openSketchPad}
+          onSelectSeparator={addSeparator}
         />
       )}
 
@@ -608,6 +636,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         onSavePalette={savePalette}
         onUploadPaletteSource={uploadPaletteSource}
         onRedrawSketch={redrawSketch}
+        onSaveSeparator={saveSeparator}
       />
 
       <SketchPad

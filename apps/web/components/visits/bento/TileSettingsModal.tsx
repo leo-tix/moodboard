@@ -8,7 +8,7 @@ import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
 import { cn } from "@/lib/utils";
-import { isAutoHeight, isFicheContent, isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
+import { isAutoHeight, isFicheContent, isNoteType, isSeparator, type TileWidth } from "@/lib/visits/bentoSpans";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { type CartelFields } from "@/lib/visits/cartelOcr";
 import { CartelScanModal } from "@/components/visits/bento/CartelScanModal";
@@ -57,6 +57,7 @@ interface TileSettingsModalProps {
   onSavePalette: (id: string, title: string, colors: string[]) => void;
   onUploadPaletteSource: (id: string, file: File) => Promise<void>;
   onRedrawSketch: (id: string) => void;
+  onSaveSeparator: (id: string, label: string) => void;
 }
 
 // Pop-up CENTRAL de réglages d'une tuile (demande utilisateur 2026-07-18 :
@@ -85,6 +86,7 @@ export function TileSettingsModal({
   onSavePalette,
   onUploadPaletteSource,
   onRedrawSketch,
+  onSaveSeparator,
 }: TileSettingsModalProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -128,7 +130,13 @@ export function TileSettingsModal({
             </div>
 
             <div className="p-4 overflow-y-auto flex-1 space-y-5">
-              <FormatPicker type={tile.type} w={tile.w} h={tile.h} autoHeight={isAutoHeight(tile.type) || isFicheContent(tile.content)} onChange={(w, h) => onSetFormat(tile, w, h)} />
+              {!isSeparator(tile.type) && (
+                <FormatPicker type={tile.type} w={tile.w} h={tile.h} autoHeight={isAutoHeight(tile.type) || isFicheContent(tile.content)} onChange={(w, h) => onSetFormat(tile, w, h)} />
+              )}
+
+              {tile.content.type === "separator" && (
+                <SeparatorForm key={tile.id} label={tile.content.label} onSave={(v) => onSaveSeparator(tile.id, v)} />
+              )}
 
               {editTextHere && tile.content.type === "note" && (
                 <NoteEditor
@@ -255,6 +263,7 @@ const DRAWER_TITLES: Record<BentoTile["type"], string> = {
   highlight: "Coup de cœur",
   checklist: "Checklist",
   timeline: "Frise",
+  separator: "Séparateur",
 };
 
 function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }: {
@@ -315,6 +324,26 @@ function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }
         <span className="text-xs text-[var(--text-secondary)]">Afficher le cartel sur l&apos;image</span>
         <Toggle on={!hideTitle} onChange={(v) => onToggleHideTitle(!v)} label="Afficher le cartel" />
       </div>
+    </div>
+  );
+}
+
+function SeparatorForm({ label, onSave }: { label: string; onSave: (label: string) => void }) {
+  const [v, setV] = useState(label);
+  return (
+    <div className="space-y-3">
+      <Field label="Titre de la section">
+        <input
+          value={v}
+          autoFocus
+          onChange={(e) => setV(e.target.value)}
+          onBlur={() => onSave(v)}
+          onKeyDown={(e) => { if (e.key === "Enter") { onSave(v); (e.target as HTMLInputElement).blur(); } }}
+          className={inputClass}
+          placeholder="Ex. Salle des impressionnistes"
+        />
+      </Field>
+      <p className="text-[10px] text-[var(--text-tertiary)] leading-snug">Le séparateur prend toute la largeur et apparaît dans le sommaire en haut du carnet.</p>
     </div>
   );
 }

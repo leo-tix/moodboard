@@ -26,7 +26,8 @@ export type JournalTileType =
   | "sketch"
   | "highlight"
   | "checklist"
-  | "timeline";
+  | "timeline"
+  | "separator";
 
 export type TileWidth = 1 | 2;
 
@@ -47,6 +48,8 @@ export interface JournalTile {
   hideImage?: boolean;
   hideInfo?: boolean;
   hideParagraph?: boolean;
+  /** Séparateur : texte de la puce (le contenu vit ici, pas de table dédiée). */
+  label?: string;
 }
 
 // Types à hauteur automatique (largeur choisie, hauteur mesurée). Leur contenu
@@ -66,6 +69,12 @@ export function isAutoHeight(type: JournalTileType): boolean {
 // (Les autres embeds — LINK/YOUTUBE — restent à format fixe.)
 export function isFicheContent(content: { type: string; kind?: string } | null | undefined): boolean {
   return !!content && content.type === "embed" && content.kind === "ARTIST";
+}
+
+// Séparateur de section : bande pleine largeur (ligne + puce), sépare les
+// salles / chapitres du carnet. Pas de format, pas de hauteur auto.
+export function isSeparator(type: JournalTileType): boolean {
+  return type === "separator";
 }
 
 // Le module texte riche (Tiptap) — édition inline sur desktop. Distinct des
@@ -99,6 +108,7 @@ export const TEXT_WIDTHS: FormatOption[] = [
 ];
 
 export function formatOptions(type: JournalTileType): FormatOption[] {
+  if (type === "separator") return []; // toujours pleine largeur, pas de choix
   return isAutoHeight(type) ? TEXT_WIDTHS : MEDIA_FORMATS;
 }
 
@@ -115,6 +125,7 @@ export const DEFAULT_SPAN: Record<JournalTileType, TileSpan> = {
   highlight: { w: 1, h: 1 },
   checklist: { w: 2, h: 1 },
   timeline: { w: 2, h: 1 },
+  separator: { w: 2, h: 1 }, // w ignoré (rendu pleine largeur par BentoTile)
 };
 
 // Placement dans la grille — style inline plutôt que classes Tailwind : `h`

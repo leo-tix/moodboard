@@ -12,7 +12,7 @@ const tileSchema = z.object({
   // ce type — bug 2026-07-19 (les 7 modules « musée » manquaient).
   type: z.enum([
     "image", "note", "audio", "embed", "map",
-    "cartel", "palette", "ticket", "sketch", "highlight", "checklist", "timeline",
+    "cartel", "palette", "ticket", "sketch", "highlight", "checklist", "timeline", "separator",
   ]),
   id: z.string().min(1),
   w: z.union([z.literal(1), z.literal(2)]),
@@ -24,6 +24,7 @@ const tileSchema = z.object({
   hideImage: z.boolean().optional(),
   hideInfo: z.boolean().optional(),
   hideParagraph: z.boolean().optional(),
+  label: z.string().max(120).optional(), // texte du séparateur
 });
 
 // PATCH /api/visits/[id]/layout — remplace intégralement Visit.journalLayout.

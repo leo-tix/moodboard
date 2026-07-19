@@ -1,6 +1,7 @@
 "use client";
 
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
+import { SectionNav } from "@/components/visits/bento/SectionNav";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
@@ -24,6 +25,7 @@ export function VisitJournalReadOnly({
   }
   return (
     <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
+      <SectionNav tiles={tiles} />
       <BentoGrid tiles={tiles} editable={false} />
     </JournalAuthorProvider>
   );
