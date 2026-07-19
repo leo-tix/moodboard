@@ -7,6 +7,7 @@ import { X, Trash2, Star, Plus, CheckCircle2, Circle, ScanText, ImagePlus, Loade
 import { NoteEditor } from "@/components/visits/NoteEditor";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { FormatPicker } from "@/components/visits/bento/FormatPicker";
+import { cn } from "@/lib/utils";
 import { isNoteType, type TileWidth } from "@/lib/visits/bentoSpans";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { type CartelFields } from "@/lib/visits/cartelOcr";
@@ -260,13 +261,14 @@ function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }
     if (file) setScanFile(file);
   };
 
-  // OCR d'un cartel → métadonnées de l'image (titre/auteur/année). On ne
-  // remplit que les champs vides pour ne pas écraser une saisie.
+  // OCR d'un cartel → métadonnées de l'image. Le scan ÉCRASE les infos
+  // existantes (retour utilisateur 2026-07-19) : une valeur trouvée par l'OCR
+  // remplace le champ ; un champ non trouvé garde sa valeur (pas de blanc).
   const applyOcr = (f: CartelFields) => {
     const yr = f.dateText?.match(/(1[0-9]{3}|20[0-9]{2})/)?.[1] ?? "";
-    const nt = t || f.artworkTitle || "";
-    const na = a || f.artist || "";
-    const ny = y || yr;
+    const nt = f.artworkTitle || t;
+    const na = f.artist || a;
+    const ny = yr || y;
     setT(nt); setA(na); setY(ny);
     onSave(nt, na, ny);
   };
@@ -295,10 +297,10 @@ function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }
       <Field label="Auteur"><input value={a} onChange={(e) => setA(e.target.value)} onBlur={() => onSave(t, a, y)} className={inputClass} /></Field>
       <Field label="Année"><input value={y} onChange={(e) => setY(e.target.value.replace(/[^0-9]/g, ""))} onBlur={() => onSave(t, a, y)} className={inputClass} inputMode="numeric" /></Field>
 
-      <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
-        <span className="text-[11px] text-[var(--text-secondary)]">Afficher le cartel sur l&apos;image</span>
-        <input type="checkbox" checked={!hideTitle} onChange={(e) => onToggleHideTitle(!e.target.checked)} className="w-4 h-4 accent-[var(--text-primary)]" />
-      </label>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-[var(--text-secondary)]">Afficher le cartel sur l&apos;image</span>
+        <Toggle on={!hideTitle} onChange={(v) => onToggleHideTitle(!v)} label="Afficher le cartel" />
+      </div>
     </div>
   );
 }
@@ -680,6 +682,30 @@ function PaletteForm({
 
 const inputClass =
   "w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)] resize-none";
+
+// Interrupteur façon iOS : piste arrondie + pastille qui coulisse, verte à ON.
+function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={cn(
+        "relative w-[46px] h-[28px] rounded-full transition-colors duration-200 flex-shrink-0 outline-none",
+        on ? "bg-[#34c759]" : "bg-[var(--border-strong)]"
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-[2px] left-[2px] w-[24px] h-[24px] rounded-full bg-white shadow-md transition-transform duration-200",
+          on && "translate-x-[18px]"
+        )}
+      />
+    </button>
+  );
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
