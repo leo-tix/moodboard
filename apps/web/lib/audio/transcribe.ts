@@ -1,9 +1,15 @@
-// Transcription locale d'un clip déjà enregistré — Whisper (tiny, quantifié)
+// Transcription locale d'un clip déjà enregistré — Whisper (base, quantifié)
 // via transformers.js en WASM, entièrement dans le navigateur. Raison d'être :
-// la Web Speech API est indisponible en PWA iOS (limitation Apple, non
-// contournable) et la décision produit exclut toute API IA d'inférence
-// externe. Le modèle (~40 Mo) est téléchargé au premier usage puis mis en
+// la Web Speech API est indisponible en PWA iOS ET inutilisable pendant
+// l'enregistrement haute qualité sur Android (elle réclamerait le micro en
+// mode « communication » dégradé) ; la décision produit exclut toute API IA
+// externe. Le modèle (~80 Mo) est téléchargé au premier usage puis mis en
 // cache par transformers.js (Cache Storage) — chargements suivants immédiats.
+//
+// QUALITÉ (retour 2026-07-19 « transcriptions vraiment pas bonnes ») : passé de
+// whisper-tiny à whisper-BASE (nettement plus fidèle en français, ~2× plus lourd
+// mais reste raisonnable sur mobile), + DÉCOUPAGE `chunk_length_s` — sans lui,
+// tout mémo de plus de 30 s (fenêtre native de Whisper) était tronqué/incohérent.
 //
 // Pourquoi PAS un Web Worker : `new Worker(new URL("./x.ts", import.meta.url))`
 // jette de façon synchrone sous Turbopack dans ce contexte (import.meta.url
@@ -27,7 +33,7 @@ export interface TranscribeProgress {
 
 type AsrPipeline = (
   audio: Float32Array,
-  opts: { language: string; task: string }
+  opts: { language: string; task: string; chunk_length_s?: number; stride_length_s?: number }
 ) => Promise<{ text: string } | { text: string }[]>;
 
 let asrPromise: Promise<AsrPipeline> | null = null;
@@ -36,7 +42,7 @@ function getAsr(onProgress?: (p: TranscribeProgress) => void): Promise<AsrPipeli
   if (!asrPromise) {
     asrPromise = (async () => {
       const { pipeline } = await import("@huggingface/transformers");
-      const asr = await pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny", {
+      const asr = await pipeline("automatic-speech-recognition", "onnx-community/whisper-base", {
         // q8 uniforme échoue à la création de session ONNX en WASM
         // ("TransposeDQWeightsForMatMulNBits") — combinaison reprise de la
         // démo whisper officielle de transformers.js.
@@ -96,7 +102,10 @@ export async function transcribeBlobLocally(
   // cours" avant que le calcul WASM ne monopolise le thread principal.
   await new Promise((r) => setTimeout(r, 50));
 
-  const out = await asr(audio, { language: "french", task: "transcribe" });
+  // chunk_length_s : Whisper ne « voit » que 30 s à la fois — sans découpage,
+  // un mémo plus long est tronqué ou part en boucle. 30 s + 5 s de recouvrement
+  // = transcription cohérente sur toute la durée.
+  const out = await asr(audio, { language: "french", task: "transcribe", chunk_length_s: 30, stride_length_s: 5 });
   const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "";
   return text.trim();
 }

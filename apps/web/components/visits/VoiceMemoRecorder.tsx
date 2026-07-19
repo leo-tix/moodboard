@@ -415,7 +415,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                     className="w-full py-2 rounded-lg text-xs text-[var(--text-secondary)] border border-dashed border-[var(--border-default)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors disabled:opacity-60"
                   >
                     {transcribing === null
-                      ? "✎ Transcrire ce mémo (local, ~40 Mo au 1er usage)"
+                      ? "✎ Transcrire ce mémo (local, ~80 Mo au 1er usage)"
                       : transcribing.phase === "downloading"
                         ? `Téléchargement du modèle… ${transcribing.loadedMB ?? 0}/${transcribing.totalMB ?? "?"} Mo`
                         : transcribing.phase === "transcribing"
