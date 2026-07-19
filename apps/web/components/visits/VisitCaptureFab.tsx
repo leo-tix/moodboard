@@ -19,7 +19,7 @@ const LONG_PRESS_MS = 450;
 //   pas par le menu) : ouvre VoiceMemoRecorder (waveform + transcription en
 //   direct + repli local + file hors ligne — composant partagé avec TOUS
 //   les autres points d'entrée audio du carnet, voir VoiceMemoRecorder.tsx).
-export function VisitCaptureFab({ visitId }: { visitId: string }) {
+export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visitTitle?: string }) {
   const router = useRouter();
   // Deux inputs distincts : la galerie (pas de `capture`, l'utilisateur
   // choisit des photos existantes) et l'appareil photo (`capture="environment"`,
@@ -100,6 +100,7 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
             visitId,
             blob,
             filename: `photo-${Date.now()}-${i}.jpg`,
+            title: visitTitle?.trim() || undefined,
           });
         }
         setInfo(
@@ -113,6 +114,8 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
         try {
           const fd = new FormData();
           fd.append("file", uploadFile);
+          // Titre par défaut = nom de la visite (demande utilisateur 2026-07-19).
+          if (visitTitle?.trim()) fd.append("title", visitTitle.trim());
           const res = await fetch("/api/upload/image", { method: "POST", body: fd });
           const data = await res.json().catch(() => ({}));
           // ⚠ l'API renvoie `inspirationId`, pas `id` — lire le mauvais champ
@@ -128,6 +131,7 @@ export function VisitCaptureFab({ visitId }: { visitId: string }) {
             visitId,
             blob: uploadFile,
             filename: `photo-${Date.now()}-${i}.jpg`,
+            title: visitTitle?.trim() || undefined,
           });
           setInfo("Réseau instable — photo mise en file, envoi automatique dès que possible.");
         }

@@ -20,6 +20,8 @@ export interface OutboxItem {
   visitId: string;
   blob: Blob;
   filename: string;
+  /** Photo : titre par défaut de l'image (= nom de la visite). */
+  title?: string;
   /** Mémo : durée en secondes (champ natif de VisitAudio). */
   durationSec?: number;
   /** Mémo : transcription éditée par l'utilisateur, optionnelle. */
@@ -147,6 +149,7 @@ async function syncItem(item: OutboxItem): Promise<void> {
   if (item.kind === "photo") {
     const fd = new FormData();
     fd.append("file", item.blob, item.filename);
+    if (item.title) fd.append("title", item.title);
     const up = await fetch("/api/upload/image", { method: "POST", body: fd });
     const data = (await up.json().catch(() => ({}))) as { inspirationId?: string; error?: string };
     if (!up.ok || !data.inspirationId) {

@@ -174,7 +174,7 @@ export default async function VisiteDetailPage({ params }: Props) {
       />
 
       {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
-      <VisitCaptureFab visitId={visit.id} />
+      <VisitCaptureFab visitId={visit.id} visitTitle={visit.exhibition || visit.place || undefined} />
       {/* File hors ligne (Phase 4) : captures en attente de synchronisation */}
       <OutboxIndicator visitId={visit.id} />
     </div>
