@@ -14,6 +14,36 @@ export interface TimelineEvent {
   description?: string;
 }
 
+// Année comparable extraite d'une date libre (« 1872 », « v. 1890 »,
+// « Entre 1926 et 1934 », « XVIIe siècle »…) pour trier la frise. On prend la
+// 1re année à 3-4 chiffres ; à défaut un siècle romain → année approx ; sinon
+// +∞ (l'événement va en fin).
+function timelineYear(dateText: string): number {
+  const y = dateText.match(/\b(\d{3,4})\b/);
+  if (y) return parseInt(y[1], 10);
+  const rom = dateText.match(/\b([IVXLC]+)\s*e?\s*si[eè]cle/i);
+  if (rom) {
+    const map: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
+    const s = rom[1].toUpperCase();
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+      const cur = map[s[i]], nxt = map[s[i + 1]] ?? 0;
+      n += cur < nxt ? -cur : cur;
+    }
+    return (n - 1) * 100; // XVIIe siècle → 1600
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+// Trie les jalons par date croissante (tri stable ; les dates illisibles
+// restent en fin dans leur ordre d'origine).
+export function sortTimelineEvents(events: TimelineEvent[]): TimelineEvent[] {
+  return events
+    .map((ev, i) => ({ ev, i, y: timelineYear(ev.dateText || "") }))
+    .sort((a, b) => a.y - b.y || a.i - b.i)
+    .map((x) => x.ev);
+}
+
 // Contenu résolu d'une tuile — même forme que les anciens JournalBlock/
 // JournalEmbed (VisitJournal.tsx), unifiés en un seul type discriminé
 // puisque la grille bento n'a plus besoin de distinguer "bloc pur" vs

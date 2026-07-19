@@ -41,6 +41,8 @@ export interface JournalTile {
   id: string;
   w: TileWidth;
   h: number;
+  /** Image : masquer le cartel (titre/auteur/année) en surimpression. */
+  hideTitle?: boolean;
 }
 
 // Types à hauteur automatique (largeur choisie, hauteur mesurée). Leur contenu

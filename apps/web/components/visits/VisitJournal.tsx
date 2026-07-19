@@ -65,7 +65,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     fetch(`/api/visits/${visitId}/layout`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ layout: list.map((t) => ({ type: t.type, id: t.id, w: t.w, h: t.h })) }),
+      body: JSON.stringify({ layout: list.map((t) => ({ type: t.type, id: t.id, w: t.w, h: t.h, ...(t.hideTitle ? { hideTitle: true } : {}) })) }),
     }).catch(() => {});
   };
 
@@ -152,15 +152,15 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     commitLayout(next);
   };
 
-  const handleSelectArtist = async (name: string) => {
+  const handleSelectArtist = async (payload: { title?: string; name?: string }) => {
     const res = await fetch(`/api/visits/${visitId}/artist`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(payload),
     }).catch(() => null);
     setPickerOpen(false);
     if (!res?.ok) {
-      alert("Artiste introuvable sur Wikipédia. Vérifie l'orthographe du nom.");
+      alert("Page introuvable sur Wikipédia. Vérifie l'orthographe.");
       return;
     }
     const c = await res.json();
@@ -435,6 +435,13 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     fetch(`/api/inspirations/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
   };
 
+  // Affichage du cartel (titre/auteur/année) sur la tuile image — flag porté par
+  // le layout (par tuile, pas par image partagée).
+  const setImageHideTitle = (id: string, hide: boolean) => {
+    const next = tilesRef.current.map((t) => (t.id === id && t.type === "image" ? { ...t, hideTitle: hide } : t));
+    commitLayout(next);
+  };
+
   const saveEmbed = (id: string, title: string, description: string) => {
     patchTileContent(id, { title: title.trim() || null, description: description.trim() || null });
     fetch(`/api/visits/${visitId}/embeds/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, description: description.trim() || null }) }).catch(() => {});
@@ -573,6 +580,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         onSaveText={saveText}
         onPersistText={persistText}
         onSaveImage={saveImage}
+        onSetImageHideTitle={setImageHideTitle}
         onSaveEmbed={saveEmbed}
         onSaveMap={saveMap}
         onSaveHighlight={saveHighlight}

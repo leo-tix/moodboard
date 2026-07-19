@@ -23,6 +23,17 @@ export interface ImageNavItem {
   thumbnailKey: string | null;
 }
 
+// Dates de vie extraites du 1er paragraphe Wikipédia (« né le … 1840 … mort le
+// … 1926 ») pour la carte fiche wiki. null si absent (mouvement, lieu, œuvre…).
+function parseLifeDates(extract: string | null): string | null {
+  if (!extract) return null;
+  const birth = extract.match(/n[ée]e?\b[^.]{0,45}?\b(1[0-9]{3}|20[0-9]{2})/i)?.[1];
+  const death = extract.match(/(?:mort|morte|décédée?|d[ée]c[èe]s|†)\b[^.]{0,45}?\b(1[0-9]{3}|20[0-9]{2})/i)?.[1];
+  if (birth && death) return `${birth} – ${death}`;
+  if (birth) return `né·e en ${birth}`;
+  return null;
+}
+
 interface TileContentProps {
   tile: BentoTile;
   /** true = carnet en édition ; false = lecture seule (carnet public, sans session). */
@@ -42,7 +53,9 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
 
   if (tile.content.type === "image") {
     const c = tile.content;
-    const cartel = (c.title || c.author || c.year) && (
+    // Cartel masquable par tuile (retour utilisateur 2026-07-19 : choisir
+    // d'afficher le titre ou non).
+    const cartel = !tile.hideTitle && (c.title || c.author || c.year) && (
       <div className="pointer-events-none absolute bottom-0 inset-x-0 px-2.5 py-2 backdrop-blur-md bg-gradient-to-t from-black/70 to-transparent">
         {c.title && <p className="text-[12px] font-medium text-white truncate">{c.title}</p>}
         {(c.author || c.year) && (
@@ -179,9 +192,12 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
       );
     }
 
-    // Fiche artiste (Wikipédia) — carte « portrait » : image + nom + notice.
+    // Fiche wiki (Wikipédia) — carte structurée : portrait + nom + dates de vie
+    // + description courte + 1er paragraphe. Champs séparés extraits du résumé
+    // (siteName = description courte, description = 1er paragraphe).
     if (c.kind === "ARTIST") {
       const stacked = tile.h === 2; // portrait/grand → image en haut
+      const life = parseLifeDates(c.description);
       return (
         <a href={c.url} target="_blank" rel="noopener noreferrer" className={cn("w-full h-full bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] transition-colors flex", stacked ? "flex-col" : "flex-row items-stretch")}>
           {c.image && (
@@ -190,10 +206,12 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
               <img src={c.image} alt={c.title ?? ""} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
             </div>
           )}
-          <div className="min-w-0 px-3.5 py-3 flex flex-col justify-center gap-1 flex-1">
-            <p className={cn("font-serif text-[var(--text-primary)] leading-tight", stacked ? "text-lg line-clamp-2" : "text-base line-clamp-2")}>{c.title || "Artiste"}</p>
-            {c.description && <p className={cn("text-xs text-[var(--text-secondary)] leading-snug", stacked ? "line-clamp-4" : "line-clamp-3")}>{c.description}</p>}
-            <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1 mt-0.5 truncate">
+          <div className="min-w-0 px-3.5 py-3 flex flex-col justify-center gap-0.5 flex-1">
+            <p className={cn("font-serif text-[var(--text-primary)] leading-tight break-words", stacked ? "text-lg line-clamp-2" : "text-base line-clamp-2")}>{c.title || "Fiche"}</p>
+            {life && <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{life}</p>}
+            {c.siteName && <p className="text-[11px] text-[var(--text-secondary)] italic leading-snug line-clamp-1">{c.siteName}</p>}
+            {c.description && <p className={cn("text-xs text-[var(--text-secondary)] leading-snug mt-0.5", stacked ? "line-clamp-5" : "line-clamp-3")}>{c.description}</p>}
+            <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1 mt-1 truncate">
               <ExternalLink size={10} strokeWidth={1.75} /> Wikipédia
             </p>
           </div>

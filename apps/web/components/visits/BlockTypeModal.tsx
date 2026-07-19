@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, User, PenLine, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, BookOpen, PenLine, Loader2, X, type LucideIcon } from "lucide-react";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -25,7 +25,8 @@ interface BlockTypeModalProps {
   onSelectCartel: () => void;
   onSelectTicket: () => void;
   onSelectPalette: () => void;
-  onSelectArtist: (name: string) => void;
+  /** Fiche wiki : `title` (page exacte choisie) OU `name` (recherche libre). */
+  onSelectArtist: (payload: { title?: string; name?: string }) => void;
   onSelectSketch: () => void;
 }
 
@@ -45,7 +46,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
   }, [mode, onClose]);
 
   const title =
-    mode === "menu" ? "Ajouter une tuile" : mode === "MAP" ? "Ajouter une carte" : mode === "ARTIST" ? "Fiche artiste" : mode === "YOUTUBE" ? "Lien YouTube" : "Lien externe";
+    mode === "menu" ? "Ajouter une tuile" : mode === "MAP" ? "Ajouter une carte" : mode === "ARTIST" ? "Fiche wiki" : mode === "YOUTUBE" ? "Lien YouTube" : "Lien externe";
 
   const content = (
     <>
@@ -93,7 +94,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
               <BlockOption icon={Landmark} label="Cartel" onClick={onSelectCartel} />
               <BlockOption icon={Ticket} label="Billet" onClick={onSelectTicket} />
               <BlockOption icon={Palette} label="Palette" onClick={onSelectPalette} />
-              <BlockOption icon={User} label="Fiche artiste" onClick={() => setMode("ARTIST")} />
+              <BlockOption icon={BookOpen} label="Fiche wiki" onClick={() => setMode("ARTIST")} />
               <BlockOption icon={PenLine} label="Croquis" onClick={onSelectSketch} />
               <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
             </BlockSection>
@@ -110,7 +111,7 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
 
         {mode === "MAP" && <MapForm onCancel={() => setMode("menu")} onSubmit={onSelectMap} />}
 
-        {mode === "ARTIST" && <ArtistForm onCancel={() => setMode("menu")} onSubmit={onSelectArtist} />}
+        {mode === "ARTIST" && <WikiSearchForm onCancel={() => setMode("menu")} onSubmit={onSelectArtist} />}
       </motion.div>
     </>
   );
@@ -164,28 +165,83 @@ function MapForm({
 }
 
 // Recherche d'un artiste par nom → fiche Wikipédia (résolue côté serveur).
-function ArtistForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (name: string) => void }) {
-  const [name, setName] = useState("");
+// Recherche Wikipédia FR avec AUTO-SUGGESTIONS (2026-07-19) : l'utilisateur
+// tape, choisit la bonne page dans la liste (évite les homonymes / mauvaise
+// résolution). Suggestions via l'API opensearch (CORS origin=*), côté client.
+interface WikiSuggestion { title: string; desc: string }
+function WikiSearchForm({ onCancel, onSubmit }: { onCancel: () => void; onSubmit: (p: { title?: string; name?: string }) => void }) {
+  const [q, setQ] = useState("");
+  const [suggestions, setSuggestions] = useState<WikiSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const reqId = useRef(0);
   useEffect(() => { inputRef.current?.focus(); }, []);
-  const submit = () => { const n = name.trim(); if (!n || busy) return; setBusy(true); onSubmit(n); };
+
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2) { setSuggestions([]); setLoading(false); return; }
+    setLoading(true);
+    const id = ++reqId.current;
+    const t = setTimeout(async () => {
+      try {
+        // opensearch → [q, titres[], descriptions[], urls[]]
+        const res = await fetch(
+          `https://fr.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=6&namespace=0&format=json&origin=*`,
+        );
+        const data = (await res.json()) as [string, string[], string[], string[]];
+        if (id !== reqId.current) return; // réponse obsolète
+        const titles = data[1] ?? [];
+        const descs = data[2] ?? [];
+        setSuggestions(titles.map((title, i) => ({ title, desc: descs[i] ?? "" })));
+      } catch {
+        if (id === reqId.current) setSuggestions([]);
+      } finally {
+        if (id === reqId.current) setLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const pick = (title: string) => { if (busy) return; setBusy(true); onSubmit({ title }); };
+  const submitFree = () => { const n = q.trim(); if (!n || busy) return; setBusy(true); onSubmit({ name: n }); };
+
   return (
-    <div className="p-4 space-y-3">
-      <input
-        ref={inputRef}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-        placeholder="Nom de l'artiste (ex. Claude Monet)"
-        className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]"
-      />
-      <p className="text-[10px] text-[var(--text-tertiary)]">La notice et le portrait sont récupérés sur Wikipédia.</p>
-      <div className="flex items-center justify-end gap-2">
+    <div className="p-4 space-y-2">
+      <div className="relative">
+        <input
+          ref={inputRef}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { if (suggestions[0]) pick(suggestions[0].title); else submitFree(); } }}
+          placeholder="Rechercher sur Wikipédia (artiste, mouvement, lieu…)"
+          className="w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)]"
+        />
+        {loading && <Loader2 size={14} className="animate-spin absolute right-3 top-2.5 text-[var(--text-tertiary)]" />}
+      </div>
+
+      {suggestions.length > 0 && (
+        <ul className="max-h-56 overflow-y-auto rounded-lg border border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+          {suggestions.map((s) => (
+            <li key={s.title}>
+              <button
+                type="button"
+                onClick={() => pick(s.title)}
+                disabled={busy}
+                className="w-full text-left px-3 py-2 hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
+              >
+                <p className="text-sm text-[var(--text-primary)] truncate">{s.title}</p>
+                {s.desc && <p className="text-[11px] text-[var(--text-tertiary)] truncate">{s.desc}</p>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-[10px] text-[var(--text-tertiary)]">Choisis la bonne page — nom, dates, notice et portrait sont repris de Wikipédia.</p>
+      <div className="flex items-center justify-between gap-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors">← Retour</button>
-        <button onClick={submit} disabled={!name.trim() || busy} className="px-3.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-40 transition-opacity">
-          {busy ? "Recherche…" : "Ajouter"}
-        </button>
+        {busy && <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Ajout…</span>}
       </div>
     </div>
   );

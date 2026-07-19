@@ -43,6 +43,7 @@ interface TileSettingsModalProps {
   onSaveText: (tile: BentoTile, value: string) => void;
   onPersistText: (tile: BentoTile, value: string) => Promise<void>;
   onSaveImage: (id: string, title: string, author: string, year: string) => void;
+  onSetImageHideTitle: (id: string, hide: boolean) => void;
   onSaveEmbed: (id: string, title: string, description: string) => void;
   onSaveMap: (id: string, locationName: string, latitude: number, longitude: number) => void;
   onSaveHighlight: (id: string, title: string, rating: number, note: string) => void;
@@ -69,6 +70,7 @@ export function TileSettingsModal({
   onSaveText,
   onPersistText,
   onSaveImage,
+  onSetImageHideTitle,
   onSaveEmbed,
   onSaveMap,
   onSaveHighlight,
@@ -138,7 +140,15 @@ export function TileSettingsModal({
               )}
 
               {tile.content.type === "image" && (
-                <ImageForm key={tile.id} title={tile.content.title} author={tile.content.author ?? ""} year={tile.content.year ?? null} onSave={(t, a, y) => onSaveImage(tile.id, t, a, y)} />
+                <ImageForm
+                  key={tile.id}
+                  title={tile.content.title}
+                  author={tile.content.author ?? ""}
+                  year={tile.content.year ?? null}
+                  hideTitle={!!tile.hideTitle}
+                  onSave={(t, a, y) => onSaveImage(tile.id, t, a, y)}
+                  onToggleHideTitle={(hide) => onSetImageHideTitle(tile.id, hide)}
+                />
               )}
               {tile.content.type === "embed" && (tile.content.kind === "LINK" || tile.content.kind === "ARTIST") && (
                 <EmbedForm key={tile.id} title={tile.content.title ?? ""} description={tile.content.description ?? ""} onSave={(t, d) => onSaveEmbed(tile.id, t, d)} />
@@ -232,15 +242,63 @@ const DRAWER_TITLES: Record<BentoTile["type"], string> = {
   timeline: "Frise",
 };
 
-function ImageForm({ title, author, year, onSave }: { title: string; author: string; year: number | null; onSave: (title: string, author: string, year: string) => void }) {
+function ImageForm({ title, author, year, hideTitle, onSave, onToggleHideTitle }: {
+  title: string; author: string; year: number | null; hideTitle: boolean;
+  onSave: (title: string, author: string, year: string) => void;
+  onToggleHideTitle: (hide: boolean) => void;
+}) {
   const [t, setT] = useState(title);
   const [a, setA] = useState(author);
   const [y, setY] = useState(year ? String(year) : "");
+  const [scanFile, setScanFile] = useState<File | null>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) setScanFile(file);
+  };
+
+  // OCR d'un cartel → métadonnées de l'image (titre/auteur/année). On ne
+  // remplit que les champs vides pour ne pas écraser une saisie.
+  const applyOcr = (f: CartelFields) => {
+    const yr = f.dateText?.match(/(1[0-9]{3}|20[0-9]{2})/)?.[1] ?? "";
+    const nt = t || f.artworkTitle || "";
+    const na = a || f.artist || "";
+    const ny = y || yr;
+    setT(nt); setA(na); setY(ny);
+    onSave(nt, na, ny);
+  };
+
   return (
     <div className="space-y-3">
+      {/* Scan d'un cartel pour pré-remplir (même OCR que le module Cartel). */}
+      <div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => galleryRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors">
+            <ImagePlus size={13} strokeWidth={2} /> Galerie
+          </button>
+          <button type="button" onClick={() => cameraRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity">
+            <ScanText size={13} strokeWidth={2} /> Scanner le cartel
+          </button>
+        </div>
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">Prends le cartel en photo pour pré-remplir titre / auteur / année.</p>
+        <input ref={galleryRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
+      </div>
+      {scanFile && (
+        <CartelScanModal file={scanFile} onCancel={() => setScanFile(null)} onResult={(fields) => { setScanFile(null); applyOcr(fields); }} />
+      )}
+
       <Field label="Titre"><input value={t} onChange={(e) => setT(e.target.value)} onBlur={() => onSave(t, a, y)} className={inputClass} /></Field>
       <Field label="Auteur"><input value={a} onChange={(e) => setA(e.target.value)} onBlur={() => onSave(t, a, y)} className={inputClass} /></Field>
       <Field label="Année"><input value={y} onChange={(e) => setY(e.target.value.replace(/[^0-9]/g, ""))} onBlur={() => onSave(t, a, y)} className={inputClass} inputMode="numeric" /></Field>
+
+      <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
+        <span className="text-[11px] text-[var(--text-secondary)]">Afficher le cartel sur l&apos;image</span>
+        <input type="checkbox" checked={!hideTitle} onChange={(e) => onToggleHideTitle(!e.target.checked)} className="w-4 h-4 accent-[var(--text-primary)]" />
+      </label>
     </div>
   );
 }
@@ -550,7 +608,8 @@ function PaletteForm({
   const [title, setTitle] = useState(content.title ?? "");
   const [colors, setColors] = useState<string[]>(content.colors);
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   const onExtract = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -586,16 +645,18 @@ function PaletteForm({
     <div className="space-y-3">
       <Field label="Titre"><input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => onSave(title, colors)} className={inputClass} placeholder="Ex. Nymphéas" /></Field>
 
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        disabled={busy}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity"
-      >
-        {busy ? <Loader2 size={13} className="animate-spin" /> : <Palette size={13} strokeWidth={2} />}
-        {busy ? "Extraction…" : "Extraire d'une photo"}
-      </button>
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onExtract} className="hidden" />
+      {/* Deux sources : galerie (input sans capture) ou photo (capture). */}
+      <div className="flex items-center gap-1.5">
+        <button type="button" onClick={() => galleryRef.current?.click()} disabled={busy} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] disabled:opacity-50 transition-opacity">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} strokeWidth={2} />} Galerie
+        </button>
+        <button type="button" onClick={() => cameraRef.current?.click()} disabled={busy} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 transition-opacity">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Palette size={13} strokeWidth={2} />}
+          {busy ? "Extraction…" : "Photo"}
+        </button>
+      </div>
+      <input ref={galleryRef} type="file" accept="image/*" onChange={onExtract} className="hidden" />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onExtract} className="hidden" />
 
       {colors.length > 0 && (
         <div className="space-y-1.5">

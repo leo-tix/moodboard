@@ -1,18 +1,18 @@
-// Fiche artiste (Phase 7, 2026-07-18) — recherche un artiste sur Wikipédia FR
-// et renvoie de quoi construire une carte : nom, notice, portrait, URL. Appelé
-// CÔTÉ SERVEUR (à la création du bloc), donc pas de souci CORS. Best-effort :
-// renvoie null si rien trouvé, l'appelant gère.
+// Fiche Wikipédia (« fiche wiki » — artiste, mouvement, lieu, œuvre… 2026-07-19).
+// Interroge Wikipédia FR et renvoie de quoi construire une carte structurée :
+// nom, courte description (« peintre français »), notice (1er paragraphe),
+// portrait, URL. Appelé CÔTÉ SERVEUR (pas de souci CORS). Best-effort : null si
+// rien trouvé. Les suggestions de recherche, elles, sont côté client
+// (opensearch avec origin=*), voir WikiSearchForm.
 
-export interface ArtistMeta {
+export interface WikiMeta {
   url: string;
-  title: string;
-  description: string | null;
+  title: string;       // nom / titre de la page
+  shortDesc: string | null; // description courte Wikipédia (« peintre français »)
+  extract: string | null;   // 1er paragraphe
   image: string | null;
-  siteName: string;
 }
 
-// Wikipédia demande un User-Agent identifiable (les UA génériques sont
-// throttlés). On reste correct et joignable.
 const WIKI_UA = "MoodboardVisitJournal/1.0 (https://moodboard.leotix.fr)";
 const TIMEOUT_MS = 6000;
 
@@ -30,35 +30,40 @@ async function fetchJson(url: string): Promise<unknown | null> {
   }
 }
 
-export async function searchArtist(name: string): Promise<ArtistMeta | null> {
-  const q = name.trim();
-  if (!q) return null;
-
-  // 1) Résolution nom → titre de page (recherche plein-texte).
-  const search = (await fetchJson(
-    `https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srlimit=1&format=json`,
-  )) as { query?: { search?: { title?: string }[] } } | null;
-  const pageTitle = search?.query?.search?.[0]?.title;
-  if (!pageTitle) return null;
-
-  // 2) Résumé de la page (notice + portrait + URL canonique).
+// Résumé REST d'une page (titre exact) → nom, description courte, extrait, image.
+export async function fetchWikiSummary(pageTitle: string): Promise<WikiMeta | null> {
   const summary = (await fetchJson(
     `https://fr.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
   )) as {
     title?: string;
+    description?: string;
     extract?: string;
     thumbnail?: { source?: string };
     originalimage?: { source?: string };
     content_urls?: { desktop?: { page?: string } };
+    type?: string;
   } | null;
-  if (!summary) return null;
+  if (!summary || summary.type === "disambiguation") return null;
 
   const url = summary.content_urls?.desktop?.page ?? `https://fr.wikipedia.org/wiki/${encodeURIComponent(pageTitle)}`;
   return {
     url,
     title: summary.title ?? pageTitle,
-    description: summary.extract ?? null,
+    shortDesc: summary.description ?? null,
+    extract: summary.extract ?? null,
     image: summary.thumbnail?.source ?? summary.originalimage?.source ?? null,
-    siteName: "Wikipédia",
   };
+}
+
+// Recherche plein-texte (nom → 1er résultat) puis résumé. Utilisé si l'appelant
+// n'a pas déjà choisi un titre exact dans les suggestions.
+export async function searchWiki(query: string): Promise<WikiMeta | null> {
+  const q = query.trim();
+  if (!q) return null;
+  const search = (await fetchJson(
+    `https://fr.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&srlimit=1&format=json`,
+  )) as { query?: { search?: { title?: string }[] } } | null;
+  const pageTitle = search?.query?.search?.[0]?.title;
+  if (!pageTitle) return null;
+  return fetchWikiSummary(pageTitle);
 }

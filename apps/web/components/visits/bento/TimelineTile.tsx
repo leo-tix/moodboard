@@ -1,7 +1,7 @@
 "use client";
 
 import { Milestone } from "lucide-react";
-import type { JournalTileContent } from "@/lib/visits/bentoTypes";
+import { sortTimelineEvents, type JournalTileContent } from "@/lib/visits/bentoTypes";
 
 type TimelineContent = Extract<JournalTileContent, { type: "timeline" }>;
 
@@ -9,6 +9,7 @@ type TimelineContent = Extract<JournalTileContent, { type: "timeline" }>;
 // artiste. Rendu en frise verticale : trait de liaison + puces, date + libellé
 // (+ description). Auto-hauteur : s'étend pour afficher tous les jalons.
 export function TimelineTile({ content }: { content: TimelineContent }) {
+  const events = sortTimelineEvents(content.events); // toujours en ordre chronologique
   return (
     <div className="w-full px-4 py-3">
       <div className="flex items-center gap-2 mb-3">
@@ -18,13 +19,13 @@ export function TimelineTile({ content }: { content: TimelineContent }) {
         </p>
       </div>
 
-      {content.events.length === 0 ? (
+      {events.length === 0 ? (
         <p className="text-xs text-[var(--text-tertiary)] italic">Frise vide — appuie pour ajouter des jalons</p>
       ) : (
         <ol className="relative">
           {/* trait vertical de liaison */}
           <span className="absolute left-[5px] top-1.5 bottom-1.5 w-px bg-[var(--border-default)]" aria-hidden />
-          {content.events.map((ev) => (
+          {events.map((ev) => (
             <li key={ev.id} className="relative pl-6 pb-3 last:pb-0">
               <span className="absolute left-0 top-1 w-[11px] h-[11px] rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg-elevated)]" aria-hidden />
               {ev.dateText && (
