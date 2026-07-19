@@ -18,6 +18,8 @@ interface Props {
   initialName: string;
   initialEmail: string;
   initialImage: string | null;
+  initialUsername: string;
+  initialBio: string;
   memberSince: string;
   storage: StorageInfo;
 }
@@ -36,6 +38,8 @@ export function AccountSettings({
   initialName,
   initialEmail,
   initialImage,
+  initialUsername,
+  initialBio,
   memberSince,
   storage,
 }: Props) {
@@ -48,7 +52,7 @@ export function AccountSettings({
   const [profileError, setProfileError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const saveProfile = useCallback(async (patch: { name?: string; email?: string }) => {
+  const saveProfile = useCallback(async (patch: { name?: string; email?: string; username?: string; bio?: string }) => {
     setProfileStatus("saving");
     setProfileError(null);
     try {
@@ -81,6 +85,41 @@ export function AccountSettings({
   const onEmailBlur = () => {
     const trimmed = email.trim();
     if (trimmed && trimmed !== initialEmail) saveProfile({ email: trimmed });
+  };
+
+  // ── Handle (@username) — vérifie la disponibilité avant sauvegarde au blur ──
+  const [username, setUsername] = useState(initialUsername);
+  const [unameStatus, setUnameStatus] = useState<"idle" | "checking" | "ok" | "taken" | "invalid">("idle");
+  const [unameError, setUnameError] = useState<string | null>(null);
+  const unameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onUsernameChange = (raw: string) => {
+    const v = raw.toLowerCase().replace(/[^a-z0-9._]/g, "").slice(0, 20);
+    setUsername(v);
+    setUnameError(null);
+    if (unameTimer.current) clearTimeout(unameTimer.current);
+    if (v === initialUsername || v.length < 3) { setUnameStatus("idle"); return; }
+    setUnameStatus("checking");
+    unameTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/account/username?value=${encodeURIComponent(v)}`);
+        const data = await res.json().catch(() => ({}));
+        if (data.available) setUnameStatus("ok");
+        else { setUnameStatus(data.error === "Déjà pris" ? "taken" : "invalid"); setUnameError(data.error ?? null); }
+      } catch { setUnameStatus("idle"); }
+    }, 450);
+  };
+  const onUsernameBlur = () => {
+    if (unameStatus === "ok" && username && username !== initialUsername) saveProfile({ username });
+  };
+
+  // ── Bio (débounce dédié pour ne pas entrer en conflit avec le nom) ──
+  const [bio, setBio] = useState(initialBio);
+  const bioTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onBioChange = (v: string) => {
+    setBio(v);
+    if (bioTimer.current) clearTimeout(bioTimer.current);
+    bioTimer.current = setTimeout(() => saveProfile({ bio: v.trim() }), 700);
   };
 
   // ── Avatar ──
@@ -234,6 +273,44 @@ export function AccountSettings({
         <div>
           <label className={lbl}>Nom</label>
           <input className={fld} value={name} onChange={(e) => onNameChange(e.target.value)} placeholder="Ton nom" />
+        </div>
+        <div>
+          <label className={lbl}>Nom d&apos;utilisateur</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--text-tertiary)]">@</span>
+            <input
+              className={`${fld} pl-7`}
+              value={username}
+              onChange={(e) => onUsernameChange(e.target.value)}
+              onBlur={onUsernameBlur}
+              placeholder="ton_handle"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </div>
+          <p className="text-[10px] mt-1 flex items-center gap-1.5">
+            {unameStatus === "checking" && <span className="text-[var(--text-tertiary)]">Vérification…</span>}
+            {unameStatus === "ok" && <span className="text-emerald-500 inline-flex items-center gap-1">Disponible <Check size={11} strokeWidth={2.5} /></span>}
+            {unameStatus === "taken" && <span className="text-red-400">Déjà pris</span>}
+            {unameStatus === "invalid" && <span className="text-red-400">{unameError ?? "Invalide"}</span>}
+            {unameStatus === "idle" && username.length >= 3 && username === initialUsername && (
+              <span className="text-[var(--text-tertiary)]">Ton profil : <span className="text-[var(--text-secondary)]">/u/{username}</span></span>
+            )}
+            {unameStatus === "idle" && (username.length < 3 || username !== initialUsername) && (
+              <span className="text-[var(--text-tertiary)]">3–20 car. : minuscules, chiffres, . et _</span>
+            )}
+          </p>
+        </div>
+        <div>
+          <label className={lbl}>Bio</label>
+          <textarea
+            className={`${fld} resize-none`}
+            rows={2}
+            value={bio}
+            onChange={(e) => onBioChange(e.target.value)}
+            maxLength={280}
+            placeholder="Deux mots sur toi…"
+          />
         </div>
         <div>
           <label className={lbl}>Email</label>

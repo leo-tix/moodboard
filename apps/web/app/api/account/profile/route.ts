@@ -11,6 +11,8 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
+  // Le handle est normalisé en minuscules AVANT validation (le schéma l'exige).
+  if (typeof body?.username === "string") body.username = body.username.trim().toLowerCase();
   const parsed = profileSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -19,10 +21,23 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const { name, email } = parsed.data;
-  const data: { name?: string | null; email?: string } = {};
+  const { name, email, username, bio } = parsed.data;
+  const data: { name?: string | null; email?: string; username?: string; bio?: string | null } = {};
 
   if (name !== undefined) data.name = name || null;
+  if (bio !== undefined) data.bio = bio || null;
+
+  if (username !== undefined) {
+    // Handle unique (insensible à la casse, déjà en minuscules ici).
+    const existing = await db.user.findFirst({
+      where: { username, NOT: { id: session.user.id } },
+      select: { id: true },
+    });
+    if (existing) {
+      return NextResponse.json({ error: "Ce nom d'utilisateur est déjà pris" }, { status: 409 });
+    }
+    data.username = username;
+  }
 
   if (email !== undefined) {
     // Vérifie qu'aucun autre compte n'utilise déjà cet email

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, Check, type LucideIcon } from "lucide-react";
+import { Images, Layers, Plus, Inbox, Search, LayoutDashboard, Landmark, Settings, CircleUser, MoreHorizontal, Check, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TriageBadge } from "@/components/triage/TriageBadge";
 import { compressImageForUpload } from "@/lib/image/clientResize";
@@ -25,6 +25,7 @@ const MORE_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/collections",     label: "Collections", icon: Layers },
   { href: "/moodboards",      label: "Planches", icon: LayoutDashboard },
   { href: "/visites",         label: "Visites",  icon: Landmark },
+  { href: "/reseau",          label: "Réseau",   icon: Users },
   { href: "/settings/categories", label: "Réglages", icon: Settings },
   { href: "/settings/account", label: "Compte",   icon: CircleUser },
 ];

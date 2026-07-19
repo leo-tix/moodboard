@@ -11,7 +11,7 @@ export default async function AccountSettingsPage() {
   const [user, storage] = await Promise.all([
     db.user.findUnique({
       where: { id: session.user.id },
-      select: { name: true, email: true, image: true, createdAt: true },
+      select: { name: true, email: true, image: true, username: true, bio: true, createdAt: true },
     }),
     getStorageQuota(session.user.id),
   ]);
@@ -25,6 +25,8 @@ export default async function AccountSettingsPage() {
         initialName={user.name ?? ""}
         initialEmail={user.email}
         initialImage={user.image}
+        initialUsername={user.username ?? ""}
+        initialBio={user.bio ?? ""}
         memberSince={user.createdAt.toISOString()}
         storage={{
           usedBytes: storage.usedBytes,

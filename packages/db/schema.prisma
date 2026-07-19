@@ -21,6 +21,10 @@ model User {
   email         String     @unique
   passwordHash  String
   name          String?
+  // Handle public unique (minuscules) → URL /u/username, mentions. null = non défini.
+  username      String?    @unique
+  // Bio courte affichée sur le profil public.
+  bio           String?
   // ADMIN = propriétaire de l'instance : crée/supprime les profils, règle les quotas.
   // USER = profil standard, ne voit que ses propres données.
   role          UserRole   @default(USER)
@@ -43,12 +47,41 @@ model User {
   visits           Visit[]
   tags             Tag[]
 
+  // Graphe social (connexions mutuelles) — back-relations des deux côtés.
+  connectionsRequested Connection[] @relation("ConnReq")
+  connectionsReceived  Connection[] @relation("ConnAdr")
+
   @@map("users")
 }
 
 enum UserRole {
   ADMIN
   USER
+}
+
+// ============================================================
+// COUCHE SOCIALE — connexions (graphe mutuel demande → acceptation)
+// ============================================================
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+}
+
+model Connection {
+  id          String           @id @default(cuid())
+  requesterId String
+  addresseeId String
+  requester   User             @relation("ConnReq", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User             @relation("ConnAdr", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      ConnectionStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  respondedAt DateTime?
+
+  // Une seule demande par paire orientée ; on vérifie aussi le sens inverse côté app.
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
+  @@map("connections")
 }
 
 model ApiToken {
