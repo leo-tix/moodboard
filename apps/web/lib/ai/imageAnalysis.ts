@@ -7,8 +7,8 @@
 // worker renvoie donc directement un COSINUS par libellé (ordre flatConcepts()).
 // L'utilisateur valide TOUJOURS les suggestions.
 
-import { flatConcepts } from "@/lib/ai/imageVocab";
 import { scoreImageEmbedding } from "@/lib/ai/siglipEmbeds";
+import { mapScores } from "@/lib/ai/imageMap.mjs";
 
 export interface AnalysisProgress { phase: "downloading" | "classifying"; loadedMB?: number; totalMB?: number }
 
@@ -16,90 +16,28 @@ export interface CategorySuggestion {
   category: string;
   subcategory: string;
   score: number;
+  /** Écart-type à la moyenne (confiance adaptative par image). */
+  z?: number;
 }
 export interface TagSuggestion {
   label: string;
   score: number;
   /** Dimension sémantique (sujet, couleur, composition…) — sert à composer les titres. */
   group: string;
+  /** Écart-type à la moyenne (confiance adaptative par image). */
+  z?: number;
 }
 export interface ImageAnalysis {
   categories: CategorySuggestion[];
   tags: TagSuggestion[];
-  /** Titres candidats (français), dérivés de la catégorie + tags dominants. */
+  /** Titres candidats (français), dérivés de la catégorie + tags CONFIANTS. */
   titles: string[];
 }
 
-const MAX_CATEGORIES = 3; // meilleures catégories (l'utilisateur choisit, ex. Illustration vs BD)
-const MAX_TAGS = 14; // vocabulaire large (~15 dimensions) → on montre le top de beaucoup d'entre elles
-const PER_GROUP_KEEP = 2; // jusqu'à 2 tags par dimension → plus de suggestions
-const MAX_TITLES = 6;
-
-const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-
-function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
-  // Meilleur tag de chaque dimension → nombreuses compositions descriptives FR.
-  const top = (g: string) => tags.find((t) => t.group === g)?.label;
-  const subj = top("sujet");
-  const col = top("couleur");
-  const comp = top("composition");
-  const tech = top("technique");
-  const amb = top("ambiance");
-  const sub = categories[0]?.subcategory;
-  const inSub = (x?: string) => !!x && !!sub && sub.toLowerCase().includes(x.toLowerCase());
-  const out: string[] = [];
-  const push = (s?: string) => { if (s && s.trim().length >= 3) out.push(cap(s.trim())); };
-  // Combinaisons de dimensions concrètes (variété).
-  push([subj, comp, col].filter(Boolean).join(" "));
-  push([subj, col].filter(Boolean).join(" "));
-  push([comp, col].filter(Boolean).join(" "));
-  push([subj, amb].filter(Boolean).join(" "));
-  push([subj, comp].filter(Boolean).join(" "));
-  // Angle technique.
-  if (tech && subj && !inSub(tech)) push(`${cap(tech)} — ${subj}`);
-  // Sous-catégorie enrichie de chaque tag NON redondant.
-  for (const e of [col, comp, subj, amb]) if (sub && e && !inSub(e)) push(`${cap(sub)} ${e}`);
-  // Replis simples.
-  push(sub);
-  push(subj);
-  return [...new Set(out.filter(Boolean))].slice(0, MAX_TITLES);
-}
-
-// `scores` = cosinus par libellé, aligné sur flatConcepts() (même ordre que les
-// embeddings pré-calculés).
+// Classement + composition des titres : logique PURE partagée avec le harnais de
+// test (lib/ai/imageMap.mjs), pour tester exactement ce qui tourne en prod.
 function mapResult(scores: number[]): ImageAnalysis {
-  const flats = flatConcepts();
-
-  // Catégories : proches de la meilleure catégorie.
-  // Les 2 meilleures catégories (classement SigLIP fiable ; l'utilisateur choisit).
-  const categories = flats
-    .map((c, i) => (c.kind === "category" ? { category: c.category, subcategory: c.subcategory, score: scores[i] } : null))
-    .filter((x): x is CategorySuggestion => x !== null)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_CATEGORIES);
-
-  // Tags : LE MEILLEUR de chaque dimension (couleur, technique, composition,
-  // sujet, ambiance) → toujours ~5 suggestions DIVERSES, classées par pertinence.
-  // Pas de seuil relatif sur le score : les cosinus SigLIP peuvent être négatifs,
-  // un seuil multiplicatif s'effondrait alors (→ 0 tag, retour 2026-07-19). On
-  // s'appuie sur le CLASSEMENT (fiable) et l'utilisateur décoche l'inutile.
-  const byGroup = new Map<string, TagSuggestion[]>();
-  flats.forEach((c, i) => {
-    if (c.kind === "tag") {
-      const arr = byGroup.get(c.group) ?? [];
-      arr.push({ label: c.label, score: scores[i], group: c.group });
-      byGroup.set(c.group, arr);
-    }
-  });
-  const topTags: TagSuggestion[] = [];
-  for (const arr of byGroup.values()) {
-    arr.sort((a, b) => b.score - a.score);
-    topTags.push(...arr.slice(0, PER_GROUP_KEEP));
-  }
-  topTags.sort((a, b) => b.score - a.score);
-  const tags = topTags.slice(0, MAX_TAGS);
-
-  return { categories, tags, titles: buildTitles(categories, tags) };
+  return mapScores(scores) as ImageAnalysis;
 }
 
 // ── Worker (par défaut) ──────────────────────────────────────────────────────
