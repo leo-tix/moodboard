@@ -3,7 +3,7 @@
 // la Web Speech API est indisponible en PWA iOS ET inutilisable pendant
 // l'enregistrement haute qualité sur Android (elle réclamerait le micro en
 // mode « communication » dégradé) ; la décision produit exclut toute API IA
-// externe. Le modèle (~80 Mo) est téléchargé au premier usage puis mis en
+// externe. Le modèle (~200 Mo, variante _timestamped) est téléchargé au premier usage puis mis en
 // cache par transformers.js (Cache Storage) — chargements suivants immédiats.
 //
 // QUALITÉ (retour 2026-07-19 « transcriptions vraiment pas bonnes ») : passé de
@@ -62,7 +62,14 @@ function getAsr(onProgress?: (p: TranscribeProgress) => void): Promise<AsrPipeli
   if (!asrPromise) {
     asrPromise = (async () => {
       const { pipeline } = await import("@huggingface/transformers");
-      const asr = await pipeline("automatic-speech-recognition", "onnx-community/whisper-base", {
+      // Variante « _timestamped » : MÊMES poids que whisper-base, mais export
+      // ONNX AVEC les sorties de cross-attention. Indispensable pour les
+      // timings PAR MOT (return_timestamps:"word") : transformers.js les
+      // reconstruit par DTW sur les cross-attentions — l'export standard
+      // whisper-base ne les expose pas, donc les timings échouaient
+      // silencieusement (retour 2026-07-19 « rythme toujours approximatif » →
+      // repli permanent sur l'estimation). Qualité de transcription identique.
+      const asr = await pipeline("automatic-speech-recognition", "onnx-community/whisper-base_timestamped", {
         // q8 uniforme échoue à la création de session ONNX en WASM
         // ("TransposeDQWeightsForMatMulNBits") — combinaison reprise de la
         // démo whisper officielle de transformers.js.
@@ -136,12 +143,15 @@ export async function transcribeBlobLocally(
   try {
     const out = await asr(audio, { ...baseOpts, return_timestamps: "word" });
     const chunks = (!Array.isArray(out) && out.chunks) || [];
+    // On CONSERVE le texte brut de chaque mot (espace de tête que Whisper met
+    // devant les vrais mots, PAS devant les continuations « -ce »/« 'il »…) :
+    // rejoindre les tokens reproduit alors exactement le transcript propre
+    // (« Est-ce qu'il »), sans espaces parasites. Le trim ne sert qu'au filtre.
     const words: WordTiming[] = chunks
-      .filter((c) => Array.isArray(c.timestamp) && c.timestamp[0] != null && c.timestamp[1] != null)
-      .map((c) => ({ word: String(c.text).trim(), start: c.timestamp[0] as number, end: c.timestamp[1] as number }))
-      .filter((w) => w.word.length > 0);
+      .filter((c) => Array.isArray(c.timestamp) && c.timestamp[0] != null && c.timestamp[1] != null && String(c.text).trim().length > 0)
+      .map((c) => ({ word: String(c.text), start: c.timestamp[0] as number, end: c.timestamp[1] as number }));
     const text = ((Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "").trim();
-    return { text: text || words.map((w) => w.word).join(" "), words };
+    return { text: text || words.map((w) => w.word).join("").trim(), words };
   } catch {
     const out = await asr(audio, baseOpts);
     const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "";

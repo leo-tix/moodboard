@@ -18,7 +18,7 @@ import { AudioPlayer } from "@/components/visits/AudioPlayer";
 
 // Barre de progression de la transcription Whisper — affichée pendant tout le
 // traitement pour que l'utilisateur sache OÙ on en est. Deux régimes :
-//  · « downloading » (1er usage, ~80 Mo) : barre DÉTERMINÉE (Mo réels) — cette
+//  · « downloading » (1er usage, ~200 Mo) : barre DÉTERMINÉE (Mo réels) — cette
 //    phase est du réseau async, le thread principal est libre, la barre avance.
 //  · « decoding » / « transcribing » : barre INDÉTERMINÉE en CSS pur
 //    (mb-progress-sweep) — le calcul WASM fige le thread JS, seule une
@@ -587,7 +587,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                     onClick={transcribeMemo}
                     className="w-full py-2 rounded-lg text-xs text-[var(--text-secondary)] border border-dashed border-[var(--border-default)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors"
                   >
-                    ✎ Transcrire ce mémo (local, ~80 Mo au 1er usage)
+                    ✎ Transcrire ce mémo (local, ~200 Mo au 1er usage)
                   </button>
                 )}
                 {error && <p className="text-xs text-red-400">{error}</p>}

@@ -26,7 +26,10 @@ export function estimateWordTimings(transcript: string, duration: number): WordT
     const start = (cumulative / totalWeight) * duration;
     cumulative += weights[i];
     const end = (cumulative / totalWeight) * duration;
-    return { word, start, end };
+    // Même convention que les timings Whisper : l'espace de séparation est
+    // porté PAR le mot (en tête, sauf le premier) → le rendu concatène les
+    // tokens sans ajouter d'espace, quelle que soit la source des timings.
+    return { word: i === 0 ? word : " " + word, start, end };
   });
 }
 
@@ -84,14 +87,15 @@ export function TranscriptKaraoke({
   activeColor = "#c4b5fd",
   baseColor = "#ffffff",
 }: TranscriptKaraokeProps) {
-  // Priorité aux timings RÉELS de Whisper — mais seulement s'ils correspondent
-  // au transcript affiché (même nombre de mots) : sinon (transcript édité, mots
-  // manquants) l'index de surbrillance se décalerait → repli sur l'estimation.
+  // Priorité aux timings RÉELS de Whisper : on affiche ALORS directement les
+  // mots issus des timings (avec leurs start/end exacts), sans les ré-aligner
+  // sur un split du transcript. Whisper découpe les mots autrement qu'un simple
+  // split (« qu'est-ce », « l'exposition »…), donc exiger le même nombre de
+  // mots faisait échouer l'alignement quasi systématiquement → tout retombait
+  // sur l'estimation (retour utilisateur 2026-07-19 « toujours approximatif »).
+  // Le transcript édité met déjà `realTimings` à null (repli estimation propre).
   const wordTimings = useMemo(() => {
-    const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-    if (realTimings && realTimings.length > 0 && realTimings.length === wordCount) {
-      return realTimings;
-    }
+    if (realTimings && realTimings.length > 0) return realTimings;
     return estimateWordTimings(transcript, duration);
   }, [realTimings, transcript, duration]);
   const activeWordIndex = useMemo(
@@ -123,9 +127,10 @@ export function TranscriptKaraoke({
             opacity: i === activeWordIndex ? 1 : i < activeWordIndex ? 0.55 : 0.32,
             color: i === activeWordIndex ? activeColor : baseColor,
             fontWeight: i === activeWordIndex ? 600 : 400,
+            whiteSpace: "pre-wrap",
           }}
         >
-          {w.word}{" "}
+          {w.word}
         </span>
       ))}
     </p>
