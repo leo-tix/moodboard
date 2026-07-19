@@ -6,9 +6,7 @@ import { Loader2 } from "lucide-react";
 import {
   pickSupportedAudioMimeType,
   requestMicrophone,
-  startLiveTranscription,
   createAudioRecorder,
-  type LiveTranscriber,
 } from "@/lib/audio/recorder";
 import { transcribeBlobLocally, type TranscribeProgress } from "@/lib/audio/transcribe";
 import type { WordTiming } from "@/lib/audio/wordTimings";
@@ -85,36 +83,42 @@ type MemoPhase =
   | { step: "saving" };
 
 interface VoiceMemoRecorderProps {
-  /** Endpoint d'upload — `/api/visits/[id]/audio` ou `/api/moodboards/[id]/audio`
-   *  (généralisé 2026-07-14 pour être partagé par le carnet de visite ET les
-   *  planches moodboard, mémo vocal "unifié" entre les deux). */
-  uploadUrl: string;
-  /** File d'attente hors ligne (IndexedDB) — spécifique au carnet de visite
-   *  pour l'instant, aucun équivalent construit côté planches (édition
-   *  moodboard suppose déjà une connexion active). `null`/absent = hors
-   *  ligne affiché comme une erreur simple plutôt que mis en file. */
+  /** MODE TÂCHE DE FOND (carnet de visite) — si fourni, la feuille NE fait QUE
+   *  enregistrer : à « Terminer », elle remonte le clip brut et se ferme
+   *  aussitôt (pas d'aperçu, pas de transcription in-situ). Transcription,
+   *  timings et upload sont pris en charge en fond par l'appelant
+   *  (BackgroundMemoProvider). Quand ABSENT, on garde le flux « aperçu » complet
+   *  ci-dessous (planches moodboard). */
+  onRecorded?: (blob: Blob, durationSec: number) => void;
+  /** Endpoint d'upload (mode aperçu uniquement) — `/api/moodboards/[id]/audio`… */
+  uploadUrl?: string;
+  /** File d'attente hors ligne (IndexedDB), mode aperçu uniquement. */
   offlineQueue?: { visitId: string } | null;
   /** Feuille ouverte — l'enregistrement démarre automatiquement à l'ouverture
    *  (onboarding la toute première fois, sinon directement). */
   open: boolean;
   onClose: () => void;
-  onCreated: (audio: CreatedAudioBlock) => void;
-  /** Message transitoire (ex. mise en file hors ligne) — optionnel, le
-   *  composant reste utilisable sans (l'appelant ignore juste l'info). */
+  /** Mode aperçu uniquement : bloc audio créé (upload fait dans la feuille). */
+  onCreated?: (audio: CreatedAudioBlock) => void;
+  /** Message transitoire (ex. mise en file hors ligne) — optionnel. */
   onInfo?: (message: string) => void;
   /** Libellé du bouton de validation — "Ajouter au carnet" par défaut,
    *  "Ajouter à la planche" côté moodboard. */
   saveLabel?: string;
 }
 
-// Popup UNIQUE de prise de note audio — waveform réactive + transcription en
-// direct (Web Speech) + repli transcription locale (Whisper WASM) + file
-// d'attente hors ligne (carnet de visite uniquement). Initialement propre au
-// FAB de capture du carnet (appui long), désormais partagée par TOUS les
-// points d'entrée du carnet (menu "+ Bloc", "⋯ Insérer après", pile de
-// colonne) ET par l'outil "Mémo audio" des planches moodboard (2026-07-14) —
-// une seule et même expérience d'enregistrement partout dans l'app.
-export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCreated, onInfo, saveLabel = "Ajouter au carnet" }: VoiceMemoRecorderProps) {
+// Popup UNIQUE de prise de note audio — waveform réactive à l'enregistrement.
+// Deux modes (2026-07-19) :
+//  · TÂCHE DE FOND (carnet, prop `onRecorded`) : enregistre puis remonte le clip
+//    et se ferme ; transcription Whisper (timings par mot) + upload en fond,
+//    hors feuille (BackgroundMemoProvider).
+//  · APERÇU (planches, `uploadUrl`+`onCreated`) : écoute + transcription Whisper
+//    auto + édition avant d'ajouter, upload dans la feuille.
+// Transcription UNIFIÉE sur Whisper partout (plus de Web Speech en direct).
+// Partagée par tous les points d'entrée audio (FAB, menu "+ Bloc", planches).
+export function VoiceMemoRecorder({ onRecorded, uploadUrl, offlineQueue, open, onClose, onCreated, onInfo, saveLabel = "Ajouter au carnet" }: VoiceMemoRecorderProps) {
+  // Mode tâche de fond : la feuille se contente d'enregistrer puis remonte le clip.
+  const backgroundMode = !!onRecorded;
   const [memo, setMemo] = useState<MemoPhase>({ step: "idle" });
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [transcript, setTranscript] = useState("");
@@ -124,19 +128,16 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   const [wordTimings, setWordTimings] = useState<WordTiming[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
   const [transcribing, setTranscribing] = useState<TranscribeProgress | null>(null);
-  // Tactile (mobile) : on NE lance PAS la transcription live (Web Speech). Sur
-  // Android elle ouvre un 2e accès micro (« Reconnaissance vocale de Google »)
-  // qui se dispute la puce micro avec l'enregistrement → mauvais micro /
-  // qualité dégradée (capture 2026-07-19). La transcription est faite après,
-  // via Whisper (auto). Sur desktop (souris), pas ce conflit → live conservée.
-  const isTouch = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+  // Transcription UNIFIÉE via Whisper partout (desktop/iPad/mobile) : plus de
+  // reconnaissance live (Web Speech), qui ne produisait aucun timing par mot
+  // → karaoke seulement approximatif hors mobile (2026-07-19). En mode fond, la
+  // transcription se fait après coup, hors de cette feuille ; en mode aperçu
+  // (planches), automatiquement à l'entrée de l'aperçu.
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const transcriberRef = useRef<LiveTranscriber | null>(null);
   const startedAtRef = useRef(0);
 
   useEffect(() => {
@@ -227,6 +228,14 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
       }
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
       const durationSec = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
+      if (backgroundMode) {
+        // Mode fond : on remonte le clip et on ferme aussitôt — transcription,
+        // timings et upload sont pris en charge par l'appelant, hors feuille.
+        onRecorded!(blob, durationSec);
+        setMemo({ step: "idle" });
+        onClose();
+        return;
+      }
       setMemo({ step: "preview", blob, durationSec });
     };
     stream.getAudioTracks().forEach((track) => {
@@ -237,8 +246,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
       };
     });
     recorder.onerror = () => {
-      transcriberRef.current?.stop();
-      transcriberRef.current = null;
       stream.getTracks().forEach((t) => t.stop());
       setError("Erreur d'enregistrement — réessaie.");
       setMemo({ step: "idle" });
@@ -250,19 +257,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     setElapsed(0);
     recorder.start();
     setMemo({ step: "recording", startedAt: startedAtRef.current });
-    setSpeechAvailable(null);
-    if (isTouch) {
-      // Mobile : PAS de Web Speech (2e accès micro qui casse le routage/qualité).
-      // Transcription faite après, via Whisper (auto).
-      setSpeechAvailable(false);
-    } else {
-      window.setTimeout(() => {
-        if (recorderRef.current === recorder && recorder.state === "recording") {
-          transcriberRef.current = startLiveTranscription(setTranscript);
-          setSpeechAvailable(transcriberRef.current !== null);
-        }
-      }, 200);
-    }
   };
 
   const beginRecording = async () => {
@@ -293,9 +287,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   }, [open]);
 
   const stopMemo = () => {
-    const finalText = transcriberRef.current?.stop() ?? "";
-    if (finalText) setTranscript(finalText);
-    transcriberRef.current = null;
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") {
       if (memo.step === "recording") {
@@ -313,8 +304,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   };
 
   const cancelMemo = () => {
-    transcriberRef.current?.stop();
-    transcriberRef.current = null;
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.onstop = null;
       recorderRef.current.stop();
@@ -359,7 +348,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   }, [memo.step]);
 
   const saveMemo = async () => {
-    if (memo.step !== "preview") return;
+    if (memo.step !== "preview" || !uploadUrl) return; // saveMemo = flux aperçu (planches)
     const { blob, durationSec } = memo;
     const ext = blob.type.split(";")[0].split("/")[1] || "webm";
     const filename = `memo-${Date.now()}.${ext}`;
@@ -403,7 +392,7 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
       setMemo({ step: "idle" });
       setTranscript("");
       setWordTimings(null);
-      onCreated({
+      onCreated?.({
         id: data.id,
         storageKey: data.storageKey,
         durationSec: data.durationSec,
@@ -523,16 +512,10 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                   <span className="ml-auto text-sm text-[var(--text-tertiary)] tabular-nums">{fmt(elapsed)}</span>
                 </div>
                 <VoiceWaveform stream={micStream} className="w-full h-16" />
-                <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
-                  {transcript || (
-                    <span className="text-[var(--text-tertiary)] italic">
-                      {isTouch
-                        ? "La transcription est générée à la fin de l'enregistrement."
-                        : speechAvailable === false
-                          ? "Transcription non disponible sur ce navigateur — le mémo sera enregistré tel quel."
-                          : "La transcription apparaît ici…"}
-                    </span>
-                  )}
+                <p className="text-xs text-[var(--text-tertiary)] italic leading-relaxed">
+                  {backgroundMode
+                    ? "À « Terminer », le mémo se transcrit et s'ajoute tout seul — tu peux continuer à utiliser le carnet pendant ce temps."
+                    : "La transcription se fait automatiquement à la fin de l'enregistrement."}
                 </p>
                 <button
                   onClick={stopMemo}

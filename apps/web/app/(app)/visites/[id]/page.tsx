@@ -8,6 +8,7 @@ import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
 import { VisitCoverEditor } from "@/components/visits/VisitCoverEditor";
 import { VisitHeaderEditable } from "@/components/visits/VisitHeaderEditable";
 import { VisitCaptureFab } from "@/components/visits/VisitCaptureFab";
+import { BackgroundMemoProvider } from "@/components/visits/BackgroundMemoProvider";
 import { OutboxIndicator } from "@/components/visits/OutboxIndicator";
 import { VisitShareButton } from "@/components/visits/VisitShareButton";
 import { VisitTopBar } from "@/components/visits/VisitTopBar";
@@ -178,20 +179,25 @@ export default async function VisiteDetailPage({ params }: Props) {
         </div>
       )}
 
-      <VisitJournal
-        visitId={visit.id}
-        initialTiles={tiles}
-        authorName={visit.user.name}
-        authorImage={visit.user.image}
-        visitPlace={visit.place}
-        visitExhibition={visit.exhibition}
-        visitDate={visit.visitDate.toISOString()}
-      />
+      {/* Traitement de fond des mémos vocaux : le FAB et la grille partagent le
+          même pipeline (upload → transcription/timings en Web Worker → maj de
+          la tuile), l'utilisateur continue à manipuler le carnet pendant ce temps. */}
+      <BackgroundMemoProvider visitId={visit.id}>
+        <VisitJournal
+          visitId={visit.id}
+          initialTiles={tiles}
+          authorName={visit.user.name}
+          authorImage={visit.user.image}
+          visitPlace={visit.place}
+          visitExhibition={visit.exhibition}
+          visitDate={visit.visitDate.toISOString()}
+        />
 
-      {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
-      <VisitCaptureFab visitId={visit.id} visitTitle={visit.exhibition || visit.place || undefined} />
-      {/* File hors ligne (Phase 4) : captures en attente de synchronisation */}
-      <OutboxIndicator visitId={visit.id} />
+        {/* Capture friction zéro : tap = photo native, appui long = mémo vocal */}
+        <VisitCaptureFab visitId={visit.id} visitTitle={visit.exhibition || visit.place || undefined} />
+        {/* File hors ligne (Phase 4) : captures en attente de synchronisation */}
+        <OutboxIndicator visitId={visit.id} />
+      </BackgroundMemoProvider>
     </div>
   );
 }

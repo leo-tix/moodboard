@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { deleteFromR2 } from "@/lib/storage/r2";
+import { parseWordTimings } from "@/lib/audio/wordTimings";
 
 interface Params { params: Promise<{ id: string; audioId: string }> }
 
@@ -14,7 +15,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const { id, audioId } = await params;
   const body = await req.json().catch(() => ({}));
-  const parsed = z.object({ transcript: z.string().max(4000).nullable() }).safeParse(body);
+  // `wordTimings` OPTIONNEL : présent → c'est le résultat de la transcription de
+  // fond, on le stocke. ABSENT → édition manuelle du texte, on efface les
+  // timings (l'alignement mot-à-mot ne correspond plus).
+  const parsed = z
+    .object({ transcript: z.string().max(4000).nullable(), wordTimings: z.array(z.unknown()).optional() })
+    .safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
@@ -25,12 +31,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const audio = await db.visitAudio.findUnique({ where: { id: audioId } });
   if (!audio || audio.visitId !== id) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  // Éditer le transcript invalide l'alignement mot-à-mot de Whisper (les mots
-  // ne correspondent plus) → on efface les timings, l'UI retombe sur
-  // l'estimation. Prisma: `null` (pas `undefined`) pour vider un champ Json.
+  const timings = "wordTimings" in parsed.data ? parseWordTimings(parsed.data.wordTimings) : null;
   const updated = await db.visitAudio.update({
     where: { id: audioId },
-    data: { transcript: parsed.data.transcript?.trim() || null, wordTimings: Prisma.DbNull },
+    data: {
+      transcript: parsed.data.transcript?.trim() || null,
+      // Prisma : `DbNull` pour vider un champ Json (pas `undefined`).
+      wordTimings: (timings ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull,
+    },
   });
   return NextResponse.json(updated);
 }

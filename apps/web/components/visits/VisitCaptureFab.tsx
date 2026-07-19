@@ -7,7 +7,8 @@ import { Image as ImageIcon, Mic, Camera, X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { enqueueCapture, OUTBOX_SYNCED_EVENT } from "@/lib/offline/outbox";
-import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
+import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
+import { useBackgroundMemo } from "@/components/visits/BackgroundMemoProvider";
 
 const LONG_PRESS_MS = 450;
 
@@ -21,6 +22,10 @@ const LONG_PRESS_MS = 450;
 //   les autres points d'entrée audio du carnet, voir VoiceMemoRecorder.tsx).
 export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visitTitle?: string }) {
   const router = useRouter();
+  // Pipeline de fond (transcription + timings + upload) — le mémo se traite tout
+  // seul après « Terminer », le FAB affiche un spinner tant que ça tourne.
+  const bg = useBackgroundMemo();
+  const memoProcessing = (bg?.activeCount ?? 0) > 0;
   // Deux inputs distincts : la galerie (pas de `capture`, l'utilisateur
   // choisit des photos existantes) et l'appareil photo (`capture="environment"`,
   // force la prise de vue) — même pipeline d'upload derrière les deux.
@@ -167,7 +172,8 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
   };
 
   // ── Mémo vocal (appui long ou bouton micro du menu) ──
-  const handleMemoCreated = (_audio: CreatedAudioBlock) => {
+  // Repli (mode aperçu hors provider) : le mémo vient d'être créé côté serveur.
+  const handleMemoCreated = () => {
     router.refresh();
   };
 
@@ -287,29 +293,29 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
         // fantôme après coup.
         onPointerCancel={onFabPointerLeave}
         onContextMenu={(e) => e.preventDefault()}
-        title="Ajouter (appui long : mémo vocal)"
         className={cn(
           "fixed left-1/2 -translate-x-1/2 z-[65] w-14 h-14 rounded-full flex items-center justify-center",
           // Mobile : au-dessus de la BottomNav (h-14) + safe area ; desktop : bas-centre
           "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6",
           "bg-[var(--text-primary)] text-[var(--bg-base)] shadow-2xl shadow-black/50",
           "active:scale-95 transition-transform select-none touch-none",
-          uploadingPhoto && "opacity-70 pointer-events-none"
+          (uploadingPhoto || memoProcessing) && "opacity-70 pointer-events-none"
         )}
         style={{ WebkitTouchCallout: "none" }}
+        title={memoProcessing ? "Traitement du mémo en cours…" : "Ajouter (appui long : mémo vocal)"}
       >
-        {uploadingPhoto ? (
+        {uploadingPhoto || memoProcessing ? (
           <span className="w-5 h-5 border-2 border-[var(--bg-base)] border-t-transparent rounded-full animate-spin" />
         ) : (
           <Plus size={24} strokeWidth={2} />
         )}
       </button>
 
-      {error && !memoOpen && (
+      {(error || bg?.error) && !memoOpen && (
         <div className="fixed inset-x-4 z-[65] md:left-auto md:right-6 md:w-72" style={{ bottom: "calc(11rem + env(safe-area-inset-bottom))" }}>
           <div className="rounded-lg bg-[var(--bg-elevated)] border border-red-500/30 px-3 py-2 text-xs text-red-400 shadow-xl flex items-start gap-2">
-            <span className="flex-1">{error}</span>
-            <button onClick={() => setError(null)} className="text-[var(--text-tertiary)]">✕</button>
+            <span className="flex-1">{error ?? bg?.error}</span>
+            <button onClick={() => { setError(null); bg?.clearError(); }} className="text-[var(--text-tertiary)]">✕</button>
           </div>
         </div>
       )}
@@ -324,6 +330,10 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
       )}
 
       <VoiceMemoRecorder
+        // Traitement de fond : la feuille se ferme dès « Terminer », le mémo
+        // est transcrit + uploadé en tâche de fond (voir BackgroundMemoProvider).
+        onRecorded={bg?.processMemo}
+        // Repli aperçu si (improbablement) hors provider.
         uploadUrl={`/api/visits/${visitId}/audio`}
         offlineQueue={{ visitId }}
         open={memoOpen}

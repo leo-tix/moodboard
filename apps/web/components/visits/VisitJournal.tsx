@@ -8,6 +8,7 @@ import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from 
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { SketchPad } from "@/components/visits/bento/SketchPad";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
+import { useBackgroundMemo } from "@/components/visits/BackgroundMemoProvider";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
 import { DEFAULT_SPAN, isAutoHeight, isFicheContent, isNoteType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
@@ -40,6 +41,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   const settingsTile = tiles.find((t) => tileKey(t) === settingsKey) ?? null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [voiceMemoOpen, setVoiceMemoOpen] = useState(false);
+  const bg = useBackgroundMemo();
   const [sketchPadOpen, setSketchPadOpen] = useState(false);
   const [sketchReplaceId, setSketchReplaceId] = useState<string | null>(null);
   const [sketchSaving, setSketchSaving] = useState(false);
@@ -616,6 +618,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
       )}
 
       <VoiceMemoRecorder
+        // Même traitement de fond que le FAB (via le provider de la page) : la
+        // feuille se ferme dès « Terminer », la tuile apparaît puis se transcrit.
+        onRecorded={bg?.processMemo}
         uploadUrl={`/api/visits/${visitId}/audio`}
         offlineQueue={{ visitId }}
         open={voiceMemoOpen}

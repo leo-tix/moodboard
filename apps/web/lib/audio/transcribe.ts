@@ -11,13 +11,13 @@
 // mais reste raisonnable sur mobile), + DÉCOUPAGE `chunk_length_s` — sans lui,
 // tout mémo de plus de 30 s (fenêtre native de Whisper) était tronqué/incohérent.
 //
-// Pourquoi PAS un Web Worker : `new Worker(new URL("./x.ts", import.meta.url))`
-// jette de façon synchrone sous Turbopack dans ce contexte (import.meta.url
-// non résolu comme attendu) — vérifié en traçant pas à pas. L'inférence
-// tourne donc sur le thread principal via un import dynamique : l'UI se fige
-// pendant la transcription (quelques secondes pour un mémo court), l'état
-// "Transcription en cours…" l'annonce. À re-basculer en worker si le support
-// bundler se clarifie.
+// WEB WORKER (2026-07-19) : l'inférence tourne dans lib/audio/whisper.worker.ts
+// (thread séparé) pour NE PAS figer l'UI — l'utilisateur continue à manipuler le
+// carnet pendant que le mémo est transcrit en tâche de fond. Le décodage audio
+// (Web Audio) reste sur le thread principal (indisponible en worker), seul le
+// Float32Array rééchantillonné est transféré. Repli automatique sur le thread
+// principal si la création du worker échoue (vieux bundler, environnement sans
+// module workers) — l'UI se fige alors quelques secondes, l'ancien comportement.
 //
 // Whisper attend du PCM mono 16 kHz en Float32Array — on décode le blob via
 // Web Audio (chaque plateforme sait décoder SES propres enregistrements :
@@ -111,42 +111,19 @@ async function blobToWhisperInput(blob: Blob): Promise<Float32Array> {
   }
 }
 
-/**
- * Transcrit un clip audio localement (Whisper tiny, WASM). Premier appel :
- * télécharge le modèle (~40 Mo, ensuite en cache navigateur). Lève une Error
- * avec un message affichable en cas d'échec.
- */
-export async function transcribeBlobLocally(
-  blob: Blob,
-  onProgress?: (p: TranscribeProgress) => void
-): Promise<TranscriptResult> {
-  onProgress?.({ phase: "decoding" });
-  const audio = await blobToWhisperInput(blob);
-
+// ── Chemin THREAD PRINCIPAL (repli si le worker ne peut pas être créé) ───────
+async function transcribeOnMainThread(audio: Float32Array, onProgress?: (p: TranscribeProgress) => void): Promise<TranscriptResult> {
   const asr = await getAsr(onProgress);
   onProgress?.({ phase: "transcribing" });
-  // Laisse un frame au navigateur pour peindre l'état "transcription en
-  // cours" avant que le calcul WASM ne monopolise le thread principal.
+  // Laisse un frame au navigateur pour peindre l'état avant que le calcul WASM
+  // ne monopolise le thread principal.
   await new Promise((r) => setTimeout(r, 50));
-
-  // chunk_length_s : Whisper ne « voit » que 30 s à la fois — sans découpage,
-  // un mémo plus long est tronqué ou part en boucle. 30 s + 5 s de recouvrement
-  // = transcription cohérente sur toute la durée.
-  //
-  // return_timestamps: "word" → alignement forcé (DTW sur les cross-attentions)
-  // qui donne un [début, fin] PAR MOT, pour une surbrillance karaoke réellement
-  // synchronisée à la voix. Best-effort : certains modèles/quantifications ne
-  // fournissent pas les `alignment_heads` requis → on retombe alors sur une
-  // transcription simple (timings vides = répartition estimée côté UI), sans
-  // jamais échouer la transcription elle-même.
+  // chunk_length_s : Whisper ne « voit » que 30 s à la fois — 30 s + 5 s de
+  // recouvrement = transcription cohérente sur toute la durée.
   const baseOpts = { language: "french", task: "transcribe", chunk_length_s: 30, stride_length_s: 5 } as const;
   try {
     const out = await asr(audio, { ...baseOpts, return_timestamps: "word" });
     const chunks = (!Array.isArray(out) && out.chunks) || [];
-    // On CONSERVE le texte brut de chaque mot (espace de tête que Whisper met
-    // devant les vrais mots, PAS devant les continuations « -ce »/« 'il »…) :
-    // rejoindre les tokens reproduit alors exactement le transcript propre
-    // (« Est-ce qu'il »), sans espaces parasites. Le trim ne sert qu'au filtre.
     const words: WordTiming[] = chunks
       .filter((c) => Array.isArray(c.timestamp) && c.timestamp[0] != null && c.timestamp[1] != null && String(c.text).trim().length > 0)
       .map((c) => ({ word: String(c.text), start: c.timestamp[0] as number, end: c.timestamp[1] as number }));
@@ -157,4 +134,73 @@ export async function transcribeBlobLocally(
     const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text) ?? "";
     return { text: text.trim(), words: [] };
   }
+}
+
+// ── Chemin WEB WORKER (par défaut) ───────────────────────────────────────────
+// Worker singleton partagé (le modèle reste chargé entre deux mémos). Créé
+// paresseusement ; si `new Worker` échoue (bundler/env sans module workers),
+// `workerUnavailable` bascule définitivement sur le thread principal.
+let worker: Worker | null = null;
+let workerUnavailable = false;
+let msgSeq = 0;
+function getWorker(): Worker | null {
+  if (workerUnavailable) return null;
+  if (worker) return worker;
+  try {
+    worker = new Worker(new URL("./whisper.worker.ts", import.meta.url), { type: "module" });
+    return worker;
+  } catch {
+    workerUnavailable = true;
+    return null;
+  }
+}
+
+function transcribeInWorker(w: Worker, audio: Float32Array, onProgress?: (p: TranscribeProgress) => void): Promise<TranscriptResult> {
+  const id = ++msgSeq;
+  return new Promise((resolve, reject) => {
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { id: number; type: string; progress?: TranscribeProgress; result?: TranscriptResult; message?: string };
+      if (data.id !== id) return; // multiplexage : ignore les autres mémos
+      if (data.type === "progress" && data.progress) onProgress?.(data.progress);
+      else if (data.type === "done" && data.result) { cleanup(); resolve(data.result); }
+      else if (data.type === "error") { cleanup(); reject(new Error(data.message ?? "worker error")); }
+    };
+    const onError = (err: ErrorEvent) => { cleanup(); reject(err.error ?? new Error(err.message)); };
+    const cleanup = () => { w.removeEventListener("message", onMessage); w.removeEventListener("error", onError); };
+    w.addEventListener("message", onMessage);
+    w.addEventListener("error", onError);
+    // Transfert du buffer (zero-copy) — l'audio n'est plus utilisé côté principal après ça.
+    w.postMessage({ id, audio }, [audio.buffer]);
+  });
+}
+
+/**
+ * Transcrit un clip audio localement (Whisper base _timestamped, WASM). Décode
+ * l'audio sur le thread principal (Web Audio) puis délègue l'inférence à un Web
+ * Worker (UI non bloquée) ; repli sur le thread principal si le worker échoue.
+ * Retourne le texte + les timings PAR MOT (vides si le modèle ne les fournit pas
+ * → répartition estimée côté UI).
+ */
+export async function transcribeBlobLocally(
+  blob: Blob,
+  onProgress?: (p: TranscribeProgress) => void
+): Promise<TranscriptResult> {
+  onProgress?.({ phase: "decoding" });
+  const audio = await blobToWhisperInput(blob);
+
+  const w = getWorker();
+  if (w) {
+    try {
+      return await transcribeInWorker(w, audio, onProgress);
+    } catch {
+      // Le worker a planté (ex. import échoué à l'exécution) — on ne réessaiera
+      // plus par worker et on bascule sur le thread principal pour CE mémo.
+      workerUnavailable = true;
+      try { worker?.terminate(); } catch { /* déjà mort */ }
+      worker = null;
+      // Le buffer a été transféré au worker → il faut re-décoder pour le repli.
+      return transcribeOnMainThread(await blobToWhisperInput(blob), onProgress);
+    }
+  }
+  return transcribeOnMainThread(audio, onProgress);
 }
