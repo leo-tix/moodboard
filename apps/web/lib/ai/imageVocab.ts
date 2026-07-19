@@ -68,32 +68,71 @@ export const CATEGORY_CONCEPTS: CategoryConcept[] = [
   { category: "Design industriel", subcategory: "Mobilier", prompt: "a piece of designer furniture" },
 ];
 
-export const TAG_CONCEPTS: TagConcept[] = [
-  // Technique / rendu
-  { label: "noir et blanc", prompt: "a black and white monochrome image" },
-  { label: "minimaliste", prompt: "a minimalist composition with lots of empty space" },
-  { label: "coloré", prompt: "a very colorful, saturated image" },
-  { label: "géométrique", prompt: "geometric shapes and patterns" },
-  { label: "abstrait", prompt: "an abstract image without recognizable subject" },
-  { label: "vintage", prompt: "a vintage retro aesthetic" },
-  { label: "collage", prompt: "a collage of mixed images" },
-  { label: "texture", prompt: "a close-up of a surface texture or material" },
-  { label: "typographie", prompt: "text and lettering as the main element" },
-  // Sujet
-  { label: "portrait", prompt: "a person's face in close-up" },
-  { label: "nature", prompt: "nature, plants or landscape" },
-  { label: "urbain", prompt: "an urban city environment" },
-  { label: "architecture", prompt: "a building or architecture" },
-  { label: "nourriture", prompt: "food or a meal" },
-  { label: "animal", prompt: "an animal" },
-  { label: "eau", prompt: "water, sea or ocean" },
-  // Ambiance / lumière
-  { label: "sombre", prompt: "a dark, low-key, moody image" },
-  { label: "lumineux", prompt: "a bright, high-key, airy image" },
-  { label: "pastel", prompt: "soft pastel colors" },
-  { label: "contrasté", prompt: "high contrast dramatic lighting" },
-  { label: "nuit", prompt: "a night scene" },
-];
+// Tags découpés en GROUPES sémantiques. Chaque groupe est classé séparément
+// (softmax INTERNE au groupe) → au lieu que « portrait » et « pastel » se
+// diluent dans un même softmax géant, chaque dimension (couleur, technique,
+// sujet, ambiance, composition) sort SON meilleur candidat. Résultat : des tags
+// plus PRÉCIS et plus DIVERS (retour utilisateur 2026-07-19). On propose le
+// top 1-2 de chaque groupe au-dessus d'un seuil relatif.
+export const TAG_GROUPS: Record<string, TagConcept[]> = {
+  couleur: [
+    { label: "noir et blanc", prompt: "a black and white monochrome photograph" },
+    { label: "coloré", prompt: "a very colorful highly saturated image" },
+    { label: "pastel", prompt: "an image in soft pastel colors" },
+    { label: "monochrome", prompt: "an image dominated by a single color" },
+    { label: "tons chauds", prompt: "an image in warm red orange tones" },
+    { label: "tons froids", prompt: "an image in cool blue tones" },
+    { label: "sépia", prompt: "a sepia or faded vintage-colored image" },
+  ],
+  technique: [
+    { label: "photographie", prompt: "a photograph" },
+    { label: "illustration", prompt: "an illustration or drawing" },
+    { label: "peinture", prompt: "a painting with visible brushstrokes" },
+    { label: "3D", prompt: "a 3D computer render" },
+    { label: "collage", prompt: "a collage of mixed cut-out images" },
+    { label: "typographie", prompt: "text and lettering as the main subject" },
+    { label: "vectoriel", prompt: "a flat vector graphic design" },
+    { label: "argentique", prompt: "an analog film photograph with grain" },
+  ],
+  composition: [
+    { label: "minimaliste", prompt: "a minimalist composition with lots of empty space" },
+    { label: "géométrique", prompt: "strong geometric shapes and patterns" },
+    { label: "abstrait", prompt: "an abstract image with no recognizable subject" },
+    { label: "symétrique", prompt: "a symmetrical, centered composition" },
+    { label: "gros plan", prompt: "an extreme close-up of a detail or texture" },
+    { label: "motif", prompt: "a repeating pattern or motif" },
+    { label: "chargé", prompt: "a busy, dense, maximalist composition" },
+  ],
+  sujet: [
+    { label: "portrait", prompt: "a close-up of a person's face" },
+    { label: "personnage", prompt: "one or more people in a scene" },
+    { label: "nature", prompt: "plants, flowers or natural landscape" },
+    { label: "paysage", prompt: "a wide landscape or scenery" },
+    { label: "urbain", prompt: "a city street or urban environment" },
+    { label: "architecture", prompt: "a building or architectural structure" },
+    { label: "intérieur", prompt: "the interior of a room" },
+    { label: "objet", prompt: "a single object or product" },
+    { label: "textile", prompt: "fabric, textile or clothing material" },
+    { label: "nourriture", prompt: "food or a meal" },
+    { label: "animal", prompt: "an animal" },
+    { label: "véhicule", prompt: "a car, bike or vehicle" },
+    { label: "eau", prompt: "water, sea, ocean or a river" },
+    { label: "ciel", prompt: "the sky or clouds" },
+  ],
+  ambiance: [
+    { label: "sombre", prompt: "a dark, low-key, moody atmosphere" },
+    { label: "lumineux", prompt: "a bright, high-key, airy atmosphere" },
+    { label: "contrasté", prompt: "high contrast dramatic lighting" },
+    { label: "doux", prompt: "soft, diffuse, gentle lighting" },
+    { label: "nuit", prompt: "a night-time scene" },
+    { label: "vintage", prompt: "a retro, vintage, nostalgic aesthetic" },
+    { label: "onirique", prompt: "a dreamy, ethereal, surreal mood" },
+    { label: "brut", prompt: "a raw, gritty, industrial look" },
+  ],
+};
+
+// Tous les concepts de tags à plat (mapping prompt→label côté moteur).
+export const TAG_CONCEPTS: TagConcept[] = Object.values(TAG_GROUPS).flat();
 
 // Formulation CLIP : « a photo of X » aide généralement, mais nos prompts sont
 // déjà des phrases descriptives → template neutre pour ne pas les dénaturer.

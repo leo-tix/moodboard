@@ -4,7 +4,7 @@
 // Aucune API externe — le modèle (~150 Mo) est téléchargé une fois puis mis en
 // cache (Cache Storage). L'utilisateur valide TOUJOURS les suggestions.
 
-import { CATEGORY_CONCEPTS, TAG_CONCEPTS, HYPOTHESIS_TEMPLATE } from "@/lib/ai/imageVocab";
+import { CATEGORY_CONCEPTS, TAG_CONCEPTS, TAG_GROUPS, HYPOTHESIS_TEMPLATE } from "@/lib/ai/imageVocab";
 
 export interface AnalysisProgress { phase: "downloading" | "classifying"; loadedMB?: number; totalMB?: number }
 
@@ -20,42 +20,72 @@ export interface TagSuggestion {
 export interface ImageAnalysis {
   categories: CategorySuggestion[];
   tags: TagSuggestion[];
+  /** Titres candidats (français), dérivés de la catégorie + tags dominants. */
+  titles: string[];
 }
 
-// Combien de suggestions on remonte (l'utilisateur trie ensuite). Un plancher
-// écarte le bruit pur ; le classement CLIP fait le reste.
 const MAX_CATEGORIES = 3;
-const MAX_TAGS = 6;
-const MIN_SCORE = 0.02;
+const MIN_CAT_SCORE = 0.02;
+// Par groupe de tags : on garde le top 2 au-dessus d'un plancher (softmax
+// interne au groupe → un bon match sort nettement au-dessus de 0.18).
+const PER_GROUP_KEEP = 2;
+const MIN_TAG_SCORE = 0.18;
+const MAX_TAGS = 8;
 
 type Scored = { label: string; score: number };
 type Groups = Record<string, string[]>;
 
+const TAG_GROUP_KEYS = Object.keys(TAG_GROUPS).map((k) => `tag:${k}`);
+
 function buildGroups(): Groups {
-  return {
-    categories: CATEGORY_CONCEPTS.map((c) => c.prompt),
-    tags: TAG_CONCEPTS.map((t) => t.prompt),
-  };
+  const groups: Groups = { categories: CATEGORY_CONCEPTS.map((c) => c.prompt) };
+  for (const [name, concepts] of Object.entries(TAG_GROUPS)) {
+    groups[`tag:${name}`] = concepts.map((c) => c.prompt);
+  }
+  return groups;
+}
+
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+function buildTitles(categories: CategorySuggestion[], tags: TagSuggestion[]): string[] {
+  const sub = categories[0]?.subcategory;
+  const t0 = tags[0]?.label;
+  const t1 = tags[1]?.label;
+  const out: string[] = [];
+  if (sub && t0) out.push(`${cap(sub)} ${t0}`);
+  if (sub) out.push(cap(sub));
+  if (t0 && t1) out.push(`${cap(t0)}, ${t1}`);
+  if (t0 && !sub) out.push(cap(t0));
+  // Dédup en préservant l'ordre, max 3.
+  return [...new Set(out.filter(Boolean))].slice(0, 3);
 }
 
 function mapResult(result: Record<string, Scored[]>): ImageAnalysis {
   const byCatPrompt = new Map(CATEGORY_CONCEPTS.map((c) => [c.prompt, c]));
   const byTagPrompt = new Map(TAG_CONCEPTS.map((t) => [t.prompt, t]));
+
   const categories: CategorySuggestion[] = (result.categories ?? [])
     .map((r) => {
       const c = byCatPrompt.get(r.label);
       return c ? { category: c.category, subcategory: c.subcategory, score: r.score } : null;
     })
-    .filter((x): x is CategorySuggestion => x !== null && x.score >= MIN_SCORE)
+    .filter((x): x is CategorySuggestion => x !== null && x.score >= MIN_CAT_SCORE)
     .slice(0, MAX_CATEGORIES);
-  const tags: TagSuggestion[] = (result.tags ?? [])
-    .map((r) => {
-      const t = byTagPrompt.get(r.label);
-      return t ? { label: t.label, score: r.score } : null;
-    })
-    .filter((x): x is TagSuggestion => x !== null && x.score >= MIN_SCORE)
+
+  // Tags : top de CHAQUE groupe (softmax interne), fusionnés puis triés.
+  const tags: TagSuggestion[] = TAG_GROUP_KEYS.flatMap((key) =>
+    (result[key] ?? [])
+      .map((r) => {
+        const t = byTagPrompt.get(r.label);
+        return t ? { label: t.label, score: r.score } : null;
+      })
+      .filter((x): x is TagSuggestion => x !== null && x.score >= MIN_TAG_SCORE)
+      .slice(0, PER_GROUP_KEEP),
+  )
+    .sort((a, b) => b.score - a.score)
     .slice(0, MAX_TAGS);
-  return { categories, tags };
+
+  return { categories, tags, titles: buildTitles(categories, tags) };
 }
 
 // ── Worker (par défaut) ──────────────────────────────────────────────────────

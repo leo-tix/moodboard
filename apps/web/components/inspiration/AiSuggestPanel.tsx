@@ -1,40 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, Check, Loader2, Plus } from "lucide-react";
+import { Sparkles, Check, Loader2, Plus, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Category } from "@/components/inspiration/CategorySelect";
 import type { CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { analyzeImage, type AnalysisProgress, type ImageAnalysis } from "@/lib/ai/imageAnalysis";
-
-export const AI_AUTOSUGGEST_KEY = "mb-ai-autosuggest";
+import { useAiAutoSuggest, Switch } from "@/components/inspiration/AiAutoSuggestToggle";
 
 interface Props {
-  /** URL publique de l'image à analyser. */
   imageUrl: string | null;
   allCategories: Category[];
+  currentTitle: string;
   currentCategories: CategorySelection[];
   currentTags: string[];
+  onSetTitle: (title: string) => void;
   onAddCategory: (sel: CategorySelection) => void;
   onAddTag: (name: string) => void;
 }
 
 // Panneau de suggestions IA (locale) — analyse l'image via CLIP (zero-shot, en
-// Web Worker) et propose catégories + tags. L'utilisateur clique ce qu'il garde,
-// rien n'est appliqué d'office. Un toggle « auto » relance l'analyse dès qu'une
-// nouvelle image s'affiche (persisté en localStorage, partagé avec les espaces
-// d'upload).
-export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, currentTags, onAddCategory, onAddTag }: Props) {
-  const [auto, setAuto] = useState(false);
-  useEffect(() => { try { setAuto(localStorage.getItem(AI_AUTOSUGGEST_KEY) === "1"); } catch { /* pas de storage */ } }, []);
-  const toggleAuto = () => {
-    setAuto((v) => {
-      const next = !v;
-      try { localStorage.setItem(AI_AUTOSUGGEST_KEY, next ? "1" : "0"); } catch { /* pas de storage */ }
-      return next;
-    });
-  };
-
+// Web Worker) et propose titre, catégories et tags. L'utilisateur clique ce
+// qu'il garde, rien n'est appliqué d'office. Toggle « auto » partagé avec les
+// espaces d'upload.
+export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentCategories, currentTags, onSetTitle, onAddCategory, onAddTag }: Props) {
+  const [auto, toggleAuto] = useAiAutoSuggest();
   const [progress, setProgress] = useState<AnalysisProgress | null>(null);
   const [result, setResult] = useState<ImageAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +37,7 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
     setResult(null);
     setProgress({ phase: "classifying" });
     try {
-      const res = await analyzeImage(url, setProgress);
-      setResult(res);
+      setResult(await analyzeImage(url, setProgress));
     } catch {
       setError("Analyse impossible sur cet appareil.");
     } finally {
@@ -57,7 +46,7 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
     }
   }, []);
 
-  // Auto : relance quand l'image change (et efface les résultats de la précédente).
+  // Auto : relance quand l'image change.
   useEffect(() => {
     setResult(null);
     setError(null);
@@ -65,7 +54,6 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl]);
 
-  // Résout une suggestion (noms) vers les IDs de la taxonomie.
   const resolve = (category: string, subcategory: string): CategorySelection | null => {
     const cat = allCategories.find((c) => c.name === category);
     if (!cat) return null;
@@ -78,28 +66,31 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
 
   const busy = progress !== null;
 
+  const chip = (added: boolean, onClick: () => void, key: string, children: React.ReactNode) => (
+    <button
+      key={key}
+      type="button"
+      onClick={() => !added && onClick()}
+      disabled={added}
+      className={cn(
+        "flex items-center gap-1 px-2 py-1 rounded-full text-[11px] border transition-colors",
+        added
+          ? "border-[var(--border-subtle)] text-[var(--text-tertiary)] cursor-default"
+          : "border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",
+      )}
+    >
+      {added ? <Check size={11} strokeWidth={2.5} /> : <Plus size={11} strokeWidth={2.5} />}
+      {children}
+    </button>
+  );
+
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 space-y-2.5">
       <div className="flex items-center gap-2">
         <Sparkles size={14} strokeWidth={2} className="text-[var(--text-secondary)] shrink-0" />
         <span className="text-xs font-medium text-[var(--text-primary)] flex-1">Suggestions IA</span>
-        {/* Toggle auto */}
-        <button
-          type="button"
-          onClick={toggleAuto}
-          className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-          title="Analyser automatiquement chaque image"
-        >
-          <span
-            className={cn(
-              "relative w-7 h-4 rounded-full transition-colors",
-              auto ? "bg-[var(--text-primary)]" : "bg-[var(--border-default)]",
-            )}
-          >
-            <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-[var(--bg-base)] transition-all", auto ? "left-3.5" : "left-0.5")} />
-          </span>
-          Auto
-        </button>
+        <span className="text-[11px] text-[var(--text-tertiary)]">Auto</span>
+        <Switch on={auto} onToggle={toggleAuto} title="Analyser automatiquement chaque image" />
       </div>
 
       {!result && !busy && (
@@ -109,7 +100,7 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
           disabled={!imageUrl}
           className="w-full py-2 rounded-lg text-xs font-medium bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 flex items-center justify-center gap-1.5"
         >
-          <Sparkles size={13} strokeWidth={2} /> Suggérer catégories &amp; tags
+          <Sparkles size={13} strokeWidth={2} /> Suggérer titre, catégories &amp; tags
         </button>
       )}
 
@@ -138,6 +129,14 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
 
       {result && !busy && (
         <div className="space-y-2.5">
+          {result.titles.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Titre</p>
+              <div className="flex flex-wrap gap-1.5">
+                {result.titles.map((t) => chip(currentTitle.trim() === t, () => onSetTitle(t), t, t))}
+              </div>
+            </div>
+          )}
           {result.categories.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Catégories</p>
@@ -145,24 +144,9 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
                 {result.categories.map((c, i) => {
                   const sel = resolve(c.category, c.subcategory);
                   if (!sel) return null;
-                  const added = catAdded(sel);
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => !added && onAddCategory(sel)}
-                      disabled={added}
-                      className={cn(
-                        "flex items-center gap-1 px-2 py-1 rounded-full text-[11px] border transition-colors",
-                        added
-                          ? "border-[var(--border-subtle)] text-[var(--text-tertiary)] cursor-default"
-                          : "border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",
-                      )}
-                    >
-                      {added ? <Check size={11} strokeWidth={2.5} /> : <Plus size={11} strokeWidth={2.5} />}
-                      {c.subcategory} · <span className="text-[var(--text-tertiary)]">{c.category}</span>
-                    </button>
-                  );
+                  return chip(catAdded(sel), () => onAddCategory(sel), `cat-${i}`, (
+                    <>{c.subcategory} · <span className="text-[var(--text-tertiary)]">{c.category}</span></>
+                  ));
                 })}
               </div>
             </div>
@@ -171,26 +155,7 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Tags</p>
               <div className="flex flex-wrap gap-1.5">
-                {result.tags.map((t) => {
-                  const added = tagAdded(t.label);
-                  return (
-                    <button
-                      key={t.label}
-                      type="button"
-                      onClick={() => !added && onAddTag(t.label)}
-                      disabled={added}
-                      className={cn(
-                        "flex items-center gap-1 px-2 py-1 rounded-full text-[11px] border transition-colors",
-                        added
-                          ? "border-[var(--border-subtle)] text-[var(--text-tertiary)] cursor-default"
-                          : "border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",
-                      )}
-                    >
-                      {added ? <Check size={11} strokeWidth={2.5} /> : <Plus size={11} strokeWidth={2.5} />}
-                      {t.label}
-                    </button>
-                  );
-                })}
+                {result.tags.map((t) => chip(tagAdded(t.label), () => onAddTag(t.label), t.label, t.label))}
               </div>
             </div>
           )}
@@ -199,6 +164,11 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentCategories, cur
           )}
         </div>
       )}
+
+      <p className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] pt-0.5">
+        <ShieldCheck size={11} strokeWidth={2} className="text-emerald-500/80 shrink-0" />
+        Analyse 100 % locale — aucune image n&apos;est envoyée.
+      </p>
     </div>
   );
 }

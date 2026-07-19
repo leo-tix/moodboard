@@ -556,8 +556,10 @@ export function TriageClient() {
         <AiSuggestPanel
           imageUrl={getImageUrl(current.images[0].storageKey)}
           allCategories={allCategories}
+          currentTitle={fields.title}
           currentCategories={fields.categories}
           currentTags={fields.tags}
+          onSetTitle={(t) => updateField("title", t)}
           onAddCategory={(sel) =>
             updateField(
               "categories",
