@@ -23,26 +23,22 @@ export function pickSupportedAudioMimeType(): string | undefined {
 // EXPLICITE certains navigateurs (Chrome/Android en tête) retombent sur un
 // débit Opus par défaut très bas (profil VOIP basse bande passante), d'où
 // un rendu nettement moins bon que sur Safari/iOS où l'encodeur AAC par
-// défaut est déjà généreux. 128 kbps mono est large pour de la voix et reste
-// très en dessous du plafond serveur (15 Mo/clip, voir QUOTA.MAX_AUDIO_SIZE_BYTES).
-export const AUDIO_BITRATE = 128_000;
+// défaut est déjà généreux. 256 kbps mono = qualité max pour de la voix, et
+// reste sous le plafond serveur (15 Mo/clip, voir QUOTA.MAX_AUDIO_SIZE_BYTES).
+export const AUDIO_BITRATE = 256_000;
 
-// Contraintes micro — SÉLECTION DU BON MICRO sur Android (retours terrain
-// 2026-07-19). Trois régimes observés selon la combinaison de flags :
-//  · echoCancellation:true → source VOICE_COMMUNICATION (micro d'appel, bande
-//    étroite, très dégradé) → « on dirait le micro de communication ».
-//  · les TROIS à false → Chrome demande le préréglage UNPROCESSED d'Android,
-//    qui route sur le micro de RÉFÉRENCE (souvent près de la caméra) → son
-//    creux/lointain → « il utilise le micro de la caméra ».
-//  · echoCancellation:false SANS tout couper → source MIC/VOICE_RECOGNITION,
-//    le micro PRINCIPAL du bas (celui du dictaphone), proche de la bouche.
-// On vise donc ce 3e régime : echo OFF (pas de micro d'appel), suppression de
-// bruit OFF (l'« effet » le plus audible, on garde la fidélité), et on laisse
-// juste la normalisation de niveau (autoGainControl) pour un rendu présent
-// façon dictaphone — sans basculer sur le préréglage non-traité (caméra).
+// Contraintes micro — retour terrain 2026-07-19. Le sélecteur de micro
+// (deviceId) « ne changeait rien » sur Android : les entrées listées ne sont
+// que des ROUTES d'une même source, pas de vrais micros distincts. On revient
+// donc au micro de COMMUNICATION (echoCancellation:true → source
+// VOICE_COMMUNICATION = le micro principal du bas, près de la bouche), qui
+// était en fait le bon micro physique — sa dégradation venait surtout du
+// partage concurrent avec la reconnaissance vocale (désormais désactivée sur
+// mobile). On garde la normalisation de niveau (autoGainControl) et on demande
+// la qualité MAX (48 kHz, débit 256 kbps ci-dessus). On laisse la suppression
+// de bruit au navigateur (défaut) plutôt que de la forcer.
 const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: false,
-  noiseSuppression: false,
+  echoCancellation: true,
   autoGainControl: true,
   channelCount: { ideal: 1 },
   sampleRate: { ideal: 48000 },
@@ -60,20 +56,14 @@ export function createAudioRecorder(stream: MediaStream, mimeType?: string): Med
  * Demande l'accès micro avec des messages d'erreur exploitables en UI.
  * Retourne soit le stream, soit un message d'erreur français prêt à afficher.
  */
-export async function requestMicrophone(deviceId?: string): Promise<
+export async function requestMicrophone(): Promise<
   { ok: true; stream: MediaStream } | { ok: false; error: string }
 > {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     return { ok: false, error: "Micro non disponible — HTTPS (ou localhost) requis pour enregistrer." };
   }
-  // Android n'expose pas de façon fiable la sélection VOICE_RECOGNITION vs
-  // UNPROCESSED via les flags (le mauvais micro — celui de la caméra — peut
-  // rester choisi). Quand plusieurs entrées audio existent, on laisse
-  // l'utilisateur cibler explicitement le micro (deviceId), persisté.
-  const audio: MediaTrackConstraints = { ...AUDIO_CONSTRAINTS };
-  if (deviceId) audio.deviceId = { exact: deviceId };
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { ...AUDIO_CONSTRAINTS } });
     return { ok: true, stream };
   } catch (err) {
     const name = err instanceof DOMException ? err.name : "";

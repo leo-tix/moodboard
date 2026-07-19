@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Mic, Check } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   pickSupportedAudioMimeType,
   requestMicrophone,
@@ -32,12 +30,9 @@ export interface CreatedAudioBlock {
 type MemoPhase =
   | { step: "idle" }
   | { step: "onboarding" }
-  | { step: "mic-select" } // 1re utilisation multi-micros : choisir AVANT d'enregistrer
   | { step: "recording"; startedAt: number }
   | { step: "preview"; blob: Blob; durationSec: number }
   | { step: "saving" };
-
-const MIC_CHOSEN_KEY = "mb-mic-chosen";
 
 interface VoiceMemoRecorderProps {
   /** Endpoint d'upload — `/api/visits/[id]/audio` ou `/api/moodboards/[id]/audio`
@@ -77,11 +72,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
   const [elapsed, setElapsed] = useState(0);
   const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
   const [transcribing, setTranscribing] = useState<TranscribeProgress | null>(null);
-  // Sélection du micro (Android : le « bon » micro dictaphone n'est pas
-  // toujours choisi par défaut). Persisté, appliqué en deviceId.
-  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
-  const [micId, setMicId] = useState<string | null>(null);
-  useEffect(() => { try { setMicId(localStorage.getItem("mb-mic-device") || null); } catch { /* pas de storage */ } }, []);
   // Tactile (mobile) : on NE lance PAS la transcription live (Web Speech). Sur
   // Android elle ouvre un 2e accès micro (« Reconnaissance vocale de Google »)
   // qui se dispute la puce micro avec l'enregistrement → mauvais micro /
@@ -111,25 +101,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     return () => document.removeEventListener("visibilitychange", onVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memo.step]);
-
-  // Acquiert le flux micro (deviceId optionnel), remplace le flux courant et met
-  // à jour la liste des micros. NE démarre PAS l'enregistrement. Renvoie le flux
-  // + la liste (l'état React étant asynchrone, on rend la liste directement).
-  const acquireMic = async (deviceIdArg?: string): Promise<{ stream: MediaStream; devices: MediaDeviceInfo[] } | null> => {
-    const chosen = deviceIdArg ?? micId ?? undefined;
-    let mic = await requestMicrophone(chosen);
-    if (!mic.ok && chosen) mic = await requestMicrophone(undefined); // deviceId périmé → défaut
-    if (!mic.ok) { setError(mic.error); setMemo({ step: "idle" }); return null; }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = mic.stream;
-    setMicStream(mic.stream);
-    let devices: MediaDeviceInfo[] = [];
-    try {
-      devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput" && d.deviceId);
-    } catch { /* énumération indisponible */ }
-    setMicDevices(devices);
-    return { stream: mic.stream, devices };
-  };
 
   // Démarre l'enregistrement sur un flux déjà acquis (+ transcription live).
   const startRecorderOnStream = (stream: MediaStream) => {
@@ -192,42 +163,14 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
     }
   };
 
-  const beginRecording = async (deviceIdArg?: string) => {
+  const beginRecording = async () => {
     localStorage.setItem(MIC_ONBOARD_KEY, "1");
-    const res = await acquireMic(deviceIdArg);
-    if (!res) return;
-    // 1re utilisation AVEC plusieurs micros : demander de choisir AVANT
-    // d'enregistrer (le changement de micro n'est fiable qu'en (ré)acquérant le
-    // flux — pas en cours d'enregistrement). Une fois choisi, on ne redemande plus.
-    const needChoice = res.devices.length > 1 && !localStorage.getItem(MIC_CHOSEN_KEY);
-    if (needChoice) { setMemo({ step: "mic-select" }); return; }
-    startRecorderOnStream(res.stream);
-  };
-
-  // Étape « choisir le micro » : chaque tap ré-acquiert le flux du micro visé
-  // (le waveform réagit → on voit lequel capte le mieux). Le choix est persisté.
-  const chooseMicPreview = async (id: string) => {
-    try { if (id) localStorage.setItem("mb-mic-device", id); else localStorage.removeItem("mb-mic-device"); } catch { /* pas de storage */ }
-    setMicId(id || null);
-    await acquireMic(id || undefined);
-  };
-  const startAfterMicSelect = () => {
-    try { localStorage.setItem(MIC_CHOSEN_KEY, "1"); } catch { /* pas de storage */ }
-    if (streamRef.current) startRecorderOnStream(streamRef.current);
-  };
-
-  // Change de micro EN COURS d'enregistrement : on repart proprement sur le
-  // nouveau (le court extrait déjà capté est abandonné).
-  const switchMic = async (id: string) => {
-    try { if (id) localStorage.setItem("mb-mic-device", id); else localStorage.removeItem("mb-mic-device"); } catch { /* pas de storage */ }
-    setMicId(id || null);
-    transcriberRef.current?.stop();
-    transcriberRef.current = null;
-    const rec = recorderRef.current;
-    if (rec && rec.state !== "inactive") { rec.onstop = null; try { rec.stop(); } catch { /* déjà arrêté */ } }
-    setTranscript("");
-    const res = await acquireMic(id || undefined);
-    if (res) startRecorderOnStream(res.stream);
+    const mic = await requestMicrophone();
+    if (!mic.ok) { setError(mic.error); setMemo({ step: "idle" }); return; }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = mic.stream;
+    setMicStream(mic.stream);
+    startRecorderOnStream(mic.stream);
   };
 
   const startMemo = async () => {
@@ -452,55 +395,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
               </div>
             )}
 
-            {memo.step === "mic-select" && (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Choisis le micro</p>
-                  <p className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed">
-                    Ton appareil a plusieurs micros. Sélectionne celui qui capte le mieux ta voix
-                    (souvent celui du bas), parle pour voir réagir la courbe, puis lance
-                    l&apos;enregistrement. Ce choix sera mémorisé.
-                  </p>
-                </div>
-                <VoiceWaveform stream={micStream} className="w-full h-14" />
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  <button
-                    onClick={() => chooseMicPreview("")}
-                    className={cn(
-                      "w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition-colors",
-                      !micId ? "border-[var(--text-primary)] bg-[var(--bg-surface)] text-[var(--text-primary)]" : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]"
-                    )}
-                  >
-                    <Mic size={14} strokeWidth={2} className="shrink-0" />
-                    <span className="flex-1 min-w-0 truncate">Micro par défaut</span>
-                    {!micId && <Check size={15} strokeWidth={2.5} className="shrink-0" />}
-                  </button>
-                  {micDevices.map((d) => (
-                    <button
-                      key={d.deviceId}
-                      onClick={() => chooseMicPreview(d.deviceId)}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition-colors",
-                        micId === d.deviceId ? "border-[var(--text-primary)] bg-[var(--bg-surface)] text-[var(--text-primary)]" : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]"
-                      )}
-                    >
-                      <Mic size={14} strokeWidth={2} className="shrink-0" />
-                      <span className="flex-1 min-w-0 truncate">{d.label || "Micro"}</span>
-                      {micId === d.deviceId && <Check size={15} strokeWidth={2.5} className="shrink-0" />}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={cancelMemo} className="flex-1 py-2.5 rounded-lg text-sm text-[var(--text-secondary)] border border-[var(--border-default)]">
-                    Annuler
-                  </button>
-                  <button onClick={startAfterMicSelect} className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-[var(--text-primary)] text-[var(--bg-base)]">
-                    Commencer
-                  </button>
-                </div>
-              </div>
-            )}
-
             {memo.step === "recording" && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -512,24 +406,6 @@ export function VoiceMemoRecorder({ uploadUrl, offlineQueue, open, onClose, onCr
                   <span className="ml-auto text-sm text-[var(--text-tertiary)] tabular-nums">{fmt(elapsed)}</span>
                 </div>
                 <VoiceWaveform stream={micStream} className="w-full h-16" />
-                {/* Sélecteur de micro — utile surtout sur Android où le « bon »
-                    micro (dictaphone, bas de l'appareil) n'est pas toujours
-                    choisi par défaut. Apparaît quand plusieurs entrées existent. */}
-                {micDevices.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <Mic size={13} strokeWidth={2} className="text-[var(--text-tertiary)] shrink-0" />
-                    <select
-                      value={micId ?? ""}
-                      onChange={(e) => switchMic(e.target.value)}
-                      className="flex-1 min-w-0 bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5 text-xs text-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-default)]"
-                    >
-                      <option value="">Micro par défaut</option>
-                      {micDevices.map((d) => (
-                        <option key={d.deviceId} value={d.deviceId}>{d.label || "Micro"}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed min-h-[3rem] max-h-32 overflow-y-auto">
                   {transcript || (
                     <span className="text-[var(--text-tertiary)] italic">
