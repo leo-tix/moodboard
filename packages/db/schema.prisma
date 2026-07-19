@@ -543,6 +543,10 @@ model VisitEmbed {
   description String?
   image       String?
   siteName    String?
+  // Données structurées de la fiche wiki (kind ARTIST) : infobox Wikidata
+  // (naissance/décès, nationalité, activité, mouvement, genres, œuvres). Voir
+  // lib/visits/wikiArtist.ts (WikiStructured). Null pour LINK/YOUTUBE.
+  data        Json?
   order       Int            @default(0)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt

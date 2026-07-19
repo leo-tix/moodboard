@@ -126,8 +126,9 @@ export interface BentoSourceVisit {
   inspirations: JournalSourceVisit["inspirations"];
   noteBlocks: JournalSourceVisit["noteBlocks"];
   audioClips: JournalSourceVisit["audioClips"];
-  // Comme JournalSourceVisit["embeds"] mais kind élargi à ARTIST (fiche artiste).
-  embeds: { id: string; kind: "LINK" | "YOUTUBE" | "ARTIST"; url: string; title: string | null; description: string | null; image: string | null; siteName: string | null; order: number; createdAt: Date }[];
+  // Comme JournalSourceVisit["embeds"] mais kind élargi à ARTIST (fiche wiki) +
+  // data (infobox Wikidata en Json).
+  embeds: { id: string; kind: "LINK" | "YOUTUBE" | "ARTIST"; url: string; title: string | null; description: string | null; image: string | null; siteName: string | null; data?: unknown; order: number; createdAt: Date }[];
   mapBlocks: { id: string; locationName: string; latitude: number; longitude: number }[];
   // Modules « musée » (2026-07-18)
   cartels: {
@@ -202,6 +203,7 @@ export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
       description: e.description,
       image: e.image,
       siteName: e.siteName,
+      data: (e.data as import("@/lib/visits/wikiArtist").WikiStructured | null) ?? null,
     }),
   );
   visit.mapBlocks.forEach((m) =>

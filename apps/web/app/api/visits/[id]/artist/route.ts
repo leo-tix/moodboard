@@ -44,6 +44,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       description: meta.extract,
       image: meta.image,
       siteName: meta.shortDesc, // repurposé : description courte pour la carte
+      data: (meta.structured ?? undefined) as import("@prisma/client").Prisma.InputJsonValue | undefined, // infobox Wikidata
       order,
     },
   });

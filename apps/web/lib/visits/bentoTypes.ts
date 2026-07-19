@@ -1,4 +1,5 @@
 import type { JournalTile, JournalTileType } from "@/lib/visits/bentoSpans";
+import type { WikiStructured } from "@/lib/visits/wikiArtist";
 
 // Éléments des modules à contenu structuré (stockés en Json dans leur table).
 export interface ChecklistItem {
@@ -71,6 +72,8 @@ export type JournalTileContent =
       description: string | null;
       image: string | null;
       siteName: string | null;
+      /** Infobox Wikidata pour la fiche wiki (kind ARTIST). */
+      data?: WikiStructured | null;
     }
   | { type: "map"; id: string; locationName: string; latitude: number; longitude: number }
   | {
