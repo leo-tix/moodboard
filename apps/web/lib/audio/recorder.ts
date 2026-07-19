@@ -60,14 +60,20 @@ export function createAudioRecorder(stream: MediaStream, mimeType?: string): Med
  * Demande l'accès micro avec des messages d'erreur exploitables en UI.
  * Retourne soit le stream, soit un message d'erreur français prêt à afficher.
  */
-export async function requestMicrophone(): Promise<
+export async function requestMicrophone(deviceId?: string): Promise<
   { ok: true; stream: MediaStream } | { ok: false; error: string }
 > {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     return { ok: false, error: "Micro non disponible — HTTPS (ou localhost) requis pour enregistrer." };
   }
+  // Android n'expose pas de façon fiable la sélection VOICE_RECOGNITION vs
+  // UNPROCESSED via les flags (le mauvais micro — celui de la caméra — peut
+  // rester choisi). Quand plusieurs entrées audio existent, on laisse
+  // l'utilisateur cibler explicitement le micro (deviceId), persisté.
+  const audio: MediaTrackConstraints = { ...AUDIO_CONSTRAINTS };
+  if (deviceId) audio.deviceId = { exact: deviceId };
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio });
     return { ok: true, stream };
   } catch (err) {
     const name = err instanceof DOMException ? err.name : "";
