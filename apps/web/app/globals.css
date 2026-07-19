@@ -226,24 +226,68 @@ body {
    2026-07-19 : « façon carnet de note ». Le texte est calé sur 28px de
    hauteur de ligne pour tomber à peu près sur les réglures.
    ============================================================ */
-.note-paper {
+/* Le grain papier est posé en overlay inline dans BentoTile (les styles inline
+   échappent à Lightning CSS, qui refusait le data-uri SVG ici). */
+
+/* Réglures posées sur le TEXTE lui-même : elles n'occupent donc que la largeur
+   du texte (pas toute la tuile) et partagent son système de coordonnées → le
+   trait tombe sous chaque ligne. La grille de base est 28px (le trait est calé
+   sur la ligne de base du texte). */
+.note-paper .note-prose,
+.note-paper .ProseMirror {
   background-image: repeating-linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.07) 0,
-    rgba(255, 255, 255, 0.07) 1px,
+    rgba(255, 255, 255, 0.08) 0,
+    rgba(255, 255, 255, 0.08) 1px,
     transparent 1px,
     transparent 28px
   );
-  background-position: 0 34px;
+  background-position-y: 21px;
   background-repeat: repeat;
 }
-/* Le grain papier est posé en overlay inline dans BentoTile (les styles inline
-   échappent à Lightning CSS, qui refusait le data-uri SVG ici). */
+.note-paper .note-prose,
+.note-paper .ProseMirror,
 .note-paper .note-prose p,
 .note-paper .note-prose li,
 .note-paper .ProseMirror p,
 .note-paper .ProseMirror li {
   line-height: 28px;
+}
+/* Marges verticales annulées pour rester sur la grille de 28px. */
+.note-paper .note-prose p,
+.note-paper .note-prose li,
+.note-paper .ProseMirror p,
+.note-paper .ProseMirror li,
+.note-paper .note-prose ul,
+.note-paper .note-prose ol,
+.note-paper .ProseMirror ul,
+.note-paper .ProseMirror ol,
+.note-paper .note-prose blockquote,
+.note-paper .ProseMirror blockquote {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+/* Titres : hauteur multiple de 28 + fond opaque pour que la réglure ne
+   traverse pas le titre. */
+.note-paper .note-prose h1,
+.note-paper .ProseMirror h1 {
+  line-height: 56px;
+  margin: 0;
+}
+.note-paper .note-prose h2,
+.note-paper .note-prose h3,
+.note-paper .ProseMirror h2,
+.note-paper .ProseMirror h3 {
+  line-height: 28px;
+  margin: 0;
+}
+.note-paper .note-prose h1,
+.note-paper .note-prose h2,
+.note-paper .note-prose h3,
+.note-paper .ProseMirror h1,
+.note-paper .ProseMirror h2,
+.note-paper .ProseMirror h3 {
+  background: var(--bg-elevated);
 }
 
 /* ============================================================
