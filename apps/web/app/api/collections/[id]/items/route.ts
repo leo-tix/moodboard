@@ -40,6 +40,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       collectionId: id,
       inspirationId,
       order: baseOrder + i,
+      addedById: userId, // attribution : qui a ajouté cette image
     })),
     skipDuplicates: true,
   });

@@ -11,6 +11,7 @@ import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
 import { getCollectionMembers } from "@/lib/collections/members";
 import { MemberAvatars } from "@/components/collections/MemberAvatars";
 import { SaveToLibraryButton } from "@/components/collections/SaveToLibraryButton";
+import { UserAvatar } from "@/components/social/UserAvatar";
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -44,7 +45,10 @@ export default async function CollectionDetailPage({ params }: Props) {
           user: { select: { name: true, username: true } },
           items: {
             orderBy: { order: "asc" },
-            include: { inspiration: { include: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { id: true, thumbnailKey: true, storageKey: true } } } } },
+            include: {
+              addedBy: { select: { id: true, name: true, username: true, image: true } },
+              inspiration: { include: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { id: true, thumbnailKey: true, storageKey: true } } } },
+            },
           },
         },
       }),
@@ -77,6 +81,11 @@ export default async function CollectionDetailPage({ params }: Props) {
                     <SaveToLibraryButton collectionId={id} imageId={img.id} />
                   </div>
                 )}
+                {members.length > 1 && it.addedBy && (
+                  <div className="absolute bottom-1.5 left-1.5 rounded-full ring-2 ring-black/30" title={`Ajoutée par ${it.addedBy.name || `@${it.addedBy.username}`}`}>
+                    <UserAvatar name={it.addedBy.name} username={it.addedBy.username} image={it.addedBy.image} size={22} />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -93,6 +102,7 @@ export default async function CollectionDetailPage({ params }: Props) {
       include: {
         items: {
           include: {
+            addedBy: { select: { id: true, name: true, username: true, image: true } },
             inspiration: {
               include: {
                 images: {

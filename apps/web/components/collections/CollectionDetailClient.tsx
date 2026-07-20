@@ -9,8 +9,12 @@ import type { SuggestedAddition } from "@/lib/collections/suggestions";
 import type { CollectionMember } from "@/lib/collections/members";
 import { MemberAvatars } from "@/components/collections/MemberAvatars";
 import { SaveToLibraryButton } from "@/components/collections/SaveToLibraryButton";
+import { UserAvatar } from "@/components/social/UserAvatar";
+
+type Adder = { id: string; name: string | null; username: string | null; image: string | null };
 
 interface InspirationItem {
+  addedBy?: Adder | null;
   inspiration: {
     id: string;
     userId: string;
@@ -48,6 +52,8 @@ export function CollectionDetailClient({
   suggestions: initialSuggestions,
 }: CollectionDetailClientProps) {
   const [items, setItems] = useState(initialItems);
+  const isShared = members.length > 1;
+  const meMember = members.find((m) => m.id === viewerId) ?? null;
   const [removing, setRemoving] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -122,6 +128,7 @@ export function CollectionDetailClient({
       setItems((prev) => [
         ...prev,
         {
+          addedBy: meMember,
           inspiration: {
             id: suggestion.id,
             userId: viewerId, // les suggestions viennent de MA bibliothèque
@@ -248,7 +255,7 @@ export function CollectionDetailClient({
 
             {/* Masonry grid */}
             <div className="columns-2 sm:columns-3 lg:columns-4 xl:columns-5 gap-3 space-y-3">
-              {items.map(({ inspiration }) => {
+              {items.map(({ inspiration, addedBy }) => {
                 const img = inspiration.images[0];
                 const category = inspiration.categories[0]?.category.name;
                 const tags = inspiration.tags.map((t) => t.tag.name);
@@ -286,6 +293,16 @@ export function CollectionDetailClient({
                     {!selectMode && inspiration.userId !== viewerId && img?.id && (
                       <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity z-10">
                         <SaveToLibraryButton collectionId={collectionId} imageId={img.id} />
+                      </div>
+                    )}
+
+                    {/* Attribution (collections partagées) : qui a ajouté cette image */}
+                    {isShared && addedBy && (
+                      <div
+                        className="absolute bottom-1.5 left-1.5 z-10 rounded-full ring-2 ring-black/30"
+                        title={`Ajoutée par ${addedBy.name || `@${addedBy.username}`}`}
+                      >
+                        <UserAvatar name={addedBy.name} username={addedBy.username} image={addedBy.image} size={22} />
                       </div>
                     )}
                   </div>

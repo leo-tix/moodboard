@@ -57,6 +57,7 @@ model User {
   connectionsRequested Connection[] @relation("ConnReq")
   connectionsReceived  Connection[] @relation("ConnAdr")
   grants               ResourceGrant[]
+  collectionItemsAdded CollectionItem[] @relation("CollectionItemAddedBy")
   conversationsA       Conversation[] @relation("ConvA")
   conversationsB       Conversation[] @relation("ConvB")
   messagesSent         Message[]      @relation("MsgSender")
@@ -794,11 +795,14 @@ model CollectionItem {
   inspirationId  String
   order          Int             @default(0)
   addedAt        DateTime        @default(now())
+  addedById      String?         // qui a ajouté cette image (co-édition / attribution)
 
   collection     Collection      @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   inspiration    Inspiration     @relation(fields: [inspirationId], references: [id], onDelete: Cascade)
+  addedBy        User?           @relation("CollectionItemAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
 
   @@id([collectionId, inspirationId])
+  @@index([addedById])
   @@map("collection_items")
 }
 
