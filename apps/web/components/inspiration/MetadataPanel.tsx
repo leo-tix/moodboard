@@ -10,6 +10,7 @@ import { AiSuggestPanel } from "./AiSuggestPanel";
 import { getImageUrl } from "@/lib/storage/urls";
 import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
 import { VisitPicker, type VisitRef } from "@/components/visits/VisitPicker";
+import { SendImageButton } from "@/components/social/SendImageButton";
 
 interface MetadataPanelProps {
   id: string;
@@ -29,6 +30,8 @@ interface MetadataPanelProps {
   colorPalette?: { id: string; hex: string; order: number }[];
   /** Clé R2 de l'image principale — active les suggestions IA (analyse locale). */
   imageStorageKey?: string | null;
+  /** Id de l'image principale — active l'envoi par message. */
+  imageId?: string | null;
   /** Collections auxquelles appartient cette inspiration */
   initialCollections?: { id: string; name: string }[];
   /** Visite (musée / expo) à laquelle cette inspiration est rattachée */
@@ -48,7 +51,7 @@ const lbl = "block text-[9px] text-[var(--text-tertiary)] uppercase tracking-wid
 const fld =
   "w-full bg-transparent border-b border-[var(--border-subtle)] focus:border-[var(--border-default)] text-[var(--text-primary)] text-xs py-1 focus:outline-none transition-colors placeholder:text-[var(--text-tertiary)]";
 
-export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, initialCollections, initialVisit, scrollable = true }: MetadataPanelProps) {
+export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, imageId, initialCollections, initialVisit, scrollable = true }: MetadataPanelProps) {
   const [data, setData] = useState(initialData);
   const [tags, setTags] = useState<string[]>(initialData.tags ?? []);
   const [categories, setCategories] = useState<CategorySelection[]>(initialData.categories ?? []);
@@ -150,6 +153,12 @@ export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, 
         <p className={lbl}>Tags</p>
         <TagInput value={tags} onChange={handleTagsChange} placeholder="Entrée pour valider…" withSuggestions />
       </div>
+
+      {imageId && (
+        <div className="pt-1">
+          <SendImageButton imageId={imageId} />
+        </div>
+      )}
 
       {/* Suggestions IA locales (CLIP) — titre / catégories / tags, validées. */}
       {imageStorageKey && (

@@ -38,7 +38,7 @@ export default async function InspirationDetailPage({ params }: Props) {
       images: {
         orderBy: [{ isMain: "desc" }, { order: "asc" }],
         take: 1,
-        select: { storageKey: true },
+        select: { id: true, storageKey: true },
       },
       categories: {
         select: { categoryId: true, subcategoryId: true },
@@ -65,6 +65,7 @@ export default async function InspirationDetailPage({ params }: Props) {
     id: inspiration.id,
     title: inspiration.title,
     mainImageStorageKey: inspiration.images[0]?.storageKey ?? null,
+    mainImageId: inspiration.images[0]?.id ?? null,
     initialData: {
       title: inspiration.title,
       description: inspiration.description ?? "",

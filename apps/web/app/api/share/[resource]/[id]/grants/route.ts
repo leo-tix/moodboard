@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { segmentToResource, isOwner } from "@/lib/access/share";
 import { grantSchema, grantRemoveSchema } from "@/lib/validators/share";
+import { getOrCreateConversation } from "@/lib/messaging/conversation";
 
 type Params = { params: Promise<{ resource: string; id: string }> };
 
@@ -37,8 +38,16 @@ export async function POST(req: NextRequest, { params }: Params) {
     where: { resource: owned.resource, resourceId: owned.id, userId: target.id },
     select: { id: true },
   });
-  if (existing) await db.resourceGrant.update({ where: { id: existing.id }, data: { role } });
-  else await db.resourceGrant.create({ data: { resource: owned.resource, resourceId: owned.id, userId: target.id, role } });
+  if (existing) {
+    await db.resourceGrant.update({ where: { id: existing.id }, data: { role } });
+  } else {
+    await db.resourceGrant.create({ data: { resource: owned.resource, resourceId: owned.id, userId: target.id, role } });
+    // Nouveau partage nominatif → notifie le destinataire par un message (avec la
+    // ressource jointe). Réutilise/ouvre la conversation (PENDING si non-connecté).
+    const convo = await getOrCreateConversation(session.user.id, target.id);
+    await db.message.create({ data: { conversationId: convo.id, senderId: session.user.id, sharedResource: owned.resource, sharedResourceId: owned.id } });
+    await db.conversation.update({ where: { id: convo.id }, data: { lastMessageAt: new Date() } });
+  }
 
   return NextResponse.json({ ok: true, grant: { user: target, role } });
 }

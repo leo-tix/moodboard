@@ -48,6 +48,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       body: m.body,
       createdAt: m.createdAt,
       image: m.sharedImageId ? imageMap.get(m.sharedImageId) ?? null : null,
+      imageId: m.sharedImageId ?? null,
       resource: m.sharedResource && m.sharedResourceId
         ? { label: await labelFor(m.sharedResource, m.sharedResourceId), href: resourceHref(m.sharedResource, m.sharedResourceId) }
         : null,

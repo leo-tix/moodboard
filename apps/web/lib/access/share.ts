@@ -41,6 +41,13 @@ export async function defaultVisibilityFor(userId: string, resource: GrantResour
   return resource === "MOODBOARD" ? u.defaultVisibilityMoodboard : resource === "VISIT" ? u.defaultVisibilityVisit : u.defaultVisibilityCollection;
 }
 
+/** Libellé lisible d'une ressource (pour les messages/chips de partage). */
+export async function resourceLabel(resource: GrantResource, id: string): Promise<string> {
+  if (resource === "MOODBOARD") return (await db.moodboard.findUnique({ where: { id }, select: { title: true } }))?.title ?? "Planche";
+  if (resource === "VISIT") { const v = await db.visit.findUnique({ where: { id }, select: { place: true, exhibition: true } }); return v?.exhibition || v?.place || "Visite"; }
+  return (await db.collection.findUnique({ where: { id }, select: { name: true } }))?.name ?? "Collection";
+}
+
 export async function getVisibility(resource: GrantResource, id: string): Promise<Visibility | null> {
   const sel = { where: { id }, select: { visibility: true } };
   const row =

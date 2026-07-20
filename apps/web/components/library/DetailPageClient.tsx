@@ -15,6 +15,7 @@ export interface DetailPageData {
   id: string;
   title: string;
   mainImageStorageKey: string | null;
+  mainImageId: string | null;
   initialData: {
     title: string;
     description: string;
@@ -503,6 +504,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             initialData={panelData}
             colorPalette={data.colorPalette}
             imageStorageKey={data.mainImageStorageKey}
+            imageId={data.mainImageId}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
             scrollable={false}
@@ -537,6 +539,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
             initialData={panelData}
             colorPalette={data.colorPalette}
             imageStorageKey={data.mainImageStorageKey}
+            imageId={data.mainImageId}
             initialCollections={data.initialCollections}
             initialVisit={data.initialVisit}
           />
