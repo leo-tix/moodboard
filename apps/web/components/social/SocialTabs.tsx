@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Newspaper, MessageCircle, Users } from "lucide-react";
+import { Newspaper, MessageCircle, Users, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SocialBadge } from "@/components/social/SocialBadge";
+import { NotificationsBadge } from "@/components/social/NotificationsBadge";
 
-// En-tête d'onglets partagé par les 3 surfaces sociales (Fil / Messagerie /
-// Réseau) → une seule « page » sociale avec navigation par onglets.
-const TABS: { href: string; label: string; icon: typeof Newspaper; badge?: "requests" | "messages" }[] = [
+// En-tête d'onglets partagé par les 4 surfaces sociales (Fil / Messagerie /
+// Réseau / Notifications) → une seule « page » sociale à onglets.
+const TABS: { href: string; label: string; icon: typeof Newspaper; badge?: "requests" | "messages" | "notifs" }[] = [
   { href: "/feed", label: "Fil", icon: Newspaper },
   { href: "/messages", label: "Messagerie", icon: MessageCircle, badge: "messages" },
   { href: "/reseau", label: "Réseau", icon: Users, badge: "requests" },
+  { href: "/notifications", label: "Activité", icon: Bell, badge: "notifs" },
 ];
 
 export function SocialTabs() {
@@ -30,7 +32,7 @@ export function SocialTabs() {
             )}
           >
             <t.icon size={15} strokeWidth={1.9} /> {t.label}
-            {t.badge && <SocialBadge kind={t.badge} />}
+            {t.badge === "notifs" ? <NotificationsBadge /> : t.badge && <SocialBadge kind={t.badge} />}
           </Link>
         );
       })}
