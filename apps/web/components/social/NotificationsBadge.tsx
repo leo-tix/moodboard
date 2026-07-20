@@ -25,7 +25,7 @@ export function NotificationsBadge() {
     window.addEventListener("focus", refresh);
     window.addEventListener("notifs-seen", refresh);
     document.addEventListener("visibilitychange", onVis);
-    const i = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 15_000);
+    const i = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 45_000);
     return () => { window.removeEventListener("focus", refresh); window.removeEventListener("notifs-seen", refresh); document.removeEventListener("visibilitychange", onVis); window.clearInterval(i); };
   }, [refresh]);
 
