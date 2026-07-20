@@ -654,13 +654,25 @@ membres accessibles (`accessibleWhere`, byline auteur). Pastilles nav `SocialBad
 messagerie 9/9 — + flux authentifiés live (connect, partage visibilité, envoi
 message, feed). tsc propre à chaque phase.
 
-**Reste à faire (suivi explicite, noté dans les commits)** :
-- **Ouverture par un tiers + co-édition des VISITES et COLLECTIONS** (leurs pages
-  détail restent owner-only ; seules les planches sont partagées en lecture/édition).
-  Sur le profil/feed, les cartes visite/collection tierces ne sont pas cliquables.
-- **Envoi d'IMAGE en message** depuis la visionneuse (le schéma `Message.sharedImageId`
-  est prêt et rendu dans le fil ; il manque l'entrée UI côté visionneuse).
-- Dédup des deux boutons « Partager » de l'éditeur de planche (token vs membres).
+### 10bis — 2e passe (✅ 2026-07-20, retours utilisateur)
+- **BUG accès corrigé** : ouverture LECTURE SEULE des visites (`VisitReadOnlyView`
+  extrait de la page carnet) et collections (grille) partagées par un tiers ;
+  lien planche du profil réparé (/edit) ; cartes profil/feed cliquables.
+- **Visibilité par défaut par type** dans les Réglages (User.defaultVisibility*,
+  appliquée à la création).
+- **Partage → messagerie** : ajouter une personne (grant) dépose un message ;
+  bouton « Envoyer » image dans la visionneuse ; joindre une image depuis sa
+  galerie dans le composeur ; image reçue → « Ajouter à ma galerie » (copie R2
+  indépendante, quota).
+- **Un seul bouton Partager** par ressource (visibilité + membres + lien public
+  token réunis dans `ShareButton`).
+- **Une seule page sociale** à onglets (Fil / Messagerie / Réseau, `SocialTabs`),
+  une entrée nav « Social ».
+
+**Reste à faire (suivi explicite)** :
+- **CO-ÉDITION par un tiers des VISITES et COLLECTIONS** (lecture partagée OK ;
+  édition partagée = seulement les planches pour l'instant, éditeur des visites/
+  collections trop volumineux à câbler proprement).
 - Auto-inscription ouverte, public web anonyme, likes/commentaires, temps réel :
   hors périmètre (voir le plan).
 
