@@ -1,17 +1,20 @@
+import { cache } from "react";
 import { db } from "@/lib/db";
 
 // Graphe social : helpers de lecture des connexions (mutuelles, ACCEPTED).
 // Utilisés par les routes connexions, les profils, et (Phase 2) la résolution
 // de visibilité « Connexions ».
 
-/** Ids des utilisateurs connectés (ACCEPTED) à `userId`, dans les deux sens. */
-export async function getConnectionIds(userId: string): Promise<string[]> {
+/** Ids des utilisateurs connectés (ACCEPTED) à `userId`, dans les deux sens.
+ * Mémoïsé par requête (React cache) : un seul aller-retour DB même si plusieurs
+ * appelants le demandent dans le même rendu (feed, résolution d'accès…). */
+export const getConnectionIds = cache(async (userId: string): Promise<string[]> => {
   const rows = await db.connection.findMany({
     where: { status: "ACCEPTED", OR: [{ requesterId: userId }, { addresseeId: userId }] },
     select: { requesterId: true, addresseeId: true },
   });
   return rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));
-}
+});
 
 /** Deux utilisateurs sont-ils connectés (ACCEPTED, peu importe le sens) ? */
 export async function areConnected(a: string, b: string): Promise<boolean> {

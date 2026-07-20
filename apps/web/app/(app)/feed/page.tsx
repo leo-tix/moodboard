@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/current";
 import { db } from "@/lib/db";
-import { accessibleWhere } from "@/lib/access/resolve";
+import { accessibleWhereBuilder } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
 import { pickImgUrl } from "@/lib/social/previewCover";
 import { UserAvatar } from "@/components/social/UserAvatar";
@@ -21,10 +21,14 @@ export default async function FeedPage() {
   if (!me) redirect("/login");
 
   const ownerSel = { select: { name: true, username: true, image: true } };
+  // Accès résolu en UN wave (connexions + grants des 3 types en parallèle),
+  // puis les 3 requêtes de liste en parallèle → 2 vagues d'aller-retours DB au
+  // lieu de ~7 séquentielles.
+  const accWhere = await accessibleWhereBuilder(me.id);
   const [boards, visits, collections] = await Promise.all([
-    db.moodboard.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("MOODBOARD", me.id)] }, select: { id: true, title: true, background: true, canvasData: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
-    db.visit.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("VISIT", me.id)] }, select: { id: true, place: true, exhibition: true, coverKey: true, createdAt: true, user: ownerSel, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { createdAt: "desc" }, take: 20 }),
-    db.collection.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("COLLECTION", me.id)] }, select: { id: true, name: true, coverImageKey: true, createdAt: true, user: ownerSel, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.moodboard.findMany({ where: { AND: [{ userId: { not: me.id } }, accWhere("MOODBOARD")] }, select: { id: true, title: true, background: true, canvasData: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.visit.findMany({ where: { AND: [{ userId: { not: me.id } }, accWhere("VISIT")] }, select: { id: true, place: true, exhibition: true, coverKey: true, createdAt: true, user: ownerSel, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.collection.findMany({ where: { AND: [{ userId: { not: me.id } }, accWhere("COLLECTION")] }, select: { id: true, name: true, coverImageKey: true, createdAt: true, user: ownerSel, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
 
   const items: Item[] = [

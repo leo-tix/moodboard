@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { GrantResource, Visibility } from "@prisma/client";
 import { getConnectionIds, areConnected } from "@/lib/access/connections";
@@ -51,14 +52,16 @@ export async function canEditResource(resource: GrantResource, id: string, userI
   return canEdit(await resolveAccess(resource, id, userId));
 }
 
-/** Ids des ressources d'un type sur lesquelles le visiteur a un grant nominatif. */
-export async function grantedIds(viewerId: string, resource: GrantResource): Promise<string[]> {
+/** Ids des ressources d'un type sur lesquelles le visiteur a un grant nominatif.
+ * Mémoïsé par requête (React cache) : dédoublonne les appels multiples au sein
+ * d'un même rendu (feed, profil…) — un aller-retour DB au lieu de N. */
+export const grantedIds = cache(async (viewerId: string, resource: GrantResource): Promise<string[]> => {
   const rows = await db.resourceGrant.findMany({
     where: { userId: viewerId, resource },
     select: { resourceId: true },
   });
   return rows.map((r) => r.resourceId);
-}
+});
 
 /**
  * Fragment Prisma `where` listant les ressources accessibles au visiteur :
@@ -91,6 +94,46 @@ export async function accessibleWhereForOwner(resource: GrantResource, viewerId:
   const [connected, grants] = await Promise.all([areConnected(viewerId, ownerId), grantedIds(viewerId, resource)]);
   const vis = connected ? [Visibility.PUBLIC, Visibility.CONNECTIONS] : [Visibility.PUBLIC];
   return { userId: ownerId, OR: [{ visibility: { in: vis } }, { id: { in: grants } }] };
+}
+
+/**
+ * Version BATCH de `accessibleWhere` pour les pages qui filtrent PLUSIEURS types
+ * (feed, onglets « partagé avec moi »). Précalcule connexions + grants des 3
+ * types en UN SEUL wave parallèle, puis renvoie un builder synchrone par type.
+ * Évite les ~6 allers-retours séquentiels de 3× `await accessibleWhere(...)`
+ * (chaque RTT ≈ latence réseau vers la DB).
+ */
+export async function accessibleWhereBuilder(viewerId: string) {
+  const [connIds, gBoard, gVisit, gColl] = await Promise.all([
+    getConnectionIds(viewerId),
+    grantedIds(viewerId, GrantResource.MOODBOARD),
+    grantedIds(viewerId, GrantResource.VISIT),
+    grantedIds(viewerId, GrantResource.COLLECTION),
+  ]);
+  const map: Record<GrantResource, string[]> = { MOODBOARD: gBoard, VISIT: gVisit, COLLECTION: gColl };
+  return (resource: GrantResource) => ({
+    OR: [
+      { userId: viewerId },
+      { visibility: Visibility.PUBLIC },
+      { visibility: Visibility.CONNECTIONS, userId: { in: connIds } },
+      { id: { in: map[resource] } },
+    ],
+  });
+}
+
+/** Version BATCH de `accessibleWhereForOwner` (page profil : 3 types d'un même
+ * propriétaire) — 1 wave parallèle au lieu de 3× séquentiels. */
+export async function accessibleWhereForOwnerBuilder(viewerId: string, ownerId: string) {
+  if (viewerId === ownerId) return () => ({ userId: ownerId });
+  const [connected, gBoard, gVisit, gColl] = await Promise.all([
+    areConnected(viewerId, ownerId),
+    grantedIds(viewerId, GrantResource.MOODBOARD),
+    grantedIds(viewerId, GrantResource.VISIT),
+    grantedIds(viewerId, GrantResource.COLLECTION),
+  ]);
+  const vis = connected ? [Visibility.PUBLIC, Visibility.CONNECTIONS] : [Visibility.PUBLIC];
+  const map: Record<GrantResource, string[]> = { MOODBOARD: gBoard, VISIT: gVisit, COLLECTION: gColl };
+  return (resource: GrantResource) => ({ userId: ownerId, OR: [{ visibility: { in: vis } }, { id: { in: map[resource] } }] });
 }
 
 /** Supprime les grants d'une ressource (à appeler quand elle est supprimée). */

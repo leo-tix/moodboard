@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/current";
 import { db } from "@/lib/db";
 import { relationStatus } from "@/lib/access/connections";
-import { accessibleWhereForOwner } from "@/lib/access/resolve";
+import { accessibleWhereForOwnerBuilder } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
 import { pickImgUrl } from "@/lib/social/previewCover";
 import { UserAvatar } from "@/components/social/UserAvatar";
@@ -29,10 +29,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   const rel = await relationStatus(me.id, user.id);
   const isSelf = rel.status === "self";
 
+  const accWhere = await accessibleWhereForOwnerBuilder(me.id, user.id);
   const [boards, visits, collections] = await Promise.all([
-    db.moodboard.findMany({ where: await accessibleWhereForOwner("MOODBOARD", me.id, user.id), select: { id: true, title: true, background: true, canvasData: true }, orderBy: { order: "asc" }, take: 12 }),
-    db.visit.findMany({ where: await accessibleWhereForOwner("VISIT", me.id, user.id), select: { id: true, place: true, exhibition: true, coverKey: true, visitDate: true, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { visitDate: "desc" }, take: 12 }),
-    db.collection.findMany({ where: await accessibleWhereForOwner("COLLECTION", me.id, user.id), select: { id: true, name: true, coverImageKey: true, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { order: "asc" }, take: 12 }),
+    db.moodboard.findMany({ where: accWhere("MOODBOARD"), select: { id: true, title: true, background: true, canvasData: true }, orderBy: { order: "asc" }, take: 12 }),
+    db.visit.findMany({ where: accWhere("VISIT"), select: { id: true, place: true, exhibition: true, coverKey: true, visitDate: true, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { visitDate: "desc" }, take: 12 }),
+    db.collection.findMany({ where: accWhere("COLLECTION"), select: { id: true, name: true, coverImageKey: true, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { order: "asc" }, take: 12 }),
   ]);
   const nothing = boards.length === 0 && visits.length === 0 && collections.length === 0;
 
