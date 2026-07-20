@@ -2,8 +2,6 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { MoodboardGrid } from "@/components/moodboard/MoodboardGrid";
-import { capCanvasForPreview } from "@/lib/moodboard/preview";
-import type { CanvasElement } from "@/lib/moodboard/types";
 import { accessibleWhere } from "@/lib/access/resolve";
 import { LibraryTabs } from "@/components/social/LibraryTabs";
 import { SharedResourceGrid, type SharedItem } from "@/components/social/SharedResourceGrid";
@@ -37,7 +35,7 @@ export default async function MoodboardsPage({ searchParams }: { searchParams: P
         id: true,
         title: true,
         background: true,
-        canvasData: true,
+        previewKey: true,
         shareToken: true,
         shareExpiry: true,
         order: true,
@@ -49,18 +47,15 @@ export default async function MoodboardsPage({ searchParams }: { searchParams: P
     db.moodboardFolder.findMany({ where: { userId: user.id }, orderBy: { order: "asc" } }),
   ]);
 
-  const serialized = moodboards.map((m) => {
-    const canvasData = m.canvasData as CanvasElement[];
-    const imageCount = canvasData.filter((el) => el.type === "image").length;
-    return {
-      ...m,
-      canvasData: capCanvasForPreview(canvasData),
-      imageCount,
-      shareExpiry: m.shareExpiry?.toISOString() ?? null,
-      createdAt: m.createdAt.toISOString(),
-      updatedAt: m.updatedAt.toISOString(),
-    };
-  });
+  // La grille affiche l'aperçu précalculé (previewKey) → on ne lit plus
+  // canvasData (economie d'egress). `canvasData: []` satisfait le type partagé.
+  const serialized = moodboards.map((m) => ({
+    ...m,
+    canvasData: [],
+    shareExpiry: m.shareExpiry?.toISOString() ?? null,
+    createdAt: m.createdAt.toISOString(),
+    updatedAt: m.updatedAt.toISOString(),
+  }));
 
   return (
     <div className="p-6">

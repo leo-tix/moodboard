@@ -160,6 +160,8 @@ export interface MoodboardData {
   shareExpiry: string | null;
   order: number;
   folderId: string | null;
+  /** Vignette précalculée R2 — utilisée par la grille au lieu de rendre canvasData. */
+  previewKey?: string | null;
   /** Total image count on the real board — canvasData above may be trimmed for preview */
   imageCount?: number;
   createdAt: string;
