@@ -161,13 +161,6 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
   // Key trick: incrementing forces MetadataPanel to remount with new initialData after paste
   const [panelKey, setPanelKey] = useState(0);
   const [panelData, setPanelData] = useState(data.initialData);
-  // Appareil tactile (iPad, tablette) : pointeur grossier → on donne le vrai
-  // glissement (SwipeableImage) même en layout desktop, au lieu de l'image
-  // zoomable statique dont le swipe basculait sans animation.
-  const [isTouch, setIsTouch] = useState(false);
-  useEffect(() => {
-    try { setIsTouch(window.matchMedia("(pointer: coarse)").matches); } catch {}
-  }, []);
 
   // Persist panel visibility across navigations
   const togglePanel = useCallback(() => {
@@ -423,9 +416,10 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
 
         <div className="w-px h-4 bg-[var(--border-subtle)] flex-shrink-0 hidden sm:block" />
 
-        {/* Zoom controls — masqués sur tactile (l'image glissante gère le plein
-            écran au tap ; le zoom molette n'existe pas au doigt) */}
-        <div className={`${isTouch ? "hidden" : "hidden sm:flex"} items-center gap-0.5 flex-shrink-0`}>
+        {/* Zoom controls — masqués sur pointeur grossier (iPad) : cf. la règle
+            @media (pointer: coarse) dans globals.css qui bascule sur le layout
+            mobile où le zoom se fait au tap (plein écran), pas à la molette. */}
+        <div className="detail-zoom-controls hidden sm:flex items-center gap-0.5 flex-shrink-0">
           <button onClick={zoomOut} disabled={zoomIdx === 0}
             className="w-6 h-6 flex items-center justify-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] rounded disabled:opacity-20 transition-colors"
             title="Zoom arrière (−)"><Minus size={14} strokeWidth={2} /></button>
@@ -468,7 +462,7 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
       {/* ── Mobile layout : image sticky + metadata bottom sheet ──
           Glissement horizontal (façon Apple Photos) = image précédente/suivante ;
           tap = plein écran (zoom). Le scroll vertical reste natif (fiche). */}
-      <div className="md:hidden flex-1 min-h-0 overflow-y-auto">
+      <div className="detail-mobile-stack md:hidden flex-1 min-h-0 overflow-y-auto">
         {/* Image sticky avec carrousel glissant */}
         <div className="sticky top-0 z-0 w-full bg-[var(--bg-surface)]">
           <SwipeableImage
@@ -507,36 +501,22 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
         </div>
       </div>
 
-      {/* ── Desktop layout ── */}
-      <div className="hidden md:flex flex-1 min-h-0 overflow-hidden">
+      {/* ── Desktop layout (pointeur fin / souris) ── */}
+      <div className="detail-desktop-split hidden md:flex flex-1 min-h-0 overflow-hidden">
 
-        {/* Image desktop — molette pour zoomer (souris) / glissement (tactile, iPad) */}
+        {/* Image desktop — molette pour zoomer */}
         <div
           ref={imageAreaRef}
           className="relative flex-1 bg-[var(--bg-surface)] overflow-hidden flex items-center justify-center"
-          {...(isTouch ? {} : { onTouchStart: handleTouchStart, onTouchMove: handleTouchMove, onTouchEnd: handleTouchEnd })}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
-          {isTouch ? (
-            <SwipeableImage
-              fill
-              storageKey={data.mainImageStorageKey}
-              currentThumbKey={currentIdx !== -1 ? stripItems[currentIdx]?.thumbnailKey ?? null : null}
-              prevThumbKey={prevItem?.thumbnailKey ?? null}
-              nextThumbKey={nextItem?.thumbnailKey ?? null}
-              alt={data.title}
-              onPrev={prevItem ? () => router.replace(`/library/${prevItem.id}`) : null}
-              onNext={nextItem ? () => router.replace(`/library/${nextItem.id}`) : null}
-              onTap={() => setImmersive(true)}
-            />
-          ) : (
-            <>
-              <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
-              {isZoomed && (
-                <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
-                  {formatZoom(zoom)}
-                </div>
-              )}
-            </>
+          <ZoomableImage key={data.id} storageKey={data.mainImageStorageKey} title={data.title} zoom={zoom} />
+          {isZoomed && (
+            <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/50 text-white/60 text-[10px] rounded font-mono pointer-events-none select-none backdrop-blur-sm">
+              {formatZoom(zoom)}
+            </div>
           )}
         </div>
 

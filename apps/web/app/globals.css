@@ -399,3 +399,18 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Visionneuse détail : layout tactile (iPad / tablette) ──────────────────
+   Sur pointeur GROSSIER (doigt), on bascule la page détail sur la disposition
+   MOBILE (image plein largeur + carrousel glissant façon Apple Photos) au lieu
+   du split desktop (image + panneau latéral). Motif : dans le split, la colonne
+   image est étroite et haute → forte letterbox, et surtout le modal intercepté
+   REMONTE à chaque photo → l'image R2 (non mise en cache) laisse voir le fond
+   noir le temps du chargement = « frame noire au slide » (retour iPad 2026-07-20).
+   La disposition mobile, déjà éprouvée fluide, n'a pas ce défaut.
+   Pur CSS (pas de JS) → aucun flash d'hydratation. */
+@media (pointer: coarse) {
+  .detail-desktop-split { display: none !important; }
+  .detail-mobile-stack  { display: block !important; }
+  .detail-zoom-controls { display: none !important; }
+}
