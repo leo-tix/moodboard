@@ -8,6 +8,7 @@ import { getImageUrl } from "@/lib/storage/urls";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
 import { GalleryStrip, type StripItem } from "@/components/library/GalleryStrip";
 import { ImmersiveViewer } from "@/components/library/ImmersiveViewer";
+import { SwipeableImage } from "@/components/library/SwipeableImage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -457,35 +458,21 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
       </div>
 
       {/* ── Mobile layout : image sticky + metadata bottom sheet ──
-          Swipe horizontal = image précédente/suivante ; le zoom se fait dans
-          la visionneuse plein écran (tap sur l'image). */}
-      <div
-        className="md:hidden flex-1 min-h-0 overflow-y-auto"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Image pleine largeur — hauteur naturelle (plafonnée), tap = plein écran */}
-        <div
-          className="sticky top-0 z-0 w-full bg-[var(--bg-surface)] flex items-center justify-center"
-          onClick={() => setImmersive(true)}
-          role="button"
-          aria-label="Voir en plein écran"
-        >
-          {data.mainImageStorageKey ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={data.id}
-              src={getImageUrl(data.mainImageStorageKey)}
-              alt={data.title}
-              className="w-full h-auto object-contain"
-              style={{ maxHeight: "62vh", minHeight: "180px" }}
-              draggable={false}
-            />
-          ) : (
-            <div className="w-full flex items-center justify-center" style={{ height: "40vw" }}>
-              <span className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</span>
-            </div>
-          )}
+          Glissement horizontal (façon Apple Photos) = image précédente/suivante ;
+          tap = plein écran (zoom). Le scroll vertical reste natif (fiche). */}
+      <div className="md:hidden flex-1 min-h-0 overflow-y-auto">
+        {/* Image sticky avec carrousel glissant */}
+        <div className="sticky top-0 z-0 w-full bg-[var(--bg-surface)]">
+          <SwipeableImage
+            storageKey={data.mainImageStorageKey}
+            currentThumbKey={currentIdx !== -1 ? stripItems[currentIdx]?.thumbnailKey ?? null : null}
+            prevThumbKey={prevItem?.thumbnailKey ?? null}
+            nextThumbKey={nextItem?.thumbnailKey ?? null}
+            alt={data.title}
+            onPrev={prevItem ? () => router.replace(`/library/${prevItem.id}`) : null}
+            onNext={nextItem ? () => router.replace(`/library/${nextItem.id}`) : null}
+            onTap={() => setImmersive(true)}
+          />
           {/* Affordance plein écran */}
           <div className="absolute bottom-2.5 right-2.5 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center pointer-events-none">
             <Maximize2 size={13} strokeWidth={1.6} className="text-white/85" />
