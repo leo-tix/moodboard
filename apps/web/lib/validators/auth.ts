@@ -19,11 +19,16 @@ export const usernameSchema = z
   .regex(/^[a-z0-9._]+$/, "Minuscules, chiffres, . et _ uniquement")
   .refine((s) => !s.startsWith(".") && !s.endsWith("."), "Pas de point en début ou fin");
 
+const visibilityEnum = z.enum(["PRIVATE", "CONNECTIONS", "PUBLIC"]);
+
 export const profileSchema = z.object({
   name: z.string().trim().max(80, "Nom trop long").optional(),
   email: z.string().email("Email invalide").optional(),
   username: usernameSchema.optional(),
   bio: z.string().trim().max(280, "Bio trop longue (280 max)").optional(),
+  defaultVisibilityMoodboard: visibilityEnum.optional(),
+  defaultVisibilityVisit: visibilityEnum.optional(),
+  defaultVisibilityCollection: visibilityEnum.optional(),
 });
 
 export type ProfileInput = z.infer<typeof profileSchema>;

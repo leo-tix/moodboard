@@ -21,11 +21,19 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const { name, email, username, bio } = parsed.data;
-  const data: { name?: string | null; email?: string; username?: string; bio?: string | null } = {};
+  const { name, email, username, bio, defaultVisibilityMoodboard, defaultVisibilityVisit, defaultVisibilityCollection } = parsed.data;
+  const data: {
+    name?: string | null; email?: string; username?: string; bio?: string | null;
+    defaultVisibilityMoodboard?: "PRIVATE" | "CONNECTIONS" | "PUBLIC";
+    defaultVisibilityVisit?: "PRIVATE" | "CONNECTIONS" | "PUBLIC";
+    defaultVisibilityCollection?: "PRIVATE" | "CONNECTIONS" | "PUBLIC";
+  } = {};
 
   if (name !== undefined) data.name = name || null;
   if (bio !== undefined) data.bio = bio || null;
+  if (defaultVisibilityMoodboard !== undefined) data.defaultVisibilityMoodboard = defaultVisibilityMoodboard;
+  if (defaultVisibilityVisit !== undefined) data.defaultVisibilityVisit = defaultVisibilityVisit;
+  if (defaultVisibilityCollection !== undefined) data.defaultVisibilityCollection = defaultVisibilityCollection;
 
   if (username !== undefined) {
     // Handle unique (insensible à la casse, déjà en minuscules ici).

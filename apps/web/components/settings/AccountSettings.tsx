@@ -14,12 +14,15 @@ interface StorageInfo {
   formatted: { used: string; max: string; remaining: string };
 }
 
+type Vis = "PRIVATE" | "CONNECTIONS" | "PUBLIC";
+
 interface Props {
   initialName: string;
   initialEmail: string;
   initialImage: string | null;
   initialUsername: string;
   initialBio: string;
+  initialDefaults: { moodboard: Vis; visit: Vis; collection: Vis };
   memberSince: string;
   storage: StorageInfo;
 }
@@ -40,6 +43,7 @@ export function AccountSettings({
   initialImage,
   initialUsername,
   initialBio,
+  initialDefaults,
   memberSince,
   storage,
 }: Props) {
@@ -52,7 +56,7 @@ export function AccountSettings({
   const [profileError, setProfileError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const saveProfile = useCallback(async (patch: { name?: string; email?: string; username?: string; bio?: string }) => {
+  const saveProfile = useCallback(async (patch: { name?: string; email?: string; username?: string; bio?: string; defaultVisibilityMoodboard?: Vis; defaultVisibilityVisit?: Vis; defaultVisibilityCollection?: Vis }) => {
     setProfileStatus("saving");
     setProfileError(null);
     try {
@@ -121,6 +125,15 @@ export function AccountSettings({
     if (bioTimer.current) clearTimeout(bioTimer.current);
     bioTimer.current = setTimeout(() => saveProfile({ bio: v.trim() }), 700);
   };
+
+  // ── Partage par défaut (par type) ──
+  const [defs, setDefs] = useState(initialDefaults);
+  const onDefChange = (key: "moodboard" | "visit" | "collection", v: Vis) => {
+    setDefs((d) => ({ ...d, [key]: v }));
+    const field = key === "moodboard" ? "defaultVisibilityMoodboard" : key === "visit" ? "defaultVisibilityVisit" : "defaultVisibilityCollection";
+    saveProfile({ [field]: v });
+  };
+  const defRows: [("moodboard" | "visit" | "collection"), string][] = [["moodboard", "Planches"], ["visit", "Visites"], ["collection", "Collections"]];
 
   // ── Avatar ──
   const fileRef = useRef<HTMLInputElement>(null);
@@ -327,6 +340,28 @@ export function AccountSettings({
           </p>
         </div>
         {profileError && <p className="text-xs text-red-400">{profileError}</p>}
+      </section>
+
+      {/* ── Partage par défaut ── */}
+      <section className="space-y-3">
+        <p className="text-xs text-[var(--text-tertiary)] uppercase tracking-widest">Partage par défaut</p>
+        <p className="text-[11px] text-[var(--text-tertiary)]">
+          Visibilité appliquée à la création (ajustable ensuite par ressource). Les images héritent de leur collection.
+        </p>
+        {defRows.map(([key, label]) => (
+          <div key={key} className="flex items-center justify-between gap-3">
+            <span className="text-sm text-[var(--text-secondary)]">{label}</span>
+            <select
+              value={defs[key]}
+              onChange={(e) => onDefChange(key, e.target.value as Vis)}
+              className="text-sm bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-md px-2 py-1.5 text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-default)]"
+            >
+              <option value="PRIVATE">Privé</option>
+              <option value="CONNECTIONS">Connexions</option>
+              <option value="PUBLIC">Public</option>
+            </select>
+          </div>
+        ))}
       </section>
 
       {/* ── Mot de passe ── */}

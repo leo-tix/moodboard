@@ -31,6 +31,16 @@ export async function updateVisibility(resource: GrantResource, id: string, visi
   return db.collection.update({ where: { id }, data: { visibility } });
 }
 
+/** Visibilité par défaut du propriétaire pour un type, appliquée à la création. */
+export async function defaultVisibilityFor(userId: string, resource: GrantResource): Promise<Visibility> {
+  const u = await db.user.findUnique({
+    where: { id: userId },
+    select: { defaultVisibilityMoodboard: true, defaultVisibilityVisit: true, defaultVisibilityCollection: true },
+  });
+  if (!u) return "PRIVATE";
+  return resource === "MOODBOARD" ? u.defaultVisibilityMoodboard : resource === "VISIT" ? u.defaultVisibilityVisit : u.defaultVisibilityCollection;
+}
+
 export async function getVisibility(resource: GrantResource, id: string): Promise<Visibility | null> {
   const sel = { where: { id }, select: { visibility: true } };
   const row =

@@ -25,6 +25,12 @@ model User {
   username      String?    @unique
   // Bio courte affichée sur le profil public.
   bio           String?
+  // Visibilité par défaut appliquée à la CRÉATION, par type de ressource (les
+  // images héritent de leur contenant). L'utilisateur peut toujours l'ajuster
+  // après coup par ressource.
+  defaultVisibilityMoodboard  Visibility @default(PRIVATE)
+  defaultVisibilityVisit      Visibility @default(PRIVATE)
+  defaultVisibilityCollection Visibility @default(PRIVATE)
   // ADMIN = propriétaire de l'instance : crée/supprime les profils, règle les quotas.
   // USER = profil standard, ne voit que ses propres données.
   role          UserRole   @default(USER)

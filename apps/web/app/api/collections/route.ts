@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { defaultVisibilityFor } from "@/lib/access/share";
 
 // GET /api/collections — liste toutes les collections avec couverture + compte
 export async function GET(_req: NextRequest) {
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
   if (!name?.trim()) return NextResponse.json({ error: "Nom requis" }, { status: 400 });
 
   const collection = await db.collection.create({
-    data: { userId: session.user.id, name: name.trim(), description: description?.trim() || null },
+    data: { userId: session.user.id, name: name.trim(), description: description?.trim() || null, visibility: await defaultVisibilityFor(session.user.id, "COLLECTION") },
     include: { _count: { select: { items: true } } },
   });
 

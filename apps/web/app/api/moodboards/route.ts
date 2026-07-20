@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUserId } from "@/lib/auth/withToken";
+import { defaultVisibilityFor } from "@/lib/access/share";
 
 // GET /api/moodboards
 export async function GET(req: NextRequest) {
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const moodboard = await db.moodboard.create({
-    data: { userId, title: "Sans titre", canvasData: [], background: "#0a0a0a" },
+    data: { userId, title: "Sans titre", canvasData: [], background: "#0a0a0a", visibility: await defaultVisibilityFor(userId, "MOODBOARD") },
   });
 
   return NextResponse.json(moodboard, { status: 201 });

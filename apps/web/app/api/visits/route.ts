@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { defaultVisibilityFor } from "@/lib/access/share";
 import { z } from "zod";
 
 // GET /api/visits — liste chronologique avec compte + 4 premières vignettes
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
         latitude: latitude ?? null,
         longitude: longitude ?? null,
         address: address?.trim() || null,
+        visibility: await defaultVisibilityFor(userId, "VISIT"),
       },
     });
   } else if (latitude !== undefined && longitude !== undefined && visit.latitude === null) {
