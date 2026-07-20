@@ -29,7 +29,7 @@ export function SocialBadge({ kind }: { kind: "requests" | "messages" | "all" })
     const onVis = () => { if (document.visibilityState === "visible") void refresh(); };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVis);
-    const i = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 30_000);
+    const i = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 15_000);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", onVis); window.clearInterval(i); };
   }, [refresh]);
 

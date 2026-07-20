@@ -23,6 +23,14 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Le fil ne « saute » en bas au rafraîchissement que si l'utilisateur y est
+  // déjà (sinon on ne le déloge pas de sa lecture de l'historique).
+  const nearBottomRef = useRef(true);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
 
   const loadConvos = useCallback(async () => {
     const r = await fetch("/api/conversations");
@@ -34,12 +42,27 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
   }, [loadConvos]);
 
   useEffect(() => { void loadConvos(); }, [loadConvos]);
-  useEffect(() => { if (selected) void loadThread(selected); else setThread(null); }, [selected, loadThread]);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [thread?.messages.length]);
+  useEffect(() => { nearBottomRef.current = true; if (selected) void loadThread(selected); else setThread(null); }, [selected, loadThread]);
+  useEffect(() => { if (nearBottomRef.current) endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [thread?.messages.length]);
+
+  // Rafraîchissement quasi-temps-réel (polling léger) : liste + fil ouvert, en
+  // pause quand l'onglet est masqué, relancé au focus/retour d'onglet.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadConvos();
+      if (selected) void loadThread(selected);
+    };
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    const i = window.setInterval(tick, 5000);
+    return () => { window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); window.clearInterval(i); };
+  }, [selected, loadConvos, loadThread]);
 
   const send = async () => {
     if (!selected || !text.trim()) return;
     setBusy(true);
+    nearBottomRef.current = true; // on vient d'envoyer → toujours défiler en bas
     try {
       await fetch(`/api/conversations/${selected}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: text.trim() }) });
       setText("");
@@ -87,7 +110,7 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-4 space-y-2">
+        <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto py-4 space-y-2">
           {thread.messages.map((m) => (
             <div key={m.id} className={cn("flex", m.mine ? "justify-end" : "justify-start")}>
               <div className={cn("max-w-[75%] rounded-2xl px-3 py-2 text-sm", m.mine ? "bg-[var(--text-primary)] text-[var(--bg-base)]" : "bg-[var(--bg-elevated)] text-[var(--text-primary)]")}>
