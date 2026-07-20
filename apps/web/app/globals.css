@@ -330,6 +330,42 @@ body {
 }
 
 /* ============================================================
+   BARRE DE PROGRESSION DE NAVIGATION (globale, en haut de l'écran)
+   Apparaît dès le clic sur un lien interne, disparaît quand la nouvelle route
+   est rendue (voir components/layout/TopProgressBar.tsx). Segment indéterminé
+   animé en `transform`/`left` — signale « ça charge » pendant l'attente serveur
+   des pages dynamiques.
+   ============================================================ */
+.nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+}
+.nav-progress--active { opacity: 1; }
+.nav-progress--active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 35%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent, #a78bfa), transparent);
+  animation: nav-indeterminate 0.9s ease-in-out infinite;
+  will-change: left;
+}
+@keyframes nav-indeterminate {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+
+/* ============================================================
    BARRE DE PROGRESSION INDÉTERMINÉE — transcription Whisper
    (voir VoiceMemoRecorder). CRUCIAL : animation en `transform` pur, donc
    portée par le thread COMPOSITEUR — elle continue de défiler même quand

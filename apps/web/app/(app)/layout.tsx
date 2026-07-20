@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
@@ -5,6 +6,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlobalUploadProvider } from "@/components/upload/GlobalUploadProvider";
 import { PageTransition } from "@/components/layout/PageTransition";
+import { TopProgressBar } from "@/components/layout/TopProgressBar";
 
 export default async function AppLayout({
   children,
@@ -25,6 +27,9 @@ export default async function AppLayout({
 
   return (
     <div className="flex h-screen bg-[var(--bg-base)] overflow-hidden">
+      {/* Barre de progression de navigation (retour visuel instantané au clic) */}
+      <Suspense fallback={null}><TopProgressBar /></Suspense>
+
       {/* Sidebar — desktop only */}
       <Sidebar
         user={{
