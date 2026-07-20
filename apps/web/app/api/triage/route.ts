@@ -14,23 +14,18 @@ export async function GET() {
       isAccepted: false,
       isArchived: false,
     },
+    // Sélection minimale : le client (TriageClient/itemToLocal) n'utilise que
+    // les FK de catégorie, les noms de tags et l'image principale. Inutile de
+    // joindre les objets category/subcategory complets pour chaque item (ni de
+    // ramener country/source/description/sourceUrl non affichés) — allège la
+    // requête ET le payload, surtout avec une grosse file d'attente.
     select: {
-      id:          true,
-      title:       true,
-      author:      true,
-      year:        true,
-      country:     true,
-      sourceUrl:   true,
-      source:      true,
-      description: true,
-      createdAt:   true,
-      categories: {
-        include: {
-          category:    { select: { id: true, name: true, icon: true } },
-          subcategory: { select: { id: true, name: true } },
-        },
-      },
-      tags: { include: { tag: { select: { name: true } } } },
+      id:     true,
+      title:  true,
+      author: true,
+      year:   true,
+      categories: { select: { categoryId: true, subcategoryId: true } },
+      tags: { select: { tag: { select: { name: true } } } },
       images: {
         where:   { isMain: true },
         select:  { storageKey: true, thumbnailKey: true, width: true, height: true },

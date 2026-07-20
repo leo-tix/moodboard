@@ -10,6 +10,7 @@ import { AiSuggestPanel } from "@/components/inspiration/AiSuggestPanel";
 import { AutocompleteInput } from "@/components/inspiration/AutocompleteInput";
 import type { Category } from "@/components/inspiration/CategorySelect";
 import { notifyTriageCountChanged } from "@/lib/triage/events";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,8 +19,6 @@ interface TriageItem {
   title:       string;
   author:      string | null;
   year:        number | null;
-  description: string | null;
-  sourceUrl:   string | null;
   categories:  { categoryId: string; subcategoryId: string | null }[];
   tags:        { tag: { name: string } }[];
   images:      { storageKey: string; thumbnailKey: string | null; width: number | null; height: number | null }[];
@@ -350,35 +349,45 @@ export function TriageClient() {
     vibrate(action === "accept" ? [10, 30, 60] : [60]);
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    // Capture item + champs AVANT d'avancer (la queue change → `current` devient
+    // la carte suivante et l'effet de reset réinitialise `fields`).
+    const item = current;
     const f = fieldsRef.current;
+
+    // ── UI OPTIMISTE : on passe à la carte suivante IMMÉDIATEMENT ──
+    // Avant, les 2 PATCH (métadonnées + décision) étaient attendus AVANT
+    // d'avancer → temps mort après chaque swipe (× latence réseau ~aller-retour).
+    // Désormais l'écran répond tout de suite, la persistance se fait en fond.
     if (f) {
-      await fetch(`/api/inspirations/${current.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: f.title, author: f.author || undefined,
-          year: parseInt(f.year) || undefined, categories: f.categories, tags: f.tags,
-        }),
-      });
       setPrevFields({ ...f });
-      // Mémorise pour le rewind — capture item + champs AVANT de faire avancer la queue
-      setLastAction({ item: current, fields: { ...f }, action });
+      setLastAction({ item, fields: { ...f }, action });
     }
-
-    await fetch(`/api/triage/${current.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    // accept/archive change le compte d'images en attente de triage — prévient
-    // la pastille (BottomNav/Sidebar) pour qu'elle se mette à jour tout de
-    // suite, sans attendre un remount ou un focus d'onglet.
-    notifyTriageCountChanged();
-
+    notifyTriageCountChanged(); // met à jour la pastille sans attendre le réseau
     setQueue((q) => q.slice(1));
     setIsExiting(false);
     setHint(null);
     clearBg();
+
+    // ── Persistance en arrière-plan ──
+    try {
+      if (f) {
+        await fetch(`/api/inspirations/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: f.title, author: f.author || undefined,
+            year: parseInt(f.year) || undefined, categories: f.categories, tags: f.tags,
+          }),
+        });
+      }
+      await fetch(`/api/triage/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+    } catch {
+      // Échec réseau (rare) : la décision reste annulable via le rewind (z / ↺).
+    }
   }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Undo (rewind) — Tinder-style : remet la dernière décision en tête de file ──
@@ -585,11 +594,28 @@ export function TriageClient() {
   // ── Empty state ──
 
   if (loading) {
+    // Squelette à la forme réelle de l'écran (barre + carte + boutons) plutôt
+    // qu'un spinner générique → transition plus douce vers le contenu.
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-[var(--accent,#a78bfa)] border-t-transparent animate-spin" />
-          <p className="text-sm text-[var(--text-tertiary)]">Chargement…</p>
+      <div className="flex flex-col h-screen">
+        <div className="flex-shrink-0 flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b border-[var(--border-subtle)]">
+          <div className="flex items-center gap-1.5">
+            <Skeleton className="w-4 h-4 rounded" />
+            <div className="flex items-center gap-1 ml-1">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="w-1.5 h-1.5 rounded-full" />)}
+            </div>
+          </div>
+          <Skeleton className="w-20 h-7 rounded-lg" />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-4 gap-4">
+          <div className="w-full" style={{ maxWidth: "min(100%, 380px)" }}>
+            <Skeleton className="w-full rounded-2xl" style={{ height: "min(52vh, 460px)" }} />
+          </div>
+          <div className="flex items-center gap-3 w-full" style={{ maxWidth: "min(100%, 380px)" }}>
+            <Skeleton className="flex-1 h-[52px] rounded-2xl" />
+            <Skeleton className="w-14 h-14 rounded-2xl" />
+            <Skeleton className="flex-1 h-[52px] rounded-2xl" />
+          </div>
         </div>
       </div>
     );

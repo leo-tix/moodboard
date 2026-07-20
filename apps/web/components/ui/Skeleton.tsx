@@ -3,8 +3,8 @@ import { cn } from "@/lib/utils";
 // Bloc de chargement générique — surface neutre + balayage lumineux
 // (.skeleton, voir globals.css). Composant serveur pur (pas de state) :
 // utilisable directement dans les fichiers loading.tsx (Suspense fallback).
-export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden className={cn("skeleton rounded-md", className)} />;
+export function Skeleton({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return <div aria-hidden className={cn("skeleton rounded-md", className)} style={style} />;
 }
 
 // Grille d'images en chargement — reprend les breakpoints de la grille réelle
