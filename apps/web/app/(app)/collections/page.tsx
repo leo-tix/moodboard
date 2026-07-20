@@ -75,6 +75,7 @@ export default async function CollectionsPage({ searchParams }: { searchParams: 
         </div>
       </header>
 
+      <LibraryTabs base="/collections" active="mine" mineLabel="Mes collections" sharedCount={sharedCount} />
       <CollectionsClient initialCollections={collections} suggestions={suggestions} />
     </div>
   );
