@@ -35,7 +35,11 @@ export function ConnectButton({
     }
   };
 
-  const connect = () =>
+  // UI optimiste : l'état du bouton bascule AVANT la réponse serveur, puis se
+  // réconcilie (ou revient en arrière en cas d'échec).
+  const connect = () => {
+    const prev = { status, connId };
+    setStatus("outgoing");
     run(async () => {
       const r = await fetch("/api/connections", {
         method: "POST",
@@ -46,31 +50,38 @@ export function ConnectButton({
       if (r.ok) {
         setStatus(d.status === "connected" ? "connected" : "outgoing");
         setConnId(d.connectionId);
+      } else {
+        setStatus(prev.status);
+        setConnId(prev.connId);
       }
     });
+  };
 
-  const del = (next: RelationStatus) =>
+  const del = (next: RelationStatus) => {
+    const prev = { status, connId };
+    if (!prev.connId) return;
+    setStatus(next);
+    setConnId(undefined);
     run(async () => {
-      if (!connId) return;
-      await fetch(`/api/connections/${connId}`, { method: "DELETE" });
-      setStatus(next);
-      setConnId(undefined);
+      const r = await fetch(`/api/connections/${prev.connId}`, { method: "DELETE" });
+      if (!r.ok) { setStatus(prev.status); setConnId(prev.connId); }
     });
+  };
 
-  const respond = (action: "accept" | "decline") =>
+  const respond = (action: "accept" | "decline") => {
+    const prev = { status, connId };
+    if (!prev.connId) return;
+    if (action === "accept") setStatus("connected");
+    else { setStatus("none"); setConnId(undefined); }
     run(async () => {
-      if (!connId) return;
-      await fetch(`/api/connections/${connId}`, {
+      const r = await fetch(`/api/connections/${prev.connId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      if (action === "accept") setStatus("connected");
-      else {
-        setStatus("none");
-        setConnId(undefined);
-      }
+      if (!r.ok) { setStatus(prev.status); setConnId(prev.connId); }
     });
+  };
 
   if (status === "self") return null;
 

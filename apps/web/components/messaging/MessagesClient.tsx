@@ -61,12 +61,25 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
 
   const send = async () => {
     if (!selected || !text.trim()) return;
+    const body = text.trim();
     setBusy(true);
     nearBottomRef.current = true; // on vient d'envoyer → toujours défiler en bas
+
+    // UI optimiste : la bulle apparaît immédiatement (id temporaire), l'input se
+    // vide, puis on réconcilie avec la vraie réponse serveur. En cas d'échec on
+    // retire la bulle et on restaure le texte.
+    const tempId = `tmp-${Date.now()}`;
+    const optimistic: Msg = { id: tempId, mine: true, body, createdAt: new Date().toISOString(), image: null, imageId: null, resource: null };
+    setThread((t) => (t ? { ...t, messages: [...t.messages, optimistic] } : t));
+    setText("");
     try {
-      await fetch(`/api/conversations/${selected}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: text.trim() }) });
-      setText("");
+      const r = await fetch(`/api/conversations/${selected}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body }) });
+      if (!r.ok) throw new Error("send failed");
       await loadThread(selected);
+    } catch {
+      // Rollback : on enlève la bulle optimiste et on rend le texte à l'input.
+      setThread((t) => (t ? { ...t, messages: t.messages.filter((m) => m.id !== tempId) } : t));
+      setText(body);
     } finally { setBusy(false); }
   };
   const accept = async () => {

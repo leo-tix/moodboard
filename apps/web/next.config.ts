@@ -67,6 +67,19 @@ const nextConfig: NextConfig = {
   },
 
   serverExternalPackages: ["sharp"],
+
+  experimental: {
+    // Cache client du routeur : réutilise le RSC d'une page déjà visitée sans
+    // repasser par le serveur. Par défaut `dynamic: 0` → chaque retour/arrière
+    // ou revisite d'une page dynamique refait un aller-retour serveur (lag
+    // perçu). 30 s rend les navigations « aller-retour » quasi-instantanées ;
+    // la messagerie a son propre polling et les listes tolèrent 30 s de
+    // fraîcheur. `static` = pages sans données par-requête.
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
+  },
 };
 
 export default nextConfig;
