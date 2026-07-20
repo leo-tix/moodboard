@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
+import { resolveAccess } from "@/lib/access/resolve";
+import { VISIT_READONLY_INCLUDE } from "@/lib/visits/readOnlyInclude";
+import { VisitReadOnlyView } from "@/components/visits/VisitReadOnlyView";
 import { VisitJournal } from "@/components/visits/VisitJournal";
 import { VisitMap } from "@/components/visits/VisitMap";
 import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
@@ -32,6 +36,24 @@ export default async function VisiteDetailPage({ params }: Props) {
   const { id } = await params;
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  // Accès partagé : un tiers autorisé (public / connexions / grant) voit la
+  // visite en LECTURE SEULE. L'édition reste au propriétaire (co-édition des
+  // visites = suivi ultérieur). Aucun accès → 404.
+  const access = await resolveAccess("VISIT", id, user.id);
+  if (!access) notFound();
+  if (access !== "owner") {
+    const roVisit = await db.visit.findUnique({ where: { id }, include: VISIT_READONLY_INCLUDE });
+    if (!roVisit) notFound();
+    return (
+      <div className="max-w-4xl mx-auto px-4 md:px-6 md:pt-6 pb-10">
+        <div className="pt-4 md:pt-0 mb-1">
+          <Link href="/feed" className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">← Retour</Link>
+        </div>
+        <VisitReadOnlyView visit={roVisit} />
+      </div>
+    );
+  }
 
   const visit = await db.visit.findFirst({
     where: { id, userId: user.id },

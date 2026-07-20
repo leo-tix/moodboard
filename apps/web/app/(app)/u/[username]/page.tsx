@@ -65,7 +65,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mb-2">Planches</p>
             <div className={grid}>
               {boards.map((b) => (
-                <Link key={b.id} href={`/moodboards/${b.id}`} className={card}>
+                <Link key={b.id} href={`/moodboards/${b.id}/edit`} className={card}>
                   <div className="aspect-[4/3]" style={{ background: b.background }} />
                   <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{b.title}</p>
                 </Link>
@@ -89,12 +89,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                     <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{v.exhibition || v.place}</p>
                   </>
                 );
-                // La visite d'un tiers n'est pas encore ouvrable (lecture partagée à venir).
-                return isSelf ? (
-                  <Link key={v.id} href={`/visites/${v.id}`} className={card}>{inner}</Link>
-                ) : (
-                  <div key={v.id} className={card}>{inner}</div>
-                );
+                return <Link key={v.id} href={`/visites/${v.id}`} className={card}>{inner}</Link>;
               })}
             </div>
           </section>
@@ -115,11 +110,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                     <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{c.name}</p>
                   </>
                 );
-                return isSelf ? (
-                  <Link key={c.id} href={`/collections/${c.id}`} className={card}>{inner}</Link>
-                ) : (
-                  <div key={c.id} className={card}>{inner}</div>
-                );
+                return <Link key={c.id} href={`/collections/${c.id}`} className={card}>{inner}</Link>;
               })}
             </div>
           </section>

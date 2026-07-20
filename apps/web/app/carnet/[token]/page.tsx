@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { buildBentoLayout } from "@/lib/visits/journalItems";
-import { VisitJournalReadOnly } from "@/components/visits/VisitJournalReadOnly";
-import { VisitCoverCarousel } from "@/components/visits/VisitCoverCarousel";
-import { VisitMap } from "@/components/visits/VisitMap";
-import { getImageUrl } from "@/lib/storage/urls";
+import { VISIT_READONLY_INCLUDE } from "@/lib/visits/readOnlyInclude";
+import { VisitReadOnlyView } from "@/components/visits/VisitReadOnlyView";
 
 export const metadata: Metadata = { robots: "noindex" };
 
@@ -19,143 +16,19 @@ export default async function PublicCarnetPage({ params }: Props) {
 
   const visit = await db.visit.findUnique({
     where: { shareToken: token },
-    include: {
-      user: { select: { name: true, image: true } },
-      inspirations: {
-        where: { status: "READY" },
-        select: {
-          id: true,
-          title: true,
-          author: true,
-          year: true,
-          visitOrder: true,
-          createdAt: true,
-          images: {
-            select: { storageKey: true, thumbnailKey: true, width: true, height: true },
-            orderBy: [{ isMain: "desc" }, { order: "asc" }],
-            take: 1,
-          },
-        },
-      },
-      noteBlocks: true,
-      audioClips: true,
-      embeds: true,
-      mapBlocks: true,
-      cartels: true,
-      palettes: true,
-      tickets: true,
-      sketches: true,
-      highlights: true,
-      checklists: true,
-      timelines: true,
-    },
+    include: VISIT_READONLY_INCLUDE,
   });
 
   if (!visit) notFound();
   // Lien expiré → 404 (même comportement que le partage des planches).
   if (visit.shareExpiry && visit.shareExpiry < new Date()) notFound();
 
-  const tiles = buildBentoLayout(visit);
-  const hasMap = visit.latitude !== null && visit.longitude !== null;
-
-  const orderedInspirations = [...visit.inspirations].sort(
-    (a, b) => a.visitOrder - b.visitOrder || a.createdAt.getTime() - b.createdAt.getTime(),
-  );
-  const carouselImages = orderedInspirations
-    .slice(0, 12)
-    .map((i) => ({ id: i.id, storageKey: i.images[0]?.storageKey, width: i.images[0]?.width ?? null, height: i.images[0]?.height ?? null }))
-    .filter((i): i is { id: string; storageKey: string; width: number | null; height: number | null } => Boolean(i.storageKey));
-  // Couverture personnalisée (image fixe) si l'auteur en a défini une.
-  const coverImages = visit.coverKey
-    ? [{ id: "custom-cover", storageKey: visit.coverKey, width: null as number | null, height: null as number | null }]
-    : carouselImages;
-  const mapThumbnailKey = orderedInspirations[0]?.images[0]?.thumbnailKey ?? null;
-
-  const hasCover = coverImages.length > 0;
-  const coverTitle = visit.exhibition || visit.place;
-  const date = new Date(visit.visitDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-
-  // Auteur du carnet — affiché UNIQUEMENT sur la page publique (identité du
-  // créateur). image = clé R2 (getImageUrl) ou URL absolue (OAuth) ; sinon
-  // initiales.
-  const author = visit.user;
-  const authorAvatar = author.image ? (/^https?:\/\//.test(author.image) ? author.image : getImageUrl(author.image)) : null;
-  const authorInitials = (author.name ?? "")
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
-      <div className="max-w-4xl mx-auto p-4 md:p-6">
-        {/* Infos superposées SUR la cover (titre/lieu/date), pas de doublon
-            en dessous — cohérent avec la page de détail. */}
-        {hasCover ? (
-          <VisitCoverCarousel images={coverImages}>
-            <div className="drop-shadow-[0_2px_12px_rgba(0,0,0,0.6)]">
-              <h1 className="font-serif text-white text-3xl md:text-4xl font-semibold leading-tight">
-                {coverTitle}
-              </h1>
-              <p className="text-sm text-white/85 mt-1">
-                {visit.exhibition ? `${visit.place} · ${date}` : date}
-              </p>
-            </div>
-          </VisitCoverCarousel>
-        ) : (
-          <header className="mb-5 mt-4">
-            <h1 className="font-serif text-2xl md:text-3xl font-semibold text-[var(--text-primary)] leading-tight">
-              {coverTitle}
-            </h1>
-            {visit.exhibition && <p className="text-sm text-[var(--text-secondary)] mt-1">{visit.place}</p>}
-            <p className="text-xs text-[var(--text-tertiary)] mt-1">{date}</p>
-          </header>
-        )}
-
-        {/* Auteur du carnet (page publique uniquement). */}
-        {author.name && (
-          <div className="flex items-center gap-3 mt-5 mb-6">
-            <div className="w-9 h-9 rounded-full overflow-hidden bg-[var(--bg-surface)] ring-1 ring-[var(--border-subtle)] flex items-center justify-center shrink-0">
-              {authorAvatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={authorAvatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-[12px] font-medium text-[var(--text-secondary)]">{authorInitials}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-[13px] font-medium text-[var(--text-primary)] leading-tight truncate">{author.name}</p>
-              <p className="text-[11px] text-[var(--text-tertiary)]">Carnet de visite partagé</p>
-            </div>
-          </div>
-        )}
-
-        {visit.notes && (
-          <p className="text-xs text-[var(--text-tertiary)] mb-5 max-w-xl whitespace-pre-wrap">{visit.notes}</p>
-        )}
-
-        {hasMap && (
-          <div className="mb-6 rounded-xl overflow-hidden border border-[var(--border-subtle)]">
-            <VisitMap
-              latitude={visit.latitude!}
-              longitude={visit.longitude!}
-              label={visit.place}
-              thumbnailKey={mapThumbnailKey}
-              zoom={5}
-              countryOutline
-              className="h-64 md:h-80 w-full"
-            />
-          </div>
-        )}
-
-        <VisitJournalReadOnly tiles={tiles} authorName={visit.user.name} authorImage={visit.user.image} />
-
-        <footer className="mt-10 pt-6 border-t border-[var(--border-subtle)] text-center">
-          <p className="text-[11px] text-[var(--text-tertiary)]">Carnet de visite partagé — Moodboard</p>
-        </footer>
-      </div>
+      <VisitReadOnlyView visit={visit} />
+      <footer className="max-w-4xl mx-auto px-4 md:px-6 pb-10 pt-2 text-center">
+        <p className="text-[11px] text-[var(--text-tertiary)] border-t border-[var(--border-subtle)] pt-6">Carnet de visite partagé — Moodboard</p>
+      </footer>
     </div>
   );
 }

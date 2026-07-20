@@ -59,12 +59,8 @@ export default async function FeedPage() {
                 </div>
               </div>
             );
-            // Ouverture directe : planches OK ; visites/collections d'un tiers pas encore ouvrables.
-            return it.kind === "board" ? (
-              <Link key={it.id} href={`/moodboards/${it.id}/edit`} className="block hover:opacity-90 transition-opacity">{inner}</Link>
-            ) : (
-              <div key={it.id}>{inner}</div>
-            );
+            const href = it.kind === "board" ? `/moodboards/${it.id}/edit` : it.kind === "visit" ? `/visites/${it.id}` : `/collections/${it.id}`;
+            return <Link key={`${it.kind}-${it.id}`} href={href} className="block hover:opacity-90 transition-opacity">{inner}</Link>;
           })}
         </div>
       )}
