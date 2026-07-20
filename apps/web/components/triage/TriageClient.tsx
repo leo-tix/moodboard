@@ -563,6 +563,7 @@ export function TriageClient() {
           l'utilisateur. Toggle « auto » persisté partagé avec les espaces d'upload. */}
       {current?.images?.[0]?.storageKey && (
         <AiSuggestPanel
+          manualOnly
           imageUrl={getImageUrl(current.images[0].storageKey)}
           allCategories={allCategories}
           currentTitle={fields.title}
