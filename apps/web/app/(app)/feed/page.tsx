@@ -6,11 +6,14 @@ import { accessibleWhere } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { SocialTabs } from "@/components/social/SocialTabs";
+import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
+import { capCanvasForPreview } from "@/lib/moodboard/preview";
+import type { CanvasElement } from "@/lib/moodboard/types";
 
 export const dynamic = "force-dynamic";
 
 type Owner = { name: string | null; username: string | null; image: string | null };
-type Item = { kind: "board" | "visit" | "collection"; id: string; title: string; cover: string | null; owner: Owner; createdAt: Date };
+type Item = { kind: "board" | "visit" | "collection"; id: string; title: string; cover: string | null; board?: { canvasData: CanvasElement[]; background: string }; owner: Owner; createdAt: Date };
 
 export default async function FeedPage() {
   const me = await getCurrentUser();
@@ -18,13 +21,13 @@ export default async function FeedPage() {
 
   const ownerSel = { select: { name: true, username: true, image: true } };
   const [boards, visits, collections] = await Promise.all([
-    db.moodboard.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("MOODBOARD", me.id)] }, select: { id: true, title: true, background: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.moodboard.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("MOODBOARD", me.id)] }, select: { id: true, title: true, background: true, canvasData: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
     db.visit.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("VISIT", me.id)] }, select: { id: true, place: true, exhibition: true, coverKey: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
     db.collection.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("COLLECTION", me.id)] }, select: { id: true, name: true, coverImageKey: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
 
   const items: Item[] = [
-    ...boards.map((b) => ({ kind: "board" as const, id: b.id, title: b.title, cover: null, owner: b.user, createdAt: b.createdAt })),
+    ...boards.map((b) => ({ kind: "board" as const, id: b.id, title: b.title, cover: null, board: { canvasData: capCanvasForPreview(b.canvasData as CanvasElement[]), background: b.background }, owner: b.user, createdAt: b.createdAt })),
     ...visits.map((v) => ({ kind: "visit" as const, id: v.id, title: v.exhibition || v.place, cover: v.coverKey ? getImageUrl(v.coverKey) : null, owner: v.user, createdAt: v.createdAt })),
     ...collections.map((c) => ({ kind: "collection" as const, id: c.id, title: c.name, cover: c.coverImageKey ? getImageUrl(c.coverImageKey) : null, owner: c.user, createdAt: c.createdAt })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 30);
@@ -44,11 +47,16 @@ export default async function FeedPage() {
           {items.map((it) => {
             const inner = (
               <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden">
-                {it.cover && (
+                {it.board ? (
+                  <MoodboardPreview canvasData={it.board.canvasData} background={it.board.background} />
+                ) : it.cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={it.cover} alt="" className="w-full aspect-[16/9] object-cover" />
+                ) : (
+                  <div className="w-full aspect-[16/9] flex items-center justify-center bg-[var(--bg-elevated)]">
+                    <span className="text-[var(--text-tertiary)] text-xs opacity-40">{it.title}</span>
+                  </div>
                 )}
-                {it.kind === "board" && !it.cover && <div className="w-full aspect-[16/9]" style={{ background: "var(--bg-elevated)" }} />}
                 <div className="p-3 flex items-center gap-2.5">
                   <UserAvatar name={it.owner.name} username={it.owner.username} image={it.owner.image} size={30} />
                   <div className="min-w-0 flex-1">

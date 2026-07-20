@@ -3,17 +3,29 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { getImageUrl } from "@/lib/storage/urls";
 import { conversationForParticipant, otherParticipant } from "@/lib/messaging/conversation";
+import { capCanvasForPreview } from "@/lib/moodboard/preview";
+import type { CanvasElement } from "@/lib/moodboard/types";
 import type { GrantResource } from "@prisma/client";
 
 type Params = { params: Promise<{ id: string }> };
 const userSummary = { id: true, name: true, username: true, image: true } as const;
 
-async function labelFor(resource: GrantResource, id: string): Promise<string> {
-  if (resource === "MOODBOARD") return (await db.moodboard.findUnique({ where: { id }, select: { title: true } }))?.title ?? "Planche";
-  if (resource === "VISIT") { const v = await db.visit.findUnique({ where: { id }, select: { place: true, exhibition: true } }); return v?.exhibition || v?.place || "Visite"; }
-  return (await db.collection.findUnique({ where: { id }, select: { name: true } }))?.name ?? "Collection";
-}
 const resourceHref = (r: GrantResource, id: string) => (r === "MOODBOARD" ? `/moodboards/${id}/edit` : r === "VISIT" ? `/visites/${id}` : `/collections/${id}`);
+
+// Aperçu riche d'une ressource partagée en message (label + lien + cover/preview).
+async function resourcePreview(resource: GrantResource, id: string) {
+  const href = resourceHref(resource, id);
+  if (resource === "MOODBOARD") {
+    const m = await db.moodboard.findUnique({ where: { id }, select: { title: true, background: true, canvasData: true } });
+    return { label: m?.title ?? "Planche", href, kind: resource, cover: null as string | null, board: m ? { canvasData: capCanvasForPreview(m.canvasData as CanvasElement[]), background: m.background } : null };
+  }
+  if (resource === "VISIT") {
+    const v = await db.visit.findUnique({ where: { id }, select: { place: true, exhibition: true, coverKey: true } });
+    return { label: v?.exhibition || v?.place || "Visite", href, kind: resource, cover: v?.coverKey ? getImageUrl(v.coverKey) : null, board: null };
+  }
+  const c = await db.collection.findUnique({ where: { id }, select: { name: true, coverImageKey: true } });
+  return { label: c?.name ?? "Collection", href, kind: resource, cover: c?.coverImageKey ? getImageUrl(c.coverImageKey) : null, board: null };
+}
 
 // GET /api/conversations/[id] — fil complet + marque les entrants comme lus.
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -50,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       image: m.sharedImageId ? imageMap.get(m.sharedImageId) ?? null : null,
       imageId: m.sharedImageId ?? null,
       resource: m.sharedResource && m.sharedResourceId
-        ? { label: await labelFor(m.sharedResource, m.sharedResourceId), href: resourceHref(m.sharedResource, m.sharedResourceId) }
+        ? await resourcePreview(m.sharedResource, m.sharedResourceId)
         : null,
     })),
   );

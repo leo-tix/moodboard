@@ -2,13 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Send, ImageIcon, LayoutDashboard } from "lucide-react";
+import { ArrowLeft, Send, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/social/UserAvatar";
+import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
+import type { CanvasElement } from "@/lib/moodboard/types";
 
 type UserLite = { id: string; name: string | null; username: string | null; image: string | null };
 type Convo = { id: string; status: string; isRequest: boolean; other: UserLite | null; last: { body: string | null; senderId: string; sharedResource: string | null; sharedImageId: string | null } | null; unread: number };
-type Msg = { id: string; mine: boolean; body: string | null; createdAt: string; image: string | null; imageId: string | null; resource: { label: string; href: string } | null };
+type ResourcePreview = { label: string; href: string; kind: "MOODBOARD" | "VISIT" | "COLLECTION"; cover: string | null; board: { canvasData: CanvasElement[]; background: string } | null };
+type Msg = { id: string; mine: boolean; body: string | null; createdAt: string; image: string | null; imageId: string | null; resource: ResourcePreview | null };
+const KIND_LABEL: Record<ResourcePreview["kind"], string> = { MOODBOARD: "Planche", VISIT: "Visite", COLLECTION: "Collection" };
 type GalleryImg = { imageId: string; title: string; url: string };
 type Thread = { conversation: { id: string; status: string; isRequest: boolean; other: UserLite | null }; messages: Msg[] };
 
@@ -99,8 +103,19 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
                   </div>
                 )}
                 {m.resource && (
-                  <Link href={m.resource.href} className={cn("flex items-center gap-1.5 mb-1 text-xs underline", m.mine ? "text-[var(--bg-base)]" : "text-[var(--accent,#a78bfa)]")}>
-                    <LayoutDashboard size={13} /> {m.resource.label}
+                  <Link href={m.resource.href} className="block mb-1 w-[220px] max-w-full rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-base)]">
+                    {m.resource.board ? (
+                      <MoodboardPreview canvasData={m.resource.board.canvasData} background={m.resource.board.background} />
+                    ) : m.resource.cover ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.resource.cover} alt="" className="w-full aspect-[16/9] object-cover" />
+                    ) : (
+                      <div className="w-full aspect-[16/9] bg-[var(--bg-elevated)]" />
+                    )}
+                    <div className="px-2 py-1.5">
+                      <p className="text-xs text-[var(--text-primary)] truncate">{m.resource.label}</p>
+                      <p className="text-[10px] text-[var(--text-tertiary)]">{KIND_LABEL[m.resource.kind]}</p>
+                    </div>
                   </Link>
                 )}
                 {m.body && <span className="whitespace-pre-wrap break-words">{m.body}</span>}
