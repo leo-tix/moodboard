@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { uploadToR2 } from "@/lib/storage/r2";
-import { getImageUrl } from "@/lib/storage/urls";
-import { checkUploadAllowed } from "@/lib/storage/quota";
+import { saveImageToLibrary } from "@/lib/images/saveToLibrary";
 
 type Params = { params: Promise<{ imageId: string }> };
 
@@ -23,45 +20,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   });
   if (!shared) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  const img = await db.image.findUnique({
-    where: { id: imageId },
-    include: { inspiration: { select: { title: true, author: true, year: true } } },
-  });
-  if (!img) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
-
-  const bytes = img.size + img.thumbnailSize;
-  const check = await checkUploadAllowed(me, bytes);
-  if (!check.allowed) return NextResponse.json({ error: check.reason }, { status: 413 });
-
-  // Copie les octets R2 (bucket public) sous de nouvelles clés.
-  const origBuf = Buffer.from(await (await fetch(getImageUrl(img.storageKey))).arrayBuffer());
-  const thumbBuf = img.thumbnailKey ? Buffer.from(await (await fetch(getImageUrl(img.thumbnailKey))).arrayBuffer()) : null;
-  const uuid = randomUUID();
-  const storageKey = `images/${uuid}.webp`;
-  const thumbnailKey = `thumbs/${uuid}.webp`;
-  await uploadToR2(storageKey, origBuf, img.mimeType || "image/webp");
-  if (thumbBuf) await uploadToR2(thumbnailKey, thumbBuf, "image/webp");
-
-  const inspiration = await db.inspiration.create({
-    data: { userId: me, title: img.inspiration.title, author: img.inspiration.author, year: img.inspiration.year, status: "READY", isAccepted: true, mediaType: "IMAGE" },
-  });
-  await db.image.create({
-    data: {
-      inspirationId: inspiration.id,
-      filename: `${uuid}.webp`,
-      originalName: img.originalName,
-      mimeType: img.mimeType,
-      size: img.size,
-      thumbnailSize: thumbBuf ? img.thumbnailSize : 0,
-      width: img.width,
-      height: img.height,
-      storageKey,
-      thumbnailKey: thumbBuf ? thumbnailKey : null,
-      blurHash: img.blurHash,
-      isMain: true,
-      isAnimated: img.isAnimated,
-    },
-  });
-
-  return NextResponse.json({ ok: true, inspirationId: inspiration.id });
+  const res = await saveImageToLibrary(imageId, me);
+  if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.status });
+  return NextResponse.json({ ok: true, inspirationId: res.inspirationId });
 }

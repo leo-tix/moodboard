@@ -8,6 +8,9 @@ import { getSuggestedAdditions } from "@/lib/collections/suggestions";
 import { ShareButton } from "@/components/social/ShareButton";
 import { resolveAccess } from "@/lib/access/resolve";
 import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
+import { getCollectionMembers } from "@/lib/collections/members";
+import { MemberAvatars } from "@/components/collections/MemberAvatars";
+import { SaveToLibraryButton } from "@/components/collections/SaveToLibraryButton";
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -34,31 +37,45 @@ export default async function CollectionDetailPage({ params }: Props) {
   if (!access) notFound();
   const isOwner = access === "owner";
   if (access === "viewer") {
-    const col = await db.collection.findUnique({
-      where: { id },
-      include: {
-        user: { select: { name: true, username: true } },
-        items: {
-          orderBy: { order: "asc" },
-          include: { inspiration: { include: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } },
+    const [col, members] = await Promise.all([
+      db.collection.findUnique({
+        where: { id },
+        include: {
+          user: { select: { name: true, username: true } },
+          items: {
+            orderBy: { order: "asc" },
+            include: { inspiration: { include: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { id: true, thumbnailKey: true, storageKey: true } } } } },
+          },
         },
-      },
-    });
+      }),
+      getCollectionMembers(id),
+    ]);
     if (!col) notFound();
     return (
       <div className="p-4 md:p-6 max-w-4xl mx-auto">
         <div className="mb-1"><Link href="/feed" className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">← Retour</Link></div>
-        <h1 className="text-lg font-medium text-[var(--text-primary)]">{col.name}</h1>
-        <p className="text-xs text-[var(--text-tertiary)] mb-5">Collection de {col.user.name || `@${col.user.username}`} · {col.items.length} image{col.items.length !== 1 ? "s" : ""}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-medium text-[var(--text-primary)]">{col.name}</h1>
+            <p className="text-xs text-[var(--text-tertiary)] mb-5">Collection de {col.user.name || `@${col.user.username}`} · {col.items.length} image{col.items.length !== 1 ? "s" : ""}</p>
+          </div>
+          <MemberAvatars members={members} />
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {col.items.map((it) => {
             const img = it.inspiration.images[0];
             const url = img ? (img.thumbnailKey ? getThumbnailUrl(img.thumbnailKey) : getImageUrl(img.storageKey)) : null;
+            const mine = it.inspiration.userId === user.id;
             return (
-              <div key={it.inspirationId} className="aspect-square rounded-lg overflow-hidden bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
+              <div key={it.inspirationId} className="group relative aspect-square rounded-lg overflow-hidden bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
                 {url && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={url} alt={it.inspiration.title} className="w-full h-full object-cover" />
+                )}
+                {!mine && img?.id && (
+                  <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity">
+                    <SaveToLibraryButton collectionId={id} imageId={img.id} />
+                  </div>
                 )}
               </div>
             );
@@ -70,7 +87,7 @@ export default async function CollectionDetailPage({ params }: Props) {
 
   // Propriétaire ou éditeur : rendu éditable (findUnique — l'éditeur n'est pas
   // propriétaire donc pas de filtre userId).
-  const [collection, suggestions] = await Promise.all([
+  const [collection, suggestions, members] = await Promise.all([
     db.collection.findUnique({
       where: { id },
       include: {
@@ -81,7 +98,7 @@ export default async function CollectionDetailPage({ params }: Props) {
                 images: {
                   orderBy: [{ isMain: "desc" }, { order: "asc" }],
                   take: 1,
-                  select: { thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
+                  select: { id: true, thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
                 },
                 categories: { include: { category: { select: { name: true } } }, take: 3 },
                 tags: { include: { tag: { select: { name: true } } }, take: 5 },
@@ -94,6 +111,7 @@ export default async function CollectionDetailPage({ params }: Props) {
       },
     }),
     getSuggestedAdditions(id, user.id),
+    getCollectionMembers(id),
   ]);
 
   if (!collection) notFound();
@@ -120,6 +138,8 @@ export default async function CollectionDetailPage({ params }: Props) {
 
       <CollectionDetailClient
         collectionId={collection.id}
+        viewerId={user.id}
+        members={members}
         initialName={collection.name}
         initialDescription={collection.description}
         initialItems={collection.items}

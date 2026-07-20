@@ -6,13 +6,18 @@ import { Pencil, X } from "lucide-react";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import type { SuggestedAddition } from "@/lib/collections/suggestions";
+import type { CollectionMember } from "@/lib/collections/members";
+import { MemberAvatars } from "@/components/collections/MemberAvatars";
+import { SaveToLibraryButton } from "@/components/collections/SaveToLibraryButton";
 
 interface InspirationItem {
   inspiration: {
     id: string;
+    userId: string;
     title: string;
     year: number | null;
     images: {
+      id: string;
       thumbnailKey: string | null;
       blurHash: string | null;
       width: number | null;
@@ -25,6 +30,8 @@ interface InspirationItem {
 
 interface CollectionDetailClientProps {
   collectionId: string;
+  viewerId: string;
+  members: CollectionMember[];
   initialName: string;
   initialDescription: string | null;
   initialItems: InspirationItem[];
@@ -33,6 +40,8 @@ interface CollectionDetailClientProps {
 
 export function CollectionDetailClient({
   collectionId,
+  viewerId,
+  members,
   initialName,
   initialDescription,
   initialItems,
@@ -115,10 +124,12 @@ export function CollectionDetailClient({
         {
           inspiration: {
             id: suggestion.id,
+            userId: viewerId, // les suggestions viennent de MA bibliothèque
             title: suggestion.title,
             year: suggestion.year,
             images: [
               {
+                id: "",
                 thumbnailKey: suggestion.thumbnailKey,
                 blurHash: suggestion.blurHash,
                 width: suggestion.width,
@@ -161,7 +172,8 @@ export function CollectionDetailClient({
   return (
     <div className="space-y-10">
 
-      {/* ── Titre éditable ── */}
+      {/* ── Titre éditable + membres ── */}
+      <div className="flex items-start justify-between gap-3">
       <div className="group/title flex items-center gap-2">
         {isEditingName ? (
           <input
@@ -190,6 +202,8 @@ export function CollectionDetailClient({
         {initialDescription && (
           <p className="text-sm text-[var(--text-secondary)] ml-1">{initialDescription}</p>
         )}
+      </div>
+        <div className="pt-1 shrink-0"><MemberAvatars members={members} /></div>
       </div>
 
       {/* ── Collection items ── */}
@@ -266,6 +280,13 @@ export function CollectionDetailClient({
                       >
                         {removing === inspiration.id ? "…" : <X size={12} strokeWidth={2} />}
                       </button>
+                    )}
+
+                    {/* Image d'un autre membre → l'enregistrer dans MA bibliothèque */}
+                    {!selectMode && inspiration.userId !== viewerId && img?.id && (
+                      <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity z-10">
+                        <SaveToLibraryButton collectionId={collectionId} imageId={img.id} />
+                      </div>
                     )}
                   </div>
                 );
