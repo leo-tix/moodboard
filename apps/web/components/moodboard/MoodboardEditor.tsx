@@ -24,7 +24,7 @@ import type {
   AudioElement,
 } from "@/lib/moodboard/types";
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
-import { SharePanel } from "@/components/moodboard/SharePanel";
+import { ShareButton } from "@/components/social/ShareButton";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
 import { PencilLayer, type Stroke, type PencilTool, type StrokeElement, type PencilLayerHandle } from "@/components/moodboard/PencilLayer";
 import { PencilToolbar } from "@/components/moodboard/PencilToolbar";
@@ -105,12 +105,9 @@ export function MoodboardEditor({ initialData }: Props) {
   // ── Metadata ──
   const [title, setTitle] = useState(initialData.title);
   const [background, setBackground] = useState(initialData.background);
-  const [shareToken, setShareToken] = useState(initialData.shareToken);
-  const [shareExpiry, setShareExpiry] = useState(initialData.shareExpiry);
 
   // ── Panel visibility ──
   const [showLibrary, setShowLibrary] = useState(false);
-  const [showShare, setShowShare] = useState(false);
   // Mémo audio (2026-07-14) — même popup d'enregistrement que le carnet de
   // visite (VoiceMemoRecorder généralisé), voir addAudio ci-dessous.
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
@@ -2689,16 +2686,11 @@ export function MoodboardEditor({ initialData }: Props) {
           </button>
         </div>
 
-        <button
-          onClick={() => setShowShare((v) => !v)}
-          className={`text-xs transition-colors px-2 py-1 rounded border flex-shrink-0 ${
-            showShare
-              ? "bg-[var(--bg-elevated)] border-[var(--border-default)] text-[var(--text-primary)]"
-              : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]"
-          }`}
-        >
-          Partager
-        </button>
+        {/* Partage unifié (visibilité + membres + lien public) — remplace l'ancien
+            SharePanel token-only pour n'avoir qu'UN seul bouton Partager. */}
+        <div className="flex-shrink-0">
+          <ShareButton resource="moodboards" id={initialData.id} allowEditor />
+        </div>
 
         {/* Apple Pencil drawing mode toggle — touch/iPad only */}
         {isTouchDevice && (
@@ -3518,20 +3510,6 @@ export function MoodboardEditor({ initialData }: Props) {
           )}
         </div>
 
-        {/* Share panel */}
-        {showShare && (
-          <div className="flex-shrink-0 w-72 border-l border-[var(--border-subtle)] overflow-y-auto bg-[var(--bg-base)]">
-            <SharePanel
-              moodboardId={initialData.id}
-              shareToken={shareToken}
-              shareExpiry={shareExpiry}
-              onUpdate={(token, expiry) => {
-                setShareToken(token);
-                setShareExpiry(expiry);
-              }}
-            />
-          </div>
-        )}
       </div>
 
       {/* Mémo audio — même popup d'enregistrement que le carnet de visite

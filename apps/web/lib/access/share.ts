@@ -41,6 +41,13 @@ export async function defaultVisibilityFor(userId: string, resource: GrantResour
   return resource === "MOODBOARD" ? u.defaultVisibilityMoodboard : resource === "VISIT" ? u.defaultVisibilityVisit : u.defaultVisibilityCollection;
 }
 
+/** Lien public (token) d'une ressource — moodboard/visit uniquement (pas de token collection). */
+export async function getShareLink(resource: GrantResource, id: string): Promise<{ shareToken: string | null; shareExpiry: Date | null } | null> {
+  if (resource === "MOODBOARD") return db.moodboard.findUnique({ where: { id }, select: { shareToken: true, shareExpiry: true } });
+  if (resource === "VISIT") return db.visit.findUnique({ where: { id }, select: { shareToken: true, shareExpiry: true } });
+  return null;
+}
+
 /** Libellé lisible d'une ressource (pour les messages/chips de partage). */
 export async function resourceLabel(resource: GrantResource, id: string): Promise<string> {
   if (resource === "MOODBOARD") return (await db.moodboard.findUnique({ where: { id }, select: { title: true } }))?.title ?? "Planche";

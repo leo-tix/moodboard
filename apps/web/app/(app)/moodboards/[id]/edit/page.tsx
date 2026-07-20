@@ -4,7 +4,6 @@ import { getCurrentUser } from "@/lib/auth/current";
 import { resolveAccess } from "@/lib/access/resolve";
 import { MoodboardEditor } from "@/components/moodboard/MoodboardEditor";
 import { MoodboardViewer } from "@/components/moodboard/MoodboardViewer";
-import { ShareButton } from "@/components/social/ShareButton";
 import type { CanvasElement, Stroke, StrokeElement } from "@/lib/moodboard/types";
 import { strokeToElement } from "@/lib/moodboard/pencil";
 
@@ -51,28 +50,21 @@ export default async function MoodboardEditPage({ params }: Props) {
     );
   }
 
+  // Le bouton Partager vit désormais dans la barre d'outils de l'éditeur (unifié).
   return (
-    <>
-      {/* Partage membre (visibilité + éditeurs) — le propriétaire seul le voit. */}
-      {access === "owner" && (
-        <div className="fixed top-2.5 right-2.5 z-[70]">
-          <ShareButton resource="moodboards" id={moodboard.id} allowEditor />
-        </div>
-      )}
-      <MoodboardEditor
-        initialData={{
-          id: moodboard.id,
-          title: moodboard.title,
-          canvasData: mergedCanvasData,
-          background: moodboard.background,
-          shareToken: moodboard.shareToken,
-          shareExpiry: moodboard.shareExpiry?.toISOString() ?? null,
-          order: moodboard.order,
-          folderId: moodboard.folderId,
-          createdAt: moodboard.createdAt.toISOString(),
-          updatedAt: moodboard.updatedAt.toISOString(),
-        }}
-      />
-    </>
+    <MoodboardEditor
+      initialData={{
+        id: moodboard.id,
+        title: moodboard.title,
+        canvasData: mergedCanvasData,
+        background: moodboard.background,
+        shareToken: moodboard.shareToken,
+        shareExpiry: moodboard.shareExpiry?.toISOString() ?? null,
+        order: moodboard.order,
+        folderId: moodboard.folderId,
+        createdAt: moodboard.createdAt.toISOString(),
+        updatedAt: moodboard.updatedAt.toISOString(),
+      }}
+    />
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Share2, X, Lock, Users, Globe, Search, Check } from "lucide-react";
+import { Share2, X, Lock, Users, Globe, Search, Check, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/social/UserAvatar";
 
@@ -27,15 +27,31 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
   const [q, setQ] = useState("");
   const [results, setResults] = useState<UserLite[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [publicToken, setPublicToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Lien public (token) : uniquement planches (/share) et visites (/carnet).
+  const publicPrefix = resource === "moodboards" ? "/share/" : resource === "visits" ? "/carnet/" : null;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await fetch(`/api/share/${resource}/${id}`);
-      if (r.ok) { const d = await r.json(); setVisibility(d.visibility ?? "PRIVATE"); setGrants(d.grants ?? []); }
+      if (r.ok) { const d = await r.json(); setVisibility(d.visibility ?? "PRIVATE"); setGrants(d.grants ?? []); setPublicToken(d.publicToken ?? null); }
     } finally { setLoading(false); }
   }, [resource, id]);
+
+  const togglePublicLink = async (create: boolean) => {
+    const r = await fetch(`/api/${resource}/${id}/share`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expiry: create ? "never" : null }) });
+    if (r.ok) { const d = await r.json(); setPublicToken(d.shareToken ?? null); }
+  };
+  const copyLink = () => {
+    if (!publicToken || !publicPrefix) return;
+    navigator.clipboard?.writeText(`${window.location.origin}${publicPrefix}${publicToken}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   useEffect(() => { if (open) void load(); }, [open, load]);
   useEffect(() => {
@@ -173,6 +189,24 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
                   </div>
                 ))}
               </div>
+
+              {/* Lien public (token) — planches & visites uniquement */}
+              {publicPrefix && (
+                <div className="space-y-2 border-t border-[var(--border-subtle)] pt-4">
+                  <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">Lien public</p>
+                  {publicToken ? (
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={`${typeof window !== "undefined" ? window.location.origin : ""}${publicPrefix}${publicToken}`} className="flex-1 min-w-0 bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] text-[11px] rounded-md px-2 py-1.5 truncate" />
+                      <button onClick={copyLink} className="text-[11px] text-[var(--accent,#a78bfa)] shrink-0">{copied ? "Copié ✓" : "Copier"}</button>
+                      <button onClick={() => togglePublicLink(false)} className="text-[11px] text-[var(--text-tertiary)] hover:text-red-400 shrink-0">Révoquer</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => togglePublicLink(true)} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+                      <Link2 size={13} /> Créer un lien public (sans compte)
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
