@@ -4,13 +4,33 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { VisitsClient } from "@/components/visits/VisitsClient";
 import { VisitsHeaderActions } from "@/components/visits/VisitsHeaderActions";
+import { accessibleWhere } from "@/lib/access/resolve";
+import { getImageUrl } from "@/lib/storage/urls";
+import { pickImgUrl } from "@/lib/social/previewCover";
+import { LibraryTabs } from "@/components/social/LibraryTabs";
+import { SharedResourceGrid, type SharedItem } from "@/components/social/SharedResourceGrid";
 
 export const metadata: Metadata = { title: "Carnet de visite" };
 export const revalidate = 0;
 
-export default async function VisitesPage() {
+export default async function VisitesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const shared = (await searchParams).tab === "shared";
+  const sharedWhere = { AND: [{ userId: { not: user.id } }, await accessibleWhere("VISIT", user.id)] };
+  const sharedCount = await db.visit.count({ where: sharedWhere });
+
+  if (shared) {
+    const rows = await db.visit.findMany({ where: sharedWhere, select: { id: true, place: true, exhibition: true, coverKey: true, user: { select: { name: true, username: true, image: true } }, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { visitDate: "desc" }, take: 60 });
+    const items: SharedItem[] = rows.map((v) => ({ id: v.id, href: `/visites/${v.id}`, title: v.exhibition || v.place, cover: v.coverKey ? getImageUrl(v.coverKey) : pickImgUrl(v.inspirations[0]?.images[0]), board: null, owner: v.user }));
+    return (
+      <div className="p-4 md:p-6">
+        <LibraryTabs base="/visites" active="shared" mineLabel="Mes visites" sharedCount={sharedCount} />
+        <SharedResourceGrid items={items} emptyLabel="Aucune visite partagée avec toi pour l'instant." />
+      </div>
+    );
+  }
 
   const visits = await db.visit.findMany({
     where: { userId: user.id },
@@ -63,6 +83,7 @@ export default async function VisitesPage() {
         <VisitsHeaderActions />
       </header>
 
+      <LibraryTabs base="/visites" active="mine" mineLabel="Mes visites" sharedCount={sharedCount} />
       <VisitsClient initialVisits={serialized} />
     </div>
   );
