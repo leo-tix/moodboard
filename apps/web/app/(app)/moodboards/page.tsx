@@ -19,8 +19,8 @@ export default async function MoodboardsPage({ searchParams }: { searchParams: P
   const sharedCount = await db.moodboard.count({ where: sharedWhere });
 
   if (shared) {
-    const rows = await db.moodboard.findMany({ where: sharedWhere, select: { id: true, title: true, background: true, canvasData: true, user: { select: { name: true, username: true, image: true } } }, orderBy: { updatedAt: "desc" }, take: 60 });
-    const items: SharedItem[] = rows.map((m) => ({ id: m.id, href: `/moodboards/${m.id}/edit`, title: m.title, cover: null, board: { canvasData: capCanvasForPreview(m.canvasData as CanvasElement[]), background: m.background }, owner: m.user }));
+    const rows = await db.moodboard.findMany({ where: sharedWhere, select: { id: true, title: true, background: true, previewKey: true, user: { select: { name: true, username: true, image: true } } }, orderBy: { updatedAt: "desc" }, take: 60 });
+    const items: SharedItem[] = rows.map((m) => ({ id: m.id, href: `/moodboards/${m.id}/edit`, title: m.title, cover: null, board: { previewKey: m.previewKey, background: m.background }, owner: m.user }));
     return (
       <div className="p-6">
         <LibraryTabs base="/moodboards" active="shared" mineLabel="Mes planches" sharedCount={sharedCount} />

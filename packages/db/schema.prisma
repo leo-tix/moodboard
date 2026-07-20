@@ -873,6 +873,7 @@ model Moodboard {
   canvasData     Json      @default("[]")
   pencilStrokes  Json      @default("[]")
   background     String    @default("#0a0a0a")
+  previewKey     String?   // vignette précalculée (R2) — aperçu sans lire canvasData
   shareToken     String?   @unique @default(uuid())
   shareExpiry    DateTime?
   // Visibilité entre membres (orthogonale au lien-token public /share).

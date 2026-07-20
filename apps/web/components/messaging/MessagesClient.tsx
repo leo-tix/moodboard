@@ -5,12 +5,11 @@ import Link from "next/link";
 import { ArrowLeft, Send, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/social/UserAvatar";
-import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
-import type { CanvasElement } from "@/lib/moodboard/types";
+import { BoardThumb } from "@/components/moodboard/BoardThumb";
 
 type UserLite = { id: string; name: string | null; username: string | null; image: string | null };
 type Convo = { id: string; status: string; isRequest: boolean; other: UserLite | null; last: { body: string | null; senderId: string; sharedResource: string | null; sharedImageId: string | null } | null; unread: number };
-type ResourcePreview = { label: string; href: string; kind: "MOODBOARD" | "VISIT" | "COLLECTION"; cover: string | null; board: { canvasData: CanvasElement[]; background: string } | null };
+type ResourcePreview = { label: string; href: string; kind: "MOODBOARD" | "VISIT" | "COLLECTION"; cover: string | null; board: { previewKey: string | null; background: string } | null };
 type Msg = { id: string; mine: boolean; body: string | null; createdAt: string; image: string | null; imageId: string | null; resource: ResourcePreview | null };
 const KIND_LABEL: Record<ResourcePreview["kind"], string> = { MOODBOARD: "Planche", VISIT: "Visite", COLLECTION: "Collection" };
 type GalleryImg = { imageId: string; title: string; url: string };
@@ -141,7 +140,7 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
                 {m.resource && (
                   <Link href={m.resource.href} className="block mb-1 w-[220px] max-w-full rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-base)]">
                     {m.resource.board ? (
-                      <MoodboardPreview canvasData={m.resource.board.canvasData} background={m.resource.board.background} />
+                      <BoardThumb previewKey={m.resource.board.previewKey} title={m.resource.label} background={m.resource.board.background} />
                     ) : m.resource.cover ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={m.resource.cover} alt="" className="w-full aspect-[16/9] object-cover" />

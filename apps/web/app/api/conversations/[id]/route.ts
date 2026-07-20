@@ -3,9 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { getImageUrl } from "@/lib/storage/urls";
 import { conversationForParticipant, otherParticipant } from "@/lib/messaging/conversation";
-import { capCanvasForPreview } from "@/lib/moodboard/preview";
 import { visitCoverUrl, collectionCoverUrl } from "@/lib/social/previewCover";
-import type { CanvasElement } from "@/lib/moodboard/types";
 import type { GrantResource } from "@prisma/client";
 
 type Params = { params: Promise<{ id: string }> };
@@ -17,8 +15,8 @@ const resourceHref = (r: GrantResource, id: string) => (r === "MOODBOARD" ? `/mo
 async function resourcePreview(resource: GrantResource, id: string) {
   const href = resourceHref(resource, id);
   if (resource === "MOODBOARD") {
-    const m = await db.moodboard.findUnique({ where: { id }, select: { title: true, background: true, canvasData: true } });
-    return { label: m?.title ?? "Planche", href, kind: resource, cover: null as string | null, board: m ? { canvasData: capCanvasForPreview(m.canvasData as CanvasElement[]), background: m.background } : null };
+    const m = await db.moodboard.findUnique({ where: { id }, select: { title: true, background: true, previewKey: true } });
+    return { label: m?.title ?? "Planche", href, kind: resource, cover: null as string | null, board: m ? { previewKey: m.previewKey, background: m.background } : null };
   }
   if (resource === "VISIT") {
     const v = await db.visit.findUnique({ where: { id }, select: { place: true, exhibition: true, coverKey: true } });

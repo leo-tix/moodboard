@@ -1,14 +1,13 @@
 import Link from "next/link";
 import { UserAvatar } from "@/components/social/UserAvatar";
-import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
-import type { CanvasElement } from "@/lib/moodboard/types";
+import { BoardThumb } from "@/components/moodboard/BoardThumb";
 
 export type SharedItem = {
   id: string;
   href: string;
   title: string;
   cover: string | null;
-  board: { canvasData: CanvasElement[]; background: string } | null;
+  board: { previewKey: string | null; background: string } | null;
   owner: { name: string | null; username: string | null; image: string | null };
 };
 
@@ -23,7 +22,7 @@ export function SharedResourceGrid({ items, emptyLabel }: { items: SharedItem[];
       {items.map((it) => (
         <Link key={it.href} href={it.href} className="block rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden hover:border-[var(--border-default)] transition-colors">
           {it.board ? (
-            <MoodboardPreview canvasData={it.board.canvasData} background={it.board.background} />
+            <BoardThumb previewKey={it.board.previewKey} title={it.title} background={it.board.background} />
           ) : it.cover ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={it.cover} alt="" className="w-full aspect-video object-cover" />

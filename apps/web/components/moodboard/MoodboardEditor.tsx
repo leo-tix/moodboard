@@ -321,12 +321,30 @@ export function MoodboardEditor({ initialData }: Props) {
     [initialData.id]
   );
 
+  // Régénération de la VIGNETTE R2 (previewKey) — débouncée longuement pour ne
+  // pas relancer sharp à chaque autosave. Sert les aperçus (feed/grille/…) sans
+  // télécharger canvasData. `keepalive` pour survivre à une navigation.
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const regenPreview = useCallback(() => {
+    fetch(`/api/moodboards/${initialData.id}/preview`, { method: "POST", keepalive: true }).catch(() => {});
+  }, [initialData.id]);
+  const schedulePreview = useCallback(() => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(regenPreview, 8000);
+  }, [regenPreview]);
+
+  // À la fermeture de l'éditeur : régénère une dernière fois si une modif était en attente.
+  useEffect(() => () => {
+    if (previewTimer.current) { clearTimeout(previewTimer.current); regenPreview(); }
+  }, [regenPreview]);
+
   const scheduleSave = useCallback(
     (data: Parameters<typeof save>[0]) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => save(data), 1200);
+      if (data.canvasData !== undefined || data.background !== undefined) schedulePreview();
     },
-    [save]
+    [save, schedulePreview]
   );
 
   // ── History push ──

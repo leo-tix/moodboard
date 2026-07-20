@@ -9,9 +9,7 @@ import { pickImgUrl } from "@/lib/social/previewCover";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { ConnectButton } from "@/components/social/ConnectButton";
 import { MessageButton } from "@/components/social/MessageButton";
-import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
-import { capCanvasForPreview } from "@/lib/moodboard/preview";
-import type { CanvasElement } from "@/lib/moodboard/types";
+import { BoardThumb } from "@/components/moodboard/BoardThumb";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +29,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
 
   const accWhere = await accessibleWhereForOwnerBuilder(me.id, user.id);
   const [boards, visits, collections] = await Promise.all([
-    db.moodboard.findMany({ where: accWhere("MOODBOARD"), select: { id: true, title: true, background: true, canvasData: true }, orderBy: { order: "asc" }, take: 12 }),
+    db.moodboard.findMany({ where: accWhere("MOODBOARD"), select: { id: true, title: true, background: true, previewKey: true }, orderBy: { order: "asc" }, take: 12 }),
     db.visit.findMany({ where: accWhere("VISIT"), select: { id: true, place: true, exhibition: true, coverKey: true, visitDate: true, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { visitDate: "desc" }, take: 12 }),
     db.collection.findMany({ where: accWhere("COLLECTION"), select: { id: true, name: true, coverImageKey: true, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { order: "asc" }, take: 12 }),
   ]);
@@ -71,7 +69,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             <div className={grid}>
               {boards.map((b) => (
                 <Link key={b.id} href={`/moodboards/${b.id}/edit`} className={card}>
-                  <MoodboardPreview canvasData={capCanvasForPreview(b.canvasData as CanvasElement[])} background={b.background} />
+                  <BoardThumb previewKey={b.previewKey} title={b.title} background={b.background} />
                   <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{b.title}</p>
                 </Link>
               ))}
