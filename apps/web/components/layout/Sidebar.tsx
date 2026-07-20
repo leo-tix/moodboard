@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, MessageCircle, Newspaper, type LucideIcon } from "lucide-react";
+import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/lib/storage/urls";
 import { TriageBadge } from "@/components/triage/TriageBadge";
@@ -12,10 +12,11 @@ import { SocialBadge } from "@/components/social/SocialBadge";
 // Pastille de notification selon la destination.
 function badgeFor(href: string) {
   if (href === "/triage") return <TriageBadge />;
-  if (href === "/reseau") return <SocialBadge kind="requests" />;
-  if (href === "/messages") return <SocialBadge kind="messages" />;
+  if (href === "/feed") return <SocialBadge kind="all" />;
   return null;
 }
+// Onglet « Social » actif sur les 3 surfaces sociales.
+const SOCIAL_HREFS = ["/feed", "/messages", "/reseau"];
 
 interface SidebarUser {
   name: string | null;
@@ -35,9 +36,7 @@ const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/collections", label: "Collections", icon: Layers },
   { href: "/moodboards", label: "Planches", icon: LayoutDashboard },
   { href: "/visites", label: "Visites", icon: Landmark },
-  { href: "/reseau", label: "Réseau", icon: Users },
-  { href: "/messages", label: "Messagerie", icon: MessageCircle },
-  { href: "/feed", label: "Fil", icon: Newspaper },
+  { href: "/feed", label: "Social", icon: Users },
   { href: "/search", label: "Recherche", icon: Search },
   { href: "/upload",  label: "Ajouter",  icon: Plus },
   { href: "/triage",  label: "Triage",   icon: Inbox },
@@ -65,7 +64,9 @@ export function Sidebar({ user }: { user: SidebarUser }) {
           const isActive =
             item.href === "/"
               ? pathname === "/"
-              : pathname.startsWith(item.href);
+              : item.href === "/feed"
+                ? SOCIAL_HREFS.some((h) => pathname.startsWith(h))
+                : pathname.startsWith(item.href);
 
           return (
             <Link

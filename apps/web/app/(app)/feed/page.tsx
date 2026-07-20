@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { accessibleWhere } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
 import { UserAvatar } from "@/components/social/UserAvatar";
+import { SocialTabs } from "@/components/social/SocialTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export default async function FeedPage() {
 
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto">
-      <h1 className="text-sm font-medium text-[var(--text-primary)] mb-4">Fil d&apos;actualité</h1>
+      <SocialTabs />
       {items.length === 0 ? (
         <p className="text-sm text-[var(--text-tertiary)] py-8 text-center">
           Rien à afficher pour l&apos;instant. Connecte-toi à des membres et ce qu&apos;ils partagent apparaîtra ici.
