@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
+import { getImageUrl } from "@/lib/storage/urls";
 
 // Image de la page détail (mobile) avec VRAI glissement gauche/droite façon
 // Apple Photos : piste de 3 diapos (précédente / courante / suivante). Le doigt
@@ -20,6 +20,7 @@ export function SwipeableImage({
   onPrev,
   onNext,
   onTap,
+  fill = false,
 }: {
   storageKey: string | null;
   currentThumbKey: string | null;
@@ -29,6 +30,9 @@ export function SwipeableImage({
   onPrev: (() => void) | null;
   onNext: (() => void) | null;
   onTap: () => void;
+  /** true = remplit le conteneur parent (h-full) au lieu de la boîte 62vh —
+   *  utilisé dans le split desktop/iPad (zone image à gauche du panneau). */
+  fill?: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -95,46 +99,43 @@ export function SwipeableImage({
     }
   };
 
-  const slideCls = "flex-shrink-0 h-full flex items-center justify-center";
-  const imgCls = "max-w-full max-h-full object-contain";
+  // Une diapo = fond flou plein cadre (supprime les bandes noires du object-contain,
+  // façon Apple Photos → plus de « frame noire » perçue au glissement) + image
+  // nette centrée par-dessus. `key` = storageKey (identique à la vignette ici, il
+  // n'y a pas de variante thumbnail réelle côté R2).
+  const slide = (key: string | null, label: string) => (
+    <div className="flex-shrink-0 h-full relative overflow-hidden flex items-center justify-center" style={{ width: "33.3333%" }}>
+      {key ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={getImageUrl(key)} alt="" aria-hidden draggable={false}
+            className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-45 pointer-events-none" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={getImageUrl(key)} alt={label} draggable={false}
+            className="relative z-10 max-w-full max-h-full object-contain" />
+        </>
+      ) : (
+        <span className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</span>
+      )}
+    </div>
+  );
 
   return (
     <div
-      className="relative w-full overflow-hidden select-none"
-      style={{ height: "62vh", touchAction: "pan-y" }}
+      className={`relative w-full overflow-hidden select-none ${fill ? "h-full" : ""}`}
+      style={fill ? { touchAction: "pan-y" } : { height: "62vh", touchAction: "pan-y" }}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
     >
       <div ref={trackRef} className="absolute inset-0 flex h-full will-change-transform" style={{ width: "300%", transform: `translateX(${TRACK_CENTER}%)` }}>
-        {/* Précédente (vignette) */}
-        <div className={slideCls} style={{ width: "33.3333%" }}>
-          {prevThumbKey && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={getThumbnailUrl(prevThumbKey)} alt="" aria-hidden draggable={false} className={imgCls} />
-          )}
-        </div>
-        {/* Courante (vignette placeholder + plein format) */}
-        <div className={slideCls} style={{ width: "33.3333%", position: "relative" }}>
-          {currentThumbKey && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={getThumbnailUrl(currentThumbKey)} alt="" aria-hidden draggable={false} className={`absolute ${imgCls}`} />
-          )}
-          {storageKey ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={getImageUrl(storageKey)} alt={alt} draggable={false} className={`relative ${imgCls}`} />
-          ) : (
-            <span className="text-[var(--text-tertiary)] text-sm">Pas d&apos;image</span>
-          )}
-        </div>
-        {/* Suivante (vignette) */}
-        <div className={slideCls} style={{ width: "33.3333%" }}>
-          {nextThumbKey && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={getThumbnailUrl(nextThumbKey)} alt="" aria-hidden draggable={false} className={imgCls} />
-          )}
-        </div>
+        {/* Précédente */}
+        {slide(prevThumbKey, "")}
+        {/* Courante — storageKey (toujours dispo via data, même avant stripItems) */}
+        {slide(storageKey ?? currentThumbKey, alt)}
+        {/* Suivante */}
+        {slide(nextThumbKey, "")}
       </div>
     </div>
   );
