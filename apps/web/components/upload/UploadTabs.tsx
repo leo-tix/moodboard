@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import { DropZone } from "@/components/upload/DropZone";
 import { YouTubeImportClient } from "@/components/youtube/YouTubeImportClient";
 import { SocialImportClient } from "@/components/upload/SocialImportClient";
-import { AiAutoSuggestToggle } from "@/components/inspiration/AiAutoSuggestToggle";
 
 const TABS: { id: "files" | "youtube" | "social"; label: string; icon: LucideIcon }[] = [
   { id: "files",   label: "Fichiers",              icon: Upload },
@@ -42,7 +41,6 @@ export function UploadTabs() {
 
       {tab === "files" && (
         <div className="space-y-4">
-          <AiAutoSuggestToggle />
           <DropZone />
         </div>
       )}

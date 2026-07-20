@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import type { Category } from "@/components/inspiration/CategorySelect";
 import type { CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { analyzeImage, type AnalysisProgress, type ImageAnalysis } from "@/lib/ai/imageAnalysis";
-import { useAiAutoSuggest } from "@/components/inspiration/AiAutoSuggestToggle";
 
 interface Props {
   imageUrl: string | null;
@@ -17,19 +16,13 @@ interface Props {
   onSetTitle: (title: string) => void;
   onAddCategory: (sel: CategorySelection) => void;
   onAddTag: (name: string) => void;
-  /** Force le mode MANUEL : ignore le réglage « auto » et n'analyse que sur clic
-   *  du bouton (ex. triage — éviter une inférence à chaque carte). */
-  manualOnly?: boolean;
 }
 
 // Panneau de suggestions IA (locale) — analyse l'image via CLIP (zero-shot, en
 // Web Worker) et propose titre, catégories et tags. L'utilisateur clique ce
 // qu'il garde, rien n'est appliqué d'office. Toggle « auto » partagé avec les
 // espaces d'upload.
-export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentCategories, currentTags, onSetTitle, onAddCategory, onAddTag, manualOnly }: Props) {
-  // Lit le réglage « auto » (configuré dans le panneau d'upload) pour lancer
-  // l'analyse automatiquement — pas de toggle dupliqué ici (retour 2026-07-19).
-  const [auto] = useAiAutoSuggest();
+export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentCategories, currentTags, onSetTitle, onAddCategory, onAddTag }: Props) {
   const [progress, setProgress] = useState<AnalysisProgress | null>(null);
   const [result, setResult] = useState<ImageAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,13 +45,11 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentC
     }
   }, []);
 
-  // Auto : relance quand l'image change — SAUF en mode manuel (triage), où
-  // l'analyse n'est lancée que par le bouton.
+  // Réinitialise les suggestions quand l'image change. L'analyse ne se lance
+  // JAMAIS d'elle-même : uniquement quand l'utilisateur clique le bouton.
   useEffect(() => {
     setResult(null);
     setError(null);
-    if (auto && !manualOnly && imageUrl) void run(imageUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl]);
 
   const resolve = (category: string, subcategory: string): CategorySelection | null => {
