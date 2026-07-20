@@ -5,9 +5,13 @@ import { db } from "@/lib/db";
 import { relationStatus } from "@/lib/access/connections";
 import { accessibleWhereForOwner } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
+import { pickImgUrl } from "@/lib/social/previewCover";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { ConnectButton } from "@/components/social/ConnectButton";
 import { MessageButton } from "@/components/social/MessageButton";
+import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
+import { capCanvasForPreview } from "@/lib/moodboard/preview";
+import type { CanvasElement } from "@/lib/moodboard/types";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +30,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   const isSelf = rel.status === "self";
 
   const [boards, visits, collections] = await Promise.all([
-    db.moodboard.findMany({ where: await accessibleWhereForOwner("MOODBOARD", me.id, user.id), select: { id: true, title: true, background: true }, orderBy: { order: "asc" }, take: 12 }),
-    db.visit.findMany({ where: await accessibleWhereForOwner("VISIT", me.id, user.id), select: { id: true, place: true, exhibition: true, coverKey: true, visitDate: true }, orderBy: { visitDate: "desc" }, take: 12 }),
-    db.collection.findMany({ where: await accessibleWhereForOwner("COLLECTION", me.id, user.id), select: { id: true, name: true, coverImageKey: true }, orderBy: { order: "asc" }, take: 12 }),
+    db.moodboard.findMany({ where: await accessibleWhereForOwner("MOODBOARD", me.id, user.id), select: { id: true, title: true, background: true, canvasData: true }, orderBy: { order: "asc" }, take: 12 }),
+    db.visit.findMany({ where: await accessibleWhereForOwner("VISIT", me.id, user.id), select: { id: true, place: true, exhibition: true, coverKey: true, visitDate: true, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { visitDate: "desc" }, take: 12 }),
+    db.collection.findMany({ where: await accessibleWhereForOwner("COLLECTION", me.id, user.id), select: { id: true, name: true, coverImageKey: true, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { order: "asc" }, take: 12 }),
   ]);
   const nothing = boards.length === 0 && visits.length === 0 && collections.length === 0;
 
@@ -66,7 +70,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             <div className={grid}>
               {boards.map((b) => (
                 <Link key={b.id} href={`/moodboards/${b.id}/edit`} className={card}>
-                  <div className="aspect-[4/3]" style={{ background: b.background }} />
+                  <MoodboardPreview canvasData={capCanvasForPreview(b.canvasData as CanvasElement[])} background={b.background} />
                   <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{b.title}</p>
                 </Link>
               ))}
@@ -78,12 +82,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mb-2">Visites</p>
             <div className={grid}>
               {visits.map((v) => {
+                const cover = v.coverKey ? getImageUrl(v.coverKey) : pickImgUrl(v.inspirations[0]?.images[0]);
                 const inner = (
                   <>
                     <div className="aspect-[4/3] bg-[var(--bg-elevated)]">
-                      {v.coverKey && (
+                      {cover && (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={getImageUrl(v.coverKey)} alt="" className="w-full h-full object-cover" />
+                        <img src={cover} alt="" className="w-full h-full object-cover" />
                       )}
                     </div>
                     <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{v.exhibition || v.place}</p>
@@ -99,12 +104,13 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             <p className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mb-2">Collections</p>
             <div className={grid}>
               {collections.map((c) => {
+                const cover = c.coverImageKey ? getImageUrl(c.coverImageKey) : pickImgUrl(c.items[0]?.inspiration.images[0]);
                 const inner = (
                   <>
                     <div className="aspect-[4/3] bg-[var(--bg-elevated)]">
-                      {c.coverImageKey && (
+                      {cover && (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={getImageUrl(c.coverImageKey)} alt="" className="w-full h-full object-cover" />
+                        <img src={cover} alt="" className="w-full h-full object-cover" />
                       )}
                     </div>
                     <p className="px-2.5 py-2 text-xs text-[var(--text-primary)] truncate">{c.name}</p>
