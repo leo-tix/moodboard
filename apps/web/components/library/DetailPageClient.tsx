@@ -570,6 +570,9 @@ export function DetailPageClient({ data, onClose, isModal }: Props) {
           onClose={() => setImmersive(false)}
           onPrev={prevItem ? () => router.replace(`/library/${prevItem.id}`) : null}
           onNext={nextItem ? () => router.replace(`/library/${nextItem.id}`) : null}
+          currentThumbKey={currentIdx !== -1 ? stripItems[currentIdx]?.thumbnailKey : null}
+          prevThumbKey={prevItem?.thumbnailKey}
+          nextThumbKey={nextItem?.thumbnailKey}
         />
       )}
     </div>

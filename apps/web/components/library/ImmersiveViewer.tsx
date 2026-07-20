@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { getImageUrl } from "@/lib/storage/urls";
+import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 
 interface ImmersiveViewerProps {
   storageKey: string | null;
@@ -12,18 +12,25 @@ interface ImmersiveViewerProps {
   onClose: () => void;
   onPrev?: (() => void) | null;
   onNext?: (() => void) | null;
+  // Vignettes des images voisines + de l'image courante — pour le carrousel
+  // (slide gauche/droite type Apple Photos) et le placeholder progressif.
+  currentThumbKey?: string | null;
+  prevThumbKey?: string | null;
+  nextThumbKey?: string | null;
 }
 
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
+const TRACK_CENTER = -100 / 3; // % : centre la diapo du milieu (piste large de 3 écrans)
+const NAV_THRESHOLD = 70; // px de swipe horizontal pour changer d'image
 
 // Visionneuse plein écran mobile — gestes continus type Apple Photos / Instagram :
 // pinch-zoom fluide autour du point de pincement, pan au doigt une fois zoomé,
-// double-tap pour zoomer/dézoomer au point tapé, swipe horizontal = image
-// précédente/suivante (à l'échelle 1), swipe vers le bas = fermeture avec
-// suivi du doigt, tap simple = afficher/masquer le chrome.
-// Le transform est appliqué via ref à chaque frame — aucun re-render React
-// pendant le geste (même principe que l'éditeur de planches).
+// double-tap pour zoomer/dézoomer au point tapé, VRAI CARROUSEL horizontal
+// (les images voisines glissent avec le doigt), swipe vers le bas = fermeture
+// avec suivi du doigt, tap simple = afficher/masquer le chrome.
+// Les transforms sont appliqués via ref à chaque frame — aucun re-render React
+// pendant le geste.
 export function ImmersiveViewer({
   storageKey,
   title,
@@ -31,10 +38,15 @@ export function ImmersiveViewer({
   onClose,
   onPrev,
   onNext,
+  currentThumbKey,
+  prevThumbKey,
+  nextThumbKey,
 }: ImmersiveViewerProps) {
   const [chromeVisible, setChromeVisible] = useState(true);
+  const [fullLoaded, setFullLoaded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const imgWrapRef = useRef<HTMLDivElement>(null);
+  const imgWrapRef = useRef<HTMLDivElement>(null); // diapo courante : zoom/pan/dismiss
+  const trackRef = useRef<HTMLDivElement>(null);   // piste 3 diapos : slide horizontal
   const backdropRef = useRef<HTMLDivElement>(null);
 
   // ── État gestuel (refs — jamais de setState pendant un geste) ──
@@ -46,12 +58,22 @@ export function ImmersiveViewer({
   const swipeAxis = useRef<"h" | "v" | null>(null);
   const lastTap = useRef<{ time: number; x: number; y: number } | null>(null);
   const movedRef = useRef(false);
+  const navigatingRef = useRef(false); // évite un double-déclenchement pendant l'anim de snap
 
+  // Transform de l'image courante (zoom/pan/dismiss).
   const apply = (withTransition = false) => {
     const el = imgWrapRef.current;
     if (!el) return;
     el.style.transition = withTransition ? "transform 0.22s cubic-bezier(0.2, 0, 0, 1)" : "none";
     el.style.transform = `translate(${t.current.tx}px, ${t.current.ty}px) scale(${t.current.scale})`;
+  };
+
+  // Position horizontale de la piste (carrousel).
+  const applyTrack = (dxPx: number, withTransition = false) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.style.transition = withTransition ? "transform 0.28s cubic-bezier(0.2, 0, 0, 1)" : "none";
+    el.style.transform = `translateX(calc(${TRACK_CENTER}% + ${dxPx}px))`;
   };
 
   const setBackdropDim = (opacity: number, withTransition = false) => {
@@ -83,7 +105,7 @@ export function ImmersiveViewer({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  // ── Échap pour fermer (clavier externe / desktop de secours) ──
+  // ── Échap / flèches (clavier externe / desktop de secours) ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -94,14 +116,19 @@ export function ImmersiveViewer({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose, onPrev, onNext]);
 
-  // Reset au changement d'image
+  // Reset au changement d'image : image courante + piste recentrée (sans
+  // transition) + placeholder vignette le temps que le plein format charge.
   useEffect(() => {
     resetTransform(false);
+    applyTrack(0, false);
+    navigatingRef.current = false;
+    setFullLoaded(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
   // ── Gestes (pointer events) ──
   const onPointerDown = (e: React.PointerEvent) => {
+    if (navigatingRef.current) return;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     movedRef.current = false;
@@ -142,7 +169,6 @@ export function ImmersiveViewer({
       const cy = c.clientHeight / 2;
 
       const newScale = Math.min(MAX_SCALE, Math.max(0.6, ps.scale * (dist / ps.dist)));
-      // Garder le point du canvas situé sous le milieu du pincement
       const canvasX = (ps.midX - cx - ps.tx) / ps.scale;
       const canvasY = (ps.midY - cy - ps.ty) / ps.scale;
       t.current.scale = newScale;
@@ -181,9 +207,11 @@ export function ImmersiveViewer({
         apply();
         setBackdropDim(Math.max(0.3, 1 - dy / 500));
       } else if (swipeAxis.current === "h") {
-        // Feedback visuel du swipe de navigation
-        t.current.tx = dx;
-        apply();
+        // CARROUSEL : la piste (image courante + voisines) glisse avec le doigt.
+        // Résistance élastique quand il n'y a pas de voisin de ce côté.
+        let d = dx;
+        if ((dx > 0 && !onPrev) || (dx < 0 && !onNext)) d = dx * 0.3;
+        applyTrack(d);
       }
     }
   };
@@ -194,9 +222,7 @@ export function ImmersiveViewer({
 
     if (wasPinching) {
       pinchStart.current = null;
-      // Zoom arrière sous 1 → snap back à 1 centré
       if (t.current.scale <= 1.02) resetTransform();
-      // Le doigt restant repart d'un drag propre
       const rest = [...pointers.current.values()][0];
       if (rest) dragStart.current = { x: rest.x, y: rest.y, tx: t.current.tx, ty: t.current.ty };
       return;
@@ -214,7 +240,6 @@ export function ImmersiveViewer({
       const now = Date.now();
       const last = lastTap.current;
       if (last && now - last.time < 300 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 30) {
-        // Double-tap : zoom au point tapé ↔ reset
         lastTap.current = null;
         const c = containerRef.current;
         if (!c) return;
@@ -233,7 +258,6 @@ export function ImmersiveViewer({
         }
       } else {
         lastTap.current = { time: now, x: e.clientX, y: e.clientY };
-        // Tap simple : bascule le chrome (léger délai pour laisser sa chance au double-tap)
         setTimeout(() => {
           if (lastTap.current && Date.now() - lastTap.current.time >= 280) {
             setChromeVisible((v) => !v);
@@ -248,19 +272,43 @@ export function ImmersiveViewer({
     const dx = e.clientX - ds.x;
     const dy = e.clientY - ds.y;
 
-    if (axis === "v" && dy > 110) {
-      onClose();
+    // ── Fin de dismiss vertical ──
+    if (axis === "v") {
+      if (dy > 110) { onClose(); return; }
+      resetTransform();
       return;
     }
-    if (axis === "h" && Math.abs(dx) > 70) {
-      if (dx < 0 && onNext) { onNext(); return; }
-      if (dx > 0 && onPrev) { onPrev(); return; }
+
+    // ── Fin de swipe horizontal (carrousel) ──
+    if (axis === "h") {
+      const c = containerRef.current;
+      const w = c?.clientWidth ?? window.innerWidth;
+      if (dx < -NAV_THRESHOLD && onNext) {
+        // Termine le glissement puis navigue (la piste se recentre au changement
+        // d'image via l'effet [storageKey], sur la nouvelle diapo du milieu).
+        navigatingRef.current = true;
+        applyTrack(-w, true);
+        setTimeout(() => onNext(), 210);
+        return;
+      }
+      if (dx > NAV_THRESHOLD && onPrev) {
+        navigatingRef.current = true;
+        applyTrack(w, true);
+        setTimeout(() => onPrev(), 210);
+        return;
+      }
+      // Pas assez → retour élastique au centre
+      applyTrack(0, true);
+      return;
     }
-    // Pas de déclenchement → retour élastique
+
     resetTransform();
   };
 
   const url = storageKey ? getImageUrl(storageKey) : null;
+  const slideCls = "relative h-full flex-shrink-0";
+  const slideStyle = { width: "33.3333%" } as const;
+  const imgCls = "absolute inset-0 w-full h-full object-contain";
 
   const content = (
     <div className="fixed inset-0 z-[200] select-none">
@@ -270,27 +318,56 @@ export function ImmersiveViewer({
       {/* Zone gestuelle */}
       <div
         ref={containerRef}
-        className="absolute inset-0 flex items-center justify-center overflow-hidden"
+        className="absolute inset-0 overflow-hidden"
         style={{ touchAction: "none" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <div ref={imgWrapRef} className="w-full h-full will-change-transform">
-          {url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={url}
-              alt={title}
-              draggable={false}
-              className="absolute inset-0 w-full h-full object-contain"
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white/30 text-sm">Pas d&apos;image</span>
+        {/* Piste 3 diapos (précédente / courante / suivante) — large de 3 écrans */}
+        <div
+          ref={trackRef}
+          className="absolute inset-y-0 left-0 flex h-full will-change-transform"
+          style={{ width: "300%", transform: `translateX(${TRACK_CENTER}%)` }}
+        >
+          {/* Précédente (vignette) */}
+          <div className={slideCls} style={slideStyle}>
+            {prevThumbKey && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={getThumbnailUrl(prevThumbKey)} alt="" aria-hidden draggable={false} className={imgCls} />
+            )}
+          </div>
+          {/* Courante (vignette placeholder + plein format qui se révèle) */}
+          <div className={slideCls} style={slideStyle}>
+            <div ref={imgWrapRef} className="w-full h-full will-change-transform">
+              {currentThumbKey && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={getThumbnailUrl(currentThumbKey)} alt="" aria-hidden draggable={false} className={imgCls} />
+              )}
+              {url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={url}
+                  alt={title}
+                  draggable={false}
+                  onLoad={() => setFullLoaded(true)}
+                  className={`${imgCls} transition-opacity duration-200 ${fullLoaded ? "opacity-100" : "opacity-0"}`}
+                />
+              ) : !currentThumbKey ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-white/30 text-sm">Pas d&apos;image</span>
+                </div>
+              ) : null}
             </div>
-          )}
+          </div>
+          {/* Suivante (vignette) */}
+          <div className={slideCls} style={slideStyle}>
+            {nextThumbKey && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={getThumbnailUrl(nextThumbKey)} alt="" aria-hidden draggable={false} className={imgCls} />
+            )}
+          </div>
         </div>
       </div>
 
