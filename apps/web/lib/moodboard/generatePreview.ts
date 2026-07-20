@@ -62,45 +62,49 @@ export async function generateBoardPreview(canvasData: CanvasElement[], backgrou
     })
     .slice(0, MAX_ELEMENTS);
 
-  const composites: sharp.OverlayOptions[] = [];
-
-  for (const el of sorted) {
+  const box = (el: CanvasElement) => {
     let px = Math.round((el.x - minX) * scale + offsetX);
     let py = Math.round((el.y - minY) * scale + offsetY);
     let pw = Math.round(el.w * scale);
     let ph = Math.round(el.h * scale);
-    // Clamp dans le cadre (sharp refuse un composite qui déborde).
     px = Math.max(0, Math.min(px, OUT_W - 1));
     py = Math.max(0, Math.min(py, OUT_H - 1));
     pw = Math.max(1, Math.min(pw, OUT_W - px));
     ph = Math.max(1, Math.min(ph, OUT_H - py));
+    return { px, py, pw, ph };
+  };
 
-    if (el.type === "image") {
-      const key = el.thumbnailKey ?? el.storageKey;
-      const buf = await fetchBuffer(getImageUrl(key));
-      if (!buf) continue;
+  // Construit chaque calque EN PARALLÈLE (les fetch R2 des images dominent la
+  // durée sur Vercel — les enchaîner en série est le vrai coût). L'ordre z est
+  // préservé car on garde l'index et on trie les composites ensuite.
+  const layers = await Promise.all(
+    sorted.map(async (el, i): Promise<(sharp.OverlayOptions & { z: number }) | null> => {
+      const { px, py, pw, ph } = box(el);
+      if (el.type === "image") {
+        const buf = await fetchBuffer(getImageUrl(el.thumbnailKey ?? el.storageKey));
+        if (!buf) return null;
+        try {
+          const resized = await sharp(buf).resize(pw, ph, { fit: el.objectFit === "contain" ? "contain" : "cover", background: { r: 0, g: 0, b: 0, alpha: 0 } }).toBuffer();
+          return { input: resized, left: px, top: py, z: i };
+        } catch { return null; }
+      }
+      let fill: RGBA | null = null;
+      if (el.type === "color") fill = hexToRgba(el.color);
+      else if (el.type === "sticky") fill = hexToRgba(el.backgroundColor);
+      else if (el.type === "shape" && el.fillColor && el.fillColor !== "transparent") fill = hexToRgba(el.fillColor);
+      else if (el.type === "text") fill = { ...hexToRgba(el.color), alpha: 0.15 };
+      if (!fill) return null;
       try {
-        const resized = await sharp(buf)
-          .resize(pw, ph, { fit: el.objectFit === "contain" ? "contain" : "cover", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .toBuffer();
-        composites.push({ input: resized, left: px, top: py });
-      } catch { /* image illisible → ignorée */ }
-      continue;
-    }
+        const rect = await sharp({ create: { width: pw, height: ph, channels: 4, background: fill } }).png().toBuffer();
+        return { input: rect, left: px, top: py, z: i };
+      } catch { return null; }
+    }),
+  );
 
-    // Blocs pleins (couleur / sticky / forme) et texte (léger) → rectangle.
-    let fill: RGBA | null = null;
-    if (el.type === "color") fill = hexToRgba(el.color);
-    else if (el.type === "sticky") fill = hexToRgba(el.backgroundColor);
-    else if (el.type === "shape" && el.fillColor && el.fillColor !== "transparent") fill = hexToRgba(el.fillColor);
-    else if (el.type === "text") fill = { ...hexToRgba(el.color), alpha: 0.15 };
-    if (!fill) continue;
-
-    try {
-      const rect = await sharp({ create: { width: pw, height: ph, channels: 4, background: fill } }).png().toBuffer();
-      composites.push({ input: rect, left: px, top: py });
-    } catch { /* skip */ }
-  }
+  const composites: sharp.OverlayOptions[] = layers
+    .filter((l): l is sharp.OverlayOptions & { z: number } => l !== null)
+    .sort((a, b) => a.z - b.z)
+    .map(({ z, ...rest }) => { void z; return rest; });
 
   const bg = hexToRgba(background || "#0a0a0a", 1);
   return sharp({ create: { width: OUT_W, height: OUT_H, channels: 4, background: bg } })
