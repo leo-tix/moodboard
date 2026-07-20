@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { Pencil, X } from "lucide-react";
-import { InspirationCard } from "@/components/inspiration/InspirationCard";
+import { motion } from "framer-motion";
+import { Pencil, X, ArrowUpDown, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import type { SuggestedAddition } from "@/lib/collections/suggestions";
 import type { CollectionMember } from "@/lib/collections/members";
@@ -52,8 +54,35 @@ export function CollectionDetailClient({
   suggestions: initialSuggestions,
 }: CollectionDetailClientProps) {
   const [items, setItems] = useState(initialItems);
+  const [reorderMode, setReorderMode] = useState(false);
   const isShared = members.length > 1;
   const meMember = members.find((m) => m.id === viewerId) ?? null;
+
+  // Réordonnancement DnD (overlay + fantôme, cf. useSortableGrid).
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const sortable = useSortableGrid({
+    onReorder: (draggedId, targetId) => {
+      setItems((prev) => {
+        const from = prev.findIndex((it) => it.inspiration.id === draggedId);
+        const to = prev.findIndex((it) => it.inspiration.id === targetId);
+        if (from === -1 || to === -1 || from === to) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        return next;
+      });
+    },
+    onDrop: () => {
+      const order = itemsRef.current.map((it) => it.inspiration.id);
+      void fetch(`/api/collections/${collectionId}/items/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order }),
+      });
+    },
+  });
+  const dragged = sortable.draggingKey ? items.find((it) => it.inspiration.id === sortable.draggingKey) : null;
   const [removing, setRemoving] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -241,74 +270,115 @@ export function CollectionDetailClient({
                       : `Retirer ${selected.size} image${selected.size > 1 ? "s" : ""}`}
                   </button>
                 )}
-                <button
-                  onClick={() => {
-                    setSelectMode((v) => !v);
-                    setSelected(new Set());
-                  }}
-                  className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-                >
-                  {selectMode ? "Annuler" : "Sélectionner"}
-                </button>
+                {!selectMode && items.length > 1 && (
+                  <button
+                    onClick={() => setReorderMode((v) => !v)}
+                    className={cn("text-xs transition-colors inline-flex items-center gap-1", reorderMode ? "text-[var(--accent,#a78bfa)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]")}
+                  >
+                    {reorderMode ? <><Check size={13} strokeWidth={2} /> Terminé</> : <><ArrowUpDown size={13} strokeWidth={1.9} /> Réorganiser</>}
+                  </button>
+                )}
+                {!reorderMode && (
+                  <button
+                    onClick={() => {
+                      setSelectMode((v) => !v);
+                      setSelected(new Set());
+                    }}
+                    className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+                  >
+                    {selectMode ? "Annuler" : "Sélectionner"}
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Masonry grid */}
-            <div className="columns-2 sm:columns-3 lg:columns-4 xl:columns-5 gap-3 space-y-3">
-              {items.map(({ inspiration, addedBy }) => {
-                const img = inspiration.images[0];
-                const category = inspiration.categories[0]?.category.name;
-                const tags = inspiration.tags.map((t) => t.tag.name);
-
-                return (
-                  <div key={inspiration.id} className="break-inside-avoid relative group">
-                    <InspirationCard
-                      id={inspiration.id}
-                      title={inspiration.title}
-                      thumbnailKey={img?.thumbnailKey ?? null}
-                      blurHash={img?.blurHash ?? null}
-                      width={img?.width ?? null}
-                      height={img?.height ?? null}
-                      category={category}
-                      tags={tags}
-                      year={inspiration.year}
-                      selectable={selectMode}
-                      selected={selected.has(inspiration.id)}
-                      onSelect={selectMode ? toggleSelect : undefined}
-                      onBeforeNavigate={!selectMode ? handleBeforeNavigate : undefined}
-                    />
-
-                    {!selectMode && (
-                      <button
-                        onClick={() => removeOne(inspiration.id)}
-                        disabled={removing === inspiration.id}
-                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity hover:bg-black/80 disabled:opacity-40 z-10"
-                        title="Retirer de la collection"
+            {/* Grille carrée régulière. Mode « Réorganiser » = glisser-déposer
+                (useSortableGrid) ; sinon navigation + sélection + overlays. */}
+            {reorderMode ? (
+              <>
+                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                  {items.map(({ inspiration }) => {
+                    const img = inspiration.images[0];
+                    return (
+                      <motion.div
+                        key={inspiration.id}
+                        layout
+                        {...sortable.getContainerProps(inspiration.id)}
+                        className={cn(
+                          "aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] cursor-grab active:cursor-grabbing touch-none select-none",
+                          sortable.draggingKey === inspiration.id && "opacity-30",
+                        )}
                       >
-                        {removing === inspiration.id ? "…" : <X size={12} strokeWidth={2} />}
-                      </button>
-                    )}
-
-                    {/* Image d'un autre membre → l'enregistrer dans MA bibliothèque */}
-                    {!selectMode && inspiration.userId !== viewerId && img?.id && (
-                      <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity z-10">
-                        <SaveToLibraryButton collectionId={collectionId} imageId={img.id} />
-                      </div>
-                    )}
-
-                    {/* Attribution (collections partagées) : qui a ajouté cette image */}
-                    {isShared && addedBy && (
-                      <div
-                        className="absolute bottom-1.5 left-1.5 z-10 rounded-full ring-2 ring-black/30"
-                        title={`Ajoutée par ${addedBy.name || `@${addedBy.username}`}`}
-                      >
-                        <UserAvatar name={addedBy.name} username={addedBy.username} image={addedBy.image} size={22} />
-                      </div>
-                    )}
+                        {img?.thumbnailKey && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={getThumbnailUrl(img.thumbnailKey)} alt="" draggable={false} className="w-full h-full object-cover pointer-events-none" />
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+                {dragged?.inspiration.images[0]?.thumbnailKey && (
+                  <div ref={sortable.overlayRef} style={sortable.overlayStyle}>
+                    <div className="w-full h-full rounded-md overflow-hidden shadow-2xl ring-2 ring-[var(--accent,#a78bfa)]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={getThumbnailUrl(dragged.inspiration.images[0].thumbnailKey!)} alt="" className="w-full h-full object-cover" />
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                {items.map(({ inspiration, addedBy }) => {
+                  const img = inspiration.images[0];
+                  const url = img?.thumbnailKey ? getThumbnailUrl(img.thumbnailKey) : null;
+                  const isSel = selected.has(inspiration.id);
+                  const inner = (
+                    <div className={cn("aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] relative group", isSel && "ring-2 ring-[var(--accent,#a78bfa)]")}>
+                      {url && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={url} alt={inspiration.title} loading="lazy" draggable={false} className="w-full h-full object-cover" />
+                      )}
+
+                      {selectMode && (
+                        <div className={cn("absolute inset-0 transition-colors", isSel ? "bg-black/30" : "bg-black/0 group-hover:bg-black/10")}>
+                          <span className={cn("absolute top-1.5 right-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center", isSel ? "bg-[var(--accent,#a78bfa)] border-[var(--accent,#a78bfa)] text-white" : "border-white/80")}>
+                            {isSel && <Check size={11} strokeWidth={3} />}
+                          </span>
+                        </div>
+                      )}
+
+                      {!selectMode && (
+                        <button
+                          onClick={(e) => { e.preventDefault(); removeOne(inspiration.id); }}
+                          disabled={removing === inspiration.id}
+                          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity hover:bg-black/80 disabled:opacity-40 z-10"
+                          title="Retirer de la collection"
+                        >
+                          {removing === inspiration.id ? "…" : <X size={12} strokeWidth={2} />}
+                        </button>
+                      )}
+
+                      {!selectMode && inspiration.userId !== viewerId && img?.id && (
+                        <div className="absolute top-1.5 left-1.5 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity z-10" onClick={(e) => e.preventDefault()}>
+                          <SaveToLibraryButton collectionId={collectionId} imageId={img.id} />
+                        </div>
+                      )}
+
+                      {isShared && addedBy && (
+                        <div className="absolute bottom-1.5 left-1.5 z-10 rounded-full ring-2 ring-black/30" title={`Ajoutée par ${addedBy.name || `@${addedBy.username}`}`}>
+                          <UserAvatar name={addedBy.name} username={addedBy.username} image={addedBy.image} size={22} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                  return selectMode ? (
+                    <button key={inspiration.id} onClick={() => toggleSelect(inspiration.id)} className="block w-full text-left">{inner}</button>
+                  ) : (
+                    <Link key={inspiration.id} href={`/library/${inspiration.id}`} onClick={handleBeforeNavigate} className="block">{inner}</Link>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </div>
