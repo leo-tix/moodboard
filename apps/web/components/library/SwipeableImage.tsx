@@ -20,6 +20,7 @@ export function SwipeableImage({
   onPrev,
   onNext,
   onTap,
+  fill = false,
 }: {
   storageKey: string | null;
   currentThumbKey: string | null;
@@ -29,6 +30,9 @@ export function SwipeableImage({
   onPrev: (() => void) | null;
   onNext: (() => void) | null;
   onTap: () => void;
+  /** true = remplit le conteneur parent (h-full) au lieu de la boîte fixe 62vh
+   *  (utilisé pour donner le glissement à l'iPad dans la zone image du split). */
+  fill?: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -100,8 +104,10 @@ export function SwipeableImage({
 
   return (
     <div
-      className="relative w-full overflow-hidden select-none"
-      style={{ height: "62vh", touchAction: "pan-y" }}
+      className={fill
+        ? "absolute inset-0 overflow-hidden select-none"        // remplit la zone image (parent `relative`) — iPad
+        : "relative w-full overflow-hidden select-none"}        // boîte 62vh — mobile
+      style={fill ? { touchAction: "pan-y" } : { height: "62vh", touchAction: "pan-y" }}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}

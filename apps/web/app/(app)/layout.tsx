@@ -26,7 +26,15 @@ export default async function AppLayout({
   });
 
   return (
-    <div className="flex h-screen bg-[var(--bg-base)] overflow-hidden">
+    // pt = safe-area-inset-top : en PWA standalone (iPad/iPhone ajoutés à
+    // l'écran d'accueil), viewport-fit=cover fait passer le contenu SOUS la
+    // barre d'état iOS (heure/batterie). On décale tout le shell (sidebar +
+    // contenu) sous la barre d'état ; la bande ainsi libérée reste en bg-base.
+    // Nul effet en navigateur classique (l'inset y vaut 0). Retour iPad 2026-07-20.
+    <div
+      className="flex h-screen bg-[var(--bg-base)] overflow-hidden"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       {/* Barre de progression de navigation (retour visuel instantané au clic) */}
       <Suspense fallback={null}><TopProgressBar /></Suspense>
 
