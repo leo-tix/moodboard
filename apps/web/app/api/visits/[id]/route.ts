@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { z } from "zod";
 import { deleteAllAudioForVisit } from "@/lib/visits/audioCleanup";
 import { nextBlockOrder } from "@/lib/visits/blockOrder";
-import { deleteGrantsFor } from "@/lib/access/resolve";
+import { deleteGrantsFor, canEditResource } from "@/lib/access/resolve";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -34,9 +34,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  // La visite doit appartenir au profil
-  const ownedVisit = await db.visit.findFirst({ where: { id, userId }, select: { id: true } });
-  if (!ownedVisit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  // Propriétaire OU éditeur (co-édition des métadonnées de la visite).
+  if (!(await canEditResource("VISIT", id, userId))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const { place, exhibition, visitDate, notes, latitude, longitude, address, addInspirationIds, removeInspirationIds } = parsed.data;
 

@@ -3,12 +3,12 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { uploadTilePhoto } from "@/lib/visits/tilePhoto";
+import { canEditResource } from "@/lib/access/resolve";
 
 interface Params { params: Promise<{ id: string }> }
 
-async function ownedVisit(id: string, userId: string) {
-  return db.visit.findFirst({ where: { id, userId }, select: { id: true } });
-}
+// Propriétaire OU éditeur (co-édition) de la visite.
+const canEditVisit = (id: string, userId: string) => canEditResource("VISIT", id, userId);
 
 // PATCH /api/visits/[id]/cover — définit la couverture personnalisée par sa clé
 // R2 (image choisie parmi celles de la visite), ou la retire (coverKey: null →
@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   const { id } = await params;
-  if (!(await ownedVisit(id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditVisit(id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   const { id } = await params;
-  if (!(await ownedVisit(id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditVisit(id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const form = await req.formData();
   const file = form.get("file");

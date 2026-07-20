@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { canEditResource } from "@/lib/access/resolve";
 import { deleteFromR2 } from "@/lib/storage/r2";
 import { uploadTilePhoto } from "@/lib/visits/tilePhoto";
 
@@ -15,8 +16,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const userId = session.user.id;
 
   const { id } = await params;
-  const visit = await db.visit.findFirst({ where: { id, userId }, select: { id: true } });
-  if (!visit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditResource("VISIT", id, userId))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;

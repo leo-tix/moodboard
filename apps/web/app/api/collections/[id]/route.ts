@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { deleteGrantsFor } from "@/lib/access/resolve";
+import { deleteGrantsFor, canEditResource, resolveAccess, canView } from "@/lib/access/resolve";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -12,8 +12,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
 
-  const collection = await db.collection.findFirst({
-    where: { id, userId: session.user.id },
+  // Lecture ouverte au propriétaire, éditeur ou lecteur autorisé (co-consultation).
+  if (!canView(await resolveAccess("COLLECTION", id, session.user.id))) {
+    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  }
+
+  const collection = await db.collection.findUnique({
+    where: { id },
     include: {
       items: {
         include: {
@@ -47,11 +52,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const { name, description } = await req.json();
 
-  const owned = await db.collection.findFirst({
-    where: { id, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  // Propriétaire OU éditeur (co-édition du nom/description).
+  if (!(await canEditResource("COLLECTION", id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const collection = await db.collection.update({
     where: { id },

@@ -27,11 +27,13 @@ export default async function CollectionDetailPage({ params }: Props) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  // Accès partagé : un tiers autorisé voit la collection en LECTURE SEULE (grille
-  // de vignettes). L'édition reste au propriétaire. Aucun accès → 404.
+  // Accès partagé : propriétaire ET éditeur (grant EDITOR) co-éditent la
+  // collection ; un simple lecteur la voit en LECTURE SEULE (grille de
+  // vignettes). Aucun accès → 404.
   const access = await resolveAccess("COLLECTION", id, user.id);
   if (!access) notFound();
-  if (access !== "owner") {
+  const isOwner = access === "owner";
+  if (access === "viewer") {
     const col = await db.collection.findUnique({
       where: { id },
       include: {
@@ -66,9 +68,11 @@ export default async function CollectionDetailPage({ params }: Props) {
     );
   }
 
+  // Propriétaire ou éditeur : rendu éditable (findUnique — l'éditeur n'est pas
+  // propriétaire donc pas de filtre userId).
   const [collection, suggestions] = await Promise.all([
-    db.collection.findFirst({
-      where: { id, userId: user.id },
+    db.collection.findUnique({
+      where: { id },
       include: {
         items: {
           include: {
@@ -107,9 +111,11 @@ export default async function CollectionDetailPage({ params }: Props) {
         <span className="text-xs text-[var(--text-tertiary)]">
           {collection._count.items} image{collection._count.items !== 1 ? "s" : ""}
         </span>
-        <div className="ml-auto">
-          <ShareButton resource="collections" id={collection.id} />
-        </div>
+        {isOwner && (
+          <div className="ml-auto">
+            <ShareButton resource="collections" id={collection.id} allowEditor />
+          </div>
+        )}
       </div>
 
       <CollectionDetailClient

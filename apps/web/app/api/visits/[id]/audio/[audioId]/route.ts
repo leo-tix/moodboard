@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { canEditResource } from "@/lib/access/resolve";
 import { z } from "zod";
 import { deleteFromR2 } from "@/lib/storage/r2";
 import { parseWordTimings } from "@/lib/audio/wordTimings";
@@ -25,8 +26,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const owned = await db.visit.findFirst({ where: { id, userId: session.user.id }, select: { id: true } });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditResource("VISIT", id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const audio = await db.visitAudio.findUnique({ where: { id: audioId } });
   if (!audio || audio.visitId !== id) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
@@ -49,8 +49,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
   const { id, audioId } = await params;
-  const owned = await db.visit.findFirst({ where: { id, userId: session.user.id }, select: { id: true } });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditResource("VISIT", id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const audio = await db.visitAudio.findUnique({ where: { id: audioId } });
   if (!audio || audio.visitId !== id) return NextResponse.json({ error: "Introuvable" }, { status: 404 });

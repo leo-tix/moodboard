@@ -46,6 +46,11 @@ export async function resolveAccess(
 export const canView = (a: AccessLevel) => a !== null;
 export const canEdit = (a: AccessLevel) => a === "owner" || a === "editor";
 
+/** Propriétaire OU éditeur (grant EDITOR) d'une ressource. Pour la co-édition. */
+export async function canEditResource(resource: GrantResource, id: string, userId: string): Promise<boolean> {
+  return canEdit(await resolveAccess(resource, id, userId));
+}
+
 /** Ids des ressources d'un type sur lesquelles le visiteur a un grant nominatif. */
 export async function grantedIds(viewerId: string, resource: GrantResource): Promise<string[]> {
   const rows = await db.resourceGrant.findMany({

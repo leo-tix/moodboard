@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { canEditResource } from "@/lib/access/resolve";
 import { deleteFromR2 } from "@/lib/storage/r2";
 import { uploadTileThumbnailOnly } from "@/lib/visits/tilePhoto";
 
@@ -15,8 +16,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const userId = session.user.id;
 
   const { id, paletteId } = await params;
-  const owned = await db.visit.findFirst({ where: { id, userId }, select: { id: true } });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditResource("VISIT", id, userId))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const existing = await db.visitPalette.findUnique({ where: { id: paletteId } });
   if (!existing || existing.visitId !== id) return NextResponse.json({ error: "Introuvable" }, { status: 404 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { canEditResource } from "@/lib/access/resolve";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -16,9 +17,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!inspirationIds?.length)
     return NextResponse.json({ error: "inspirationIds requis" }, { status: 400 });
 
-  // La collection doit appartenir au profil
-  const owned = await db.collection.findFirst({ where: { id, userId }, select: { id: true } });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  // Propriétaire OU éditeur (co-édition : ajout d'images à la collection).
+  if (!(await canEditResource("COLLECTION", id, userId))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   // Ne rattache que des inspirations possédées par le même profil (anti-IDOR)
   const ownedInsp = await db.inspiration.findMany({
@@ -55,12 +55,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const { inspirationIds } = (await req.json()) as { inspirationIds: string[] };
 
-  // La collection doit appartenir au profil
-  const owned = await db.collection.findFirst({
-    where: { id, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  // Propriétaire OU éditeur (co-édition : retrait d'images de la collection).
+  if (!(await canEditResource("COLLECTION", id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   await db.collectionItem.deleteMany({
     where: { collectionId: id, inspirationId: { in: inspirationIds } },

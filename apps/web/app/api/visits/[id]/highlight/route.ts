@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { canEditResource } from "@/lib/access/resolve";
 import { z } from "zod";
 
 interface Params { params: Promise<{ id: string }> }
@@ -23,8 +24,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const visit = await db.visit.findFirst({ where: { id, userId: session.user.id }, select: { id: true } });
-  if (!visit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  if (!(await canEditResource("VISIT", id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
   const highlight = await db.visitHighlight.create({
     data: {

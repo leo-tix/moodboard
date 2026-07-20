@@ -36,12 +36,13 @@ export default async function VisiteDetailPage({ params }: Props) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  // Accès partagé : un tiers autorisé (public / connexions / grant) voit la
-  // visite en LECTURE SEULE. L'édition reste au propriétaire (co-édition des
-  // visites = suivi ultérieur). Aucun accès → 404.
+  // Accès partagé : propriétaire ET éditeur (grant EDITOR) co-éditent la visite ;
+  // un simple lecteur (public / connexions / grant VIEWER) la voit en LECTURE
+  // SEULE. Aucun accès → 404.
   const access = await resolveAccess("VISIT", id, user.id);
   if (!access) notFound();
-  if (access !== "owner") {
+  const isOwner = access === "owner";
+  if (access === "viewer") {
     const roVisit = await db.visit.findUnique({ where: { id }, include: VISIT_READONLY_INCLUDE });
     if (!roVisit) notFound();
     return (
@@ -54,8 +55,10 @@ export default async function VisiteDetailPage({ params }: Props) {
     );
   }
 
-  const visit = await db.visit.findFirst({
-    where: { id, userId: user.id },
+  // Propriétaire ou éditeur : rendu éditable complet (findUnique — l'éditeur
+  // n'est pas propriétaire donc pas de filtre userId).
+  const visit = await db.visit.findUnique({
+    where: { id },
     include: {
       user: { select: { name: true, image: true } },
       inspirations: {
@@ -121,7 +124,8 @@ export default async function VisiteDetailPage({ params }: Props) {
   const coverEditor = (
     <VisitCoverEditor visitId={visit.id} currentCoverKey={visit.coverKey} images={pickerImages} />
   );
-  const shareButton = <ShareButton resource="visits" id={visit.id} />;
+  // Le partage (visibilité + membres) reste une prérogative du propriétaire.
+  const shareButton = isOwner ? <ShareButton resource="visits" id={visit.id} allowEditor /> : null;
   const editableHeader = (
     <VisitHeaderEditable
       visitId={visit.id}
