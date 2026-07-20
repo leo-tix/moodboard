@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/current";
 import { db } from "@/lib/db";
 import { accessibleWhere } from "@/lib/access/resolve";
 import { getImageUrl } from "@/lib/storage/urls";
+import { pickImgUrl } from "@/lib/social/previewCover";
 import { UserAvatar } from "@/components/social/UserAvatar";
 import { SocialTabs } from "@/components/social/SocialTabs";
 import { MoodboardPreview } from "@/components/moodboard/MoodboardPreview";
@@ -22,14 +23,14 @@ export default async function FeedPage() {
   const ownerSel = { select: { name: true, username: true, image: true } };
   const [boards, visits, collections] = await Promise.all([
     db.moodboard.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("MOODBOARD", me.id)] }, select: { id: true, title: true, background: true, canvasData: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
-    db.visit.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("VISIT", me.id)] }, select: { id: true, place: true, exhibition: true, coverKey: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
-    db.collection.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("COLLECTION", me.id)] }, select: { id: true, name: true, coverImageKey: true, createdAt: true, user: ownerSel }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.visit.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("VISIT", me.id)] }, select: { id: true, place: true, exhibition: true, coverKey: true, createdAt: true, user: ownerSel, inspirations: { where: { status: "READY" }, orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }], take: 1, select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.collection.findMany({ where: { AND: [{ userId: { not: me.id } }, await accessibleWhere("COLLECTION", me.id)] }, select: { id: true, name: true, coverImageKey: true, createdAt: true, user: ownerSel, items: { orderBy: { order: "asc" }, take: 1, select: { inspiration: { select: { images: { orderBy: [{ isMain: "desc" }, { order: "asc" }], take: 1, select: { thumbnailKey: true, storageKey: true } } } } } } }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
 
   const items: Item[] = [
     ...boards.map((b) => ({ kind: "board" as const, id: b.id, title: b.title, cover: null, board: { canvasData: capCanvasForPreview(b.canvasData as CanvasElement[]), background: b.background }, owner: b.user, createdAt: b.createdAt })),
-    ...visits.map((v) => ({ kind: "visit" as const, id: v.id, title: v.exhibition || v.place, cover: v.coverKey ? getImageUrl(v.coverKey) : null, owner: v.user, createdAt: v.createdAt })),
-    ...collections.map((c) => ({ kind: "collection" as const, id: c.id, title: c.name, cover: c.coverImageKey ? getImageUrl(c.coverImageKey) : null, owner: c.user, createdAt: c.createdAt })),
+    ...visits.map((v) => ({ kind: "visit" as const, id: v.id, title: v.exhibition || v.place, cover: v.coverKey ? getImageUrl(v.coverKey) : pickImgUrl(v.inspirations[0]?.images[0]), owner: v.user, createdAt: v.createdAt })),
+    ...collections.map((c) => ({ kind: "collection" as const, id: c.id, title: c.name, cover: c.coverImageKey ? getImageUrl(c.coverImageKey) : pickImgUrl(c.items[0]?.inspiration.images[0]), owner: c.user, createdAt: c.createdAt })),
   ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 30);
 
   const KIND_LABEL = { board: "Planche", visit: "Visite", collection: "Collection" };

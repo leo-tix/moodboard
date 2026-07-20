@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getImageUrl } from "@/lib/storage/urls";
 import { conversationForParticipant, otherParticipant } from "@/lib/messaging/conversation";
 import { capCanvasForPreview } from "@/lib/moodboard/preview";
+import { visitCoverUrl, collectionCoverUrl } from "@/lib/social/previewCover";
 import type { CanvasElement } from "@/lib/moodboard/types";
 import type { GrantResource } from "@prisma/client";
 
@@ -21,10 +22,10 @@ async function resourcePreview(resource: GrantResource, id: string) {
   }
   if (resource === "VISIT") {
     const v = await db.visit.findUnique({ where: { id }, select: { place: true, exhibition: true, coverKey: true } });
-    return { label: v?.exhibition || v?.place || "Visite", href, kind: resource, cover: v?.coverKey ? getImageUrl(v.coverKey) : null, board: null };
+    return { label: v?.exhibition || v?.place || "Visite", href, kind: resource, cover: v ? await visitCoverUrl(id, v.coverKey) : null, board: null };
   }
   const c = await db.collection.findUnique({ where: { id }, select: { name: true, coverImageKey: true } });
-  return { label: c?.name ?? "Collection", href, kind: resource, cover: c?.coverImageKey ? getImageUrl(c.coverImageKey) : null, board: null };
+  return { label: c?.name ?? "Collection", href, kind: resource, cover: c ? await collectionCoverUrl(id, c.coverImageKey) : null, board: null };
 }
 
 // GET /api/conversations/[id] — fil complet + marque les entrants comme lus.
