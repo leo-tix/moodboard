@@ -104,8 +104,31 @@ export function TranscriptKaraoke({
   );
 
   const activeWordRef = useRef<HTMLSpanElement>(null);
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+
+  // Suivi du mot en cours de lecture — UNIQUEMENT dans la boîte du transcript.
+  //
+  // `scrollIntoView()` faisait défiler TOUS les ancêtres scrollables, pas
+  // seulement le transcript : à chaque changement de mot, la page entière
+  // revenait se caler sur le bloc audio, rendant impossible de lire le carnet
+  // en écoutant un mémo (retour utilisateur 2026-08-05). On pilote donc
+  // directement le `scrollTop` du conteneur, ce qui n'affecte aucun ancêtre.
   useEffect(() => {
-    if (scroll && playing) activeWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (!scroll || !playing) return;
+    const box = scrollBoxRef.current;
+    const word = activeWordRef.current;
+    if (!box || !word) return;
+
+    const max = box.scrollHeight - box.clientHeight;
+    if (max <= 0) return; // transcript entièrement visible : rien à faire
+
+    // Position du mot dans le contenu (rects : le <p> n'est pas positionné).
+    const offsetTop = word.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    const centered = offsetTop - (box.clientHeight - word.offsetHeight) / 2;
+    const next = Math.max(0, Math.min(max, centered));
+    if (Math.abs(next - box.scrollTop) < 2) return; // évite un va-et-vient inutile
+
+    box.scrollTo({ top: next, behavior: "smooth" });
   }, [activeWordIndex, playing, scroll]);
 
   if (wordTimings.length === 0) {
@@ -149,7 +172,7 @@ export function TranscriptKaraoke({
         className="pointer-events-none absolute inset-x-0 top-0 h-3 z-10"
         style={{ background: `linear-gradient(to bottom, ${topFade}, transparent)` }}
       />
-      <div className="h-full overflow-y-auto scrollbar-none py-1.5">{words}</div>
+      <div ref={scrollBoxRef} className="h-full overflow-y-auto scrollbar-none py-1.5">{words}</div>
       <div
         className="pointer-events-none absolute inset-x-0 bottom-0 h-3 z-10"
         style={{ background: `linear-gradient(to top, ${bottomFade}, transparent)` }}
