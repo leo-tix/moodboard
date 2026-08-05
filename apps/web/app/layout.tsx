@@ -73,6 +73,38 @@ if('serviceWorker' in navigator){
   });
 }
 window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__pwaPrompt=e;});
+
+// STOCKAGE PERSISTANT — sans ça, le navigateur peut évincer IndexedDB sous
+// pression disque, et une visite de musée en attente (50-100 Mo de photos)
+// serait perdue. Voir docs/carnet-hors-ligne.md §6.
+if(navigator.storage && navigator.storage.persist){
+  navigator.storage.persisted().then(function(ok){ if(!ok) navigator.storage.persist().catch(function(){}); }).catch(function(){});
+}
+
+// PRÉCHAUFFAGE DE LA COQUILLE HORS LIGNE — le service worker met en cache le
+// HTML de /hors-ligne à l'installation, mais PAS les bundles JS de la route,
+// qui sont des requêtes distinctes : sans eux la page ne s'hydraterait pas
+// sans réseau. On la charge donc une fois dans une iframe invisible, ce qui
+// fait passer tous ses sous-fichiers par le worker, qui les met en cache.
+// Une seule fois par session, au repos, et uniquement en ligne.
+(function(){
+  try{
+    if(!('serviceWorker' in navigator) || !navigator.onLine) return;
+    if(location.pathname === '/hors-ligne') return;
+    if(sessionStorage.getItem('mb-offline-warm')) return;
+    var run = function(){
+      sessionStorage.setItem('mb-offline-warm','1');
+      var f = document.createElement('iframe');
+      f.setAttribute('aria-hidden','true');
+      f.style.cssText = 'position:absolute;width:0;height:0;border:0;opacity:0;pointer-events:none';
+      f.src = '/hors-ligne';
+      f.onload = function(){ setTimeout(function(){ f.remove(); }, 2000); };
+      document.body.appendChild(f);
+    };
+    if('requestIdleCallback' in window) requestIdleCallback(run,{timeout:8000});
+    else setTimeout(run,4000);
+  }catch(e){}
+})();
 `.trim(),
           }}
         />

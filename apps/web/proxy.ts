@@ -8,7 +8,12 @@ export const config = {
   // unauthenticated — only the PWA share-target pages (upload/social/done/
   // instagram) under the same /share/ prefix require a session.
   // carnet/<token> (public visit journal viewer, Phase 5) is likewise public.
+  // hors-ligne : coquille PWA servie en repli de navigation par le service
+  // worker. Elle DOIT rester hors authentification — sinon le proxy la redirige
+  // vers /login, le worker met cette redirection en cache, et l'application
+  // devient inutilisable sans réseau (le contraire du but recherché).
+  // Elle ne rend aucune donnée serveur : tout vient du stockage local.
   matcher: [
-    "/((?!api/auth|api/share|api/import|login|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon|carnet\\/[^\\/]+|share\\/(?!(?:upload|social|done|instagram)(?:\\/|$))[^\\/]+).*)",
+    "/((?!api/auth|api/share|api/import|login|hors-ligne|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon|carnet\\/[^\\/]+|share\\/(?!(?:upload|social|done|instagram)(?:\\/|$))[^\\/]+).*)",
   ],
 };

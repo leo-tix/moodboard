@@ -1,5 +1,8 @@
-const CACHE = 'mb-v7';
+const CACHE = 'mb-v8';
 const SHARE_DB = 'moodboard-share';
+// Coquille hors ligne : page entièrement rendue côté client, servie en repli
+// quand une navigation échoue faute de réseau (cf. docs/carnet-hors-ligne.md).
+const OFFLINE_URL = '/hors-ligne';
 
 function extractUrl(text) {
   const m = (text || '').match(/https?:\/\/\S+/i);
@@ -81,12 +84,22 @@ async function handleShareTarget(request) {
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.add('/'))
+      // `addAll` échouerait en bloc si UNE ressource manque ; on tolère les
+      // échecs unitaires pour ne jamais empêcher l'installation du worker.
+      .then((c) => Promise.allSettled([c.add('/'), c.add(OFFLINE_URL)]))
       .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+// Purge les anciennes versions de cache pour ne pas laisser traîner des
+// documents périmés (et de la place occupée pour rien).
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((noms) => Promise.all(noms.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
+      .then(() => clients.claim())
+  );
+});
 
 self.addEventListener('fetch', (e) => {
   const { request } = e;
@@ -107,7 +120,44 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Network-first with cache fallback for pages and assets
+  // NAVIGATION (ouverture d'une page) : réseau d'abord, puis repli en cascade.
+  // Auparavant on retombait sur `caches.match(request)` seul : une page jamais
+  // visitée n'était pas en cache, la promesse résolvait `undefined`, et le
+  // navigateur affichait sa propre page d'erreur — d'où l'impossibilité
+  // d'ouvrir l'app hors ligne (cf. docs/carnet-hors-ligne.md §1a).
+  if (request.mode === 'navigate') {
+    e.respondWith(
+      fetch(request)
+        .then((res) => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then((c) => c.put(request, clone));
+          }
+          return res;
+        })
+        .catch(async () => {
+          // 1. la page elle-même si on l'a déjà visitée
+          const exact = await caches.match(request);
+          if (exact) return exact;
+          // 2. sinon la coquille hors ligne
+          const shell = await caches.match(OFFLINE_URL);
+          if (shell) return shell;
+          // 3. dernier filet : jamais la page d'erreur du navigateur
+          return new Response(
+            '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            + '<title>Hors ligne</title>'
+            + '<body style="margin:0;display:grid;place-items:center;height:100vh;background:#0a0a0a;color:#e5e5e5;'
+            + 'font-family:system-ui,sans-serif;text-align:center;padding:24px">'
+            + '<div><p style="font-size:15px">Pas de connexion.</p>'
+            + '<p style="font-size:13px;opacity:.6">Rouvre l\'application une fois le réseau revenu.</p></div>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        })
+    );
+    return;
+  }
+
+  // Ressources (JS, CSS, images…) : réseau d'abord, cache en repli.
   e.respondWith(
     fetch(request)
       .then((res) => {
