@@ -11,6 +11,11 @@ import { randomUUID } from "crypto";
 
 interface Params { params: Promise<{ id: string }> }
 
+// Un mémo long (jusqu'à ~15 min) fait plusieurs Mo : sur une connexion mobile
+// médiocre, l'upload dépasse largement le délai par défaut d'une fonction
+// serverless, qui coupait la requête en cours de route (retour 2026-08-05).
+export const maxDuration = 60;
+
 // POST /api/visits/[id]/audio — upload d'un clip audio, bloc autonome du
 // carnet (waveform + transcription, voir components/visits/AudioPlayer.tsx).
 export async function POST(req: NextRequest, { params }: Params) {
@@ -37,7 +42,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Clip audio trop lourd" }, { status: 413 });
   }
 
-  const quotaCheck = await checkUploadAllowed(userId, file.size);
+  // Plafond AUDIO explicite : sans lui, le contrôle de quota retombait sur le
+  // plafond image (10 Mo) et rejetait un mémo pourtant valide juste au-dessus.
+  const quotaCheck = await checkUploadAllowed(userId, file.size, QUOTA.MAX_AUDIO_SIZE_BYTES);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }

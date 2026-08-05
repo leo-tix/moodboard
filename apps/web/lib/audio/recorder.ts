@@ -23,9 +23,15 @@ export function pickSupportedAudioMimeType(): string | undefined {
 // EXPLICITE certains navigateurs (Chrome/Android en tête) retombent sur un
 // débit Opus par défaut très bas (profil VOIP basse bande passante), d'où
 // un rendu nettement moins bon que sur Safari/iOS où l'encodeur AAC par
-// défaut est déjà généreux. 256 kbps mono = qualité max pour de la voix, et
-// reste sous le plafond serveur (15 Mo/clip, voir QUOTA.MAX_AUDIO_SIZE_BYTES).
-export const AUDIO_BITRATE = 256_000;
+// défaut est déjà généreux.
+//
+// 96 kbps mono (au lieu de 256) depuis le 2026-08-05 : pour de la PAROLE mono,
+// Opus est transparent bien avant 96 kbps — 256 kbps ne gagnait rien d'audible
+// mais produisait ~2 Mo/minute, soit 13 Mo pour un mémo de 6:50 → refusé par le
+// serveur, impossible à envoyer (retour utilisateur). À 96 kbps un mémo de
+// 15 min pèse ~11 Mo, très en dessous du plafond (60 Mo/clip). Le réglage reste
+// EXPLICITE, donc la mauvaise valeur par défaut de Chrome est toujours évitée.
+export const AUDIO_BITRATE = 96_000;
 
 // Contraintes micro — retour terrain 2026-07-19. Le sélecteur de micro
 // (deviceId) « ne changeait rien » sur Android : les entrées listées ne sont

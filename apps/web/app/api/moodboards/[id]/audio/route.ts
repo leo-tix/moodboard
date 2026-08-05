@@ -9,6 +9,9 @@ import { randomUUID } from "crypto";
 
 interface Params { params: Promise<{ id: string }> }
 
+// Mémos longs : l'upload doit survivre à une connexion mobile lente.
+export const maxDuration = 60;
+
 // POST /api/moodboards/[id]/audio — upload d'un mémo vocal inséré comme bloc
 // sur une planche (canvas). Miroir direct de /api/visits/[id]/audio — même
 // filet anti-orphelins R2 (purge immédiate si la création DB échoue après un
@@ -36,7 +39,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Clip audio trop lourd" }, { status: 413 });
   }
 
-  const quotaCheck = await checkUploadAllowed(userId, file.size);
+  // Plafond AUDIO explicite (sinon le plafond image de 10 Mo s'applique).
+  const quotaCheck = await checkUploadAllowed(userId, file.size, QUOTA.MAX_AUDIO_SIZE_BYTES);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }

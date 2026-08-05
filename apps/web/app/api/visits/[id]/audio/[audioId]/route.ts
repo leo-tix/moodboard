@@ -20,7 +20,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // fond, on le stocke. ABSENT → édition manuelle du texte, on efface les
   // timings (l'alignement mot-à-mot ne correspond plus).
   const parsed = z
-    .object({ transcript: z.string().max(4000).nullable(), wordTimings: z.array(z.unknown()).optional() })
+    .object({ transcript: z.string().max(200_000).nullable(), wordTimings: z.array(z.unknown()).optional() })
     .safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });

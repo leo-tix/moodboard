@@ -29,6 +29,13 @@ export interface TranscribeProgress {
   /** Téléchargement du modèle uniquement */
   loadedMB?: number;
   totalMB?: number;
+  /** Transcription d'un mémo LONG : secondes d'audio déjà traitées / total.
+   *  Absents pour un mémo court (traité en un seul appel, barre indéterminée).
+   *  Sans ça, un mémo de plusieurs minutes n'affichait aucune progression
+   *  pendant des minutes et semblait « tourner dans le vide » (retour
+   *  utilisateur 2026-08-05). */
+  doneSec?: number;
+  totalSec?: number;
 }
 
 /** Timing d'un mot transcrit (secondes) — pour la surbrillance karaoke synchro. */

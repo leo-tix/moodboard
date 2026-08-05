@@ -22,16 +22,27 @@ import { AudioPlayer } from "@/components/visits/AudioPlayer";
 //    (mb-progress-sweep) — le calcul WASM fige le thread JS, seule une
 //    animation compositeur (transform) continue de défiler pendant le gel.
 function TranscribeProgressBar({ progress }: { progress: TranscribeProgress }) {
-  const pct =
+  // Mémo LONG en cours de transcription : progression RÉELLE (secondes d'audio
+  // traitées), remontée segment par segment par le worker. Sans ça un mémo de
+  // plusieurs minutes n'affichait rien pendant tout le traitement et semblait
+  // planté (retour utilisateur 2026-08-05).
+  const segPct =
+    progress.phase === "transcribing" && progress.totalSec
+      ? Math.min(100, Math.round(((progress.doneSec ?? 0) / progress.totalSec) * 100))
+      : null;
+  const dlPct =
     progress.phase === "downloading" && progress.totalMB
       ? Math.min(100, Math.round(((progress.loadedMB ?? 0) / progress.totalMB) * 100))
       : null;
+  const pct = dlPct ?? segPct;
   const label =
     progress.phase === "downloading"
       ? "Téléchargement du modèle (1re fois)"
       : progress.phase === "decoding"
         ? "Préparation de l'audio…"
-        : "Transcription en cours…";
+        : segPct !== null
+          ? "Transcription du mémo (cela peut prendre quelques minutes)"
+          : "Transcription en cours…";
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -39,11 +50,13 @@ function TranscribeProgressBar({ progress }: { progress: TranscribeProgress }) {
           <Loader2 size={12} className="animate-spin" strokeWidth={2.2} />
           {label}
         </span>
-        {pct !== null && (
+        {dlPct !== null ? (
           <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
-            {progress.loadedMB ?? 0}/{progress.totalMB} Mo · {pct}%
+            {progress.loadedMB ?? 0}/{progress.totalMB} Mo · {dlPct}%
           </span>
-        )}
+        ) : segPct !== null ? (
+          <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">{segPct}%</span>
+        ) : null}
       </div>
       <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-surface)]">
         {pct !== null ? (
@@ -255,7 +268,12 @@ export function VoiceMemoRecorder({ onRecorded, uploadUrl, offlineQueue, open, o
     setWordTimings(null);
     startedAtRef.current = Date.now();
     setElapsed(0);
-    recorder.start();
+    // `timeslice` de 1 s : le MediaRecorder émet un morceau par seconde au lieu
+    // d'un unique blob à l'arrêt. Sur un mémo LONG (jusqu'à 15 min), garder tout
+    // en un seul bloc signifiait qu'un onglet tué ou un plantage emportait
+    // l'intégralité de l'enregistrement ; là, tout ce qui précède est déjà
+    // accumulé dans chunksRef (retour utilisateur 2026-08-05).
+    recorder.start(1000);
     setMemo({ step: "recording", startedAt: startedAtRef.current });
   };
 

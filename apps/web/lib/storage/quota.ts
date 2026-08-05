@@ -49,8 +49,11 @@ export const QUOTA = {
     "audio/mp4",
     "audio/mpeg",
   ] as const,
-  // Taille max par clip audio : 15 MB (largement suffisant, ~15 min en webm/opus)
-  MAX_AUDIO_SIZE_BYTES: parseInt(process.env.R2_MAX_AUDIO_SIZE_BYTES ?? "15728640"),
+  // Taille max par clip audio : 60 MB. Dimensionné pour des mémos LONGS
+  // (jusqu'à ~15 min, cf. retour utilisateur 2026-08-05) avec de la marge pour
+  // l'AAC de Safari/iOS, moins efficace qu'Opus. À 96 kbps mono (AUDIO_BITRATE),
+  // 15 min ≈ 11 Mo : on est très large.
+  MAX_AUDIO_SIZE_BYTES: parseInt(process.env.R2_MAX_AUDIO_SIZE_BYTES ?? "62914560"),
 
   // Seuil d'alerte (warning UI)
   WARN_THRESHOLD: 0.8,
@@ -216,16 +219,22 @@ export async function getFullQuotaStatus(userId: string): Promise<FullQuotaStatu
 // ── Vérifie si un upload est autorisé pour un profil ───────
 export async function checkUploadAllowed(
   userId: string,
-  fileSizeBytes: number
+  fileSizeBytes: number,
+  // Plafond PAR FICHIER à appliquer — par défaut celui des images.
+  // Les routes audio passent QUOTA.MAX_AUDIO_SIZE_BYTES : un mémo vocal de
+  // quelques minutes validait le plafond audio de la route puis se faisait
+  // rejeter ICI par le plafond image (10 Mo), en 413 — d'où l'impossibilité
+  // d'envoyer un vocal de 6:50 (retour utilisateur 2026-08-05).
+  maxFileSizeBytes: number = QUOTA.MAX_FILE_SIZE_BYTES
 ): Promise<{
   allowed: boolean;
   reason?: string;
 }> {
   // 1. Taille du fichier
-  if (fileSizeBytes > QUOTA.MAX_FILE_SIZE_BYTES) {
+  if (fileSizeBytes > maxFileSizeBytes) {
     return {
       allowed: false,
-      reason: `Fichier trop lourd. Maximum : ${formatBytes(QUOTA.MAX_FILE_SIZE_BYTES)}`,
+      reason: `Fichier trop lourd. Maximum : ${formatBytes(maxFileSizeBytes)}`,
     };
   }
 
