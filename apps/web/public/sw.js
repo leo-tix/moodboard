@@ -1,4 +1,4 @@
-const CACHE = 'mb-v9';
+const CACHE = 'mb-v10';
 const SHARE_DB = 'moodboard-share';
 // Coquille hors ligne : page entièrement rendue côté client, servie en repli
 // quand une navigation échoue faute de réseau (cf. docs/carnet-hors-ligne.md).
@@ -92,10 +92,32 @@ async function precache() {
   const c = await caches.open(CACHE);
   try {
     const shell = await fetch(OFFLINE_URL, { cache: 'reload' });
-    if (shell.ok) {
-      await c.put(OFFLINE_URL, shell.clone());
-      await c.put('/', shell.clone());
-    }
+    if (!shell.ok) return;
+    const html = await shell.clone().text();
+
+    // LES FICHIERS DE LA COQUILLE, MIS EN CACHE ICI ET MAINTENANT.
+    //
+    // Mettre en cache le seul HTML ne suffit pas : sa feuille de style et ses
+    // bundles sont des requêtes distinctes. On comptait sur un préchauffage
+    // opportuniste (iframe) pour les capturer à l'exécution — mais après un
+    // déploiement les noms de fichiers changent, et le HTML tout juste mis en
+    // cache pointait alors vers des fichiers absents : page servie SANS style
+    // ni JavaScript, donc inerte (constaté sur mobile le 2026-08-06).
+    //
+    // On extrait donc les URL du document et on les met en cache dès
+    // l'installation — c'est-à-dire exactement au moment où un nouveau
+    // déploiement prend effet. Déterministe, sans dépendre d'une visite.
+    const urls = new Set();
+    const re = /(?:href|src)="(\/_next\/[^"]+)"/g;
+    let m;
+    while ((m = re.exec(html))) urls.add(m[1].replace(/&amp;/g, '&'));
+
+    // Échecs unitaires tolérés : une ressource manquante ne doit pas empêcher
+    // l'installation du worker ni annuler la mise en cache des autres.
+    await Promise.allSettled([...urls].map((u) => c.add(u)));
+
+    await c.put(OFFLINE_URL, shell.clone());
+    await c.put('/', shell.clone());
   } catch (e) {
     // Hors ligne à l'installation : on n'empêche pas le worker de s'installer.
   }
