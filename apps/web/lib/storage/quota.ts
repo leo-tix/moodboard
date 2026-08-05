@@ -23,8 +23,18 @@ export const QUOTA = {
   // Storage : 7 GB (70% de 10 GB)
   MAX_STORAGE_BYTES: parseInt(process.env.R2_MAX_STORAGE_BYTES ?? "7516192768"),
 
-  // Taille max par fichier : 10 MB
+  // Taille max d'un fichier STOCKÉ : 10 MB. S'applique APRÈS traitement
+  // (processImage → WebP redimensionné), c'est-à-dire à ce qui part réellement
+  // sur R2 et compte dans le quota.
   MAX_FILE_SIZE_BYTES: parseInt(process.env.R2_MAX_FILE_SIZE_BYTES ?? "10485760"),
+
+  // Taille max d'un fichier REÇU (avant traitement) : 50 MB. Distinct du
+  // plafond ci-dessus car le serveur recompresse systématiquement : refuser une
+  // photo de 14 Mo à l'entrée n'avait aucun sens puisqu'elle finissait à ~1 Mo
+  // en WebP. Ce plafond-ci ne sert qu'à borner la RAM serveur et la bande
+  // passante (retour utilisateur 2026-08-05 : échecs d'upload de grosses
+  // photos, sans message clair).
+  MAX_UPLOAD_SIZE_BYTES: parseInt(process.env.R2_MAX_UPLOAD_SIZE_BYTES ?? "52428800"),
 
   // Class A ops mensuelles : 700 000 (70% de 1 000 000)
   MAX_CLASS_A_OPS_MONTHLY: parseInt(process.env.R2_MAX_CLASS_A_OPS_MONTHLY ?? "700000"),

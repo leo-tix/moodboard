@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
-import { checkUploadAllowed, checkMimeType } from "@/lib/storage/quota";
+import { checkUploadAllowed, checkMimeType, QUOTA } from "@/lib/storage/quota";
 import { randomUUID } from "crypto";
 import path from "path";
 
@@ -26,16 +26,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const quotaCheck = await checkUploadAllowed(userId, file.size);
+  // Contrôle d'ENTRÉE large : l'image est recompressée juste après (WebP
+  // redimensionné), donc la taille brute n'a pas à être jugée avec le plafond
+  // de stockage. Seul le plafond d'entrée (RAM/bande passante) s'applique ici ;
+  // le vrai contrôle de quota se fait plus bas, sur la taille APRÈS traitement.
+  const quotaCheck = await checkUploadAllowed(userId, file.size, QUOTA.MAX_UPLOAD_SIZE_BYTES);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: quotaCheck.reason }, { status: 413 });
   }
 
+  let processed;
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const processed = await processImage(buffer);
+    processed = await processImage(buffer);
+  } catch (error) {
+    // Décodage impossible : format exotique (HEIC non converti par le client,
+    // RAW…) ou fichier corrompu. Message EXPLICITE — un 500 générique laissait
+    // l'utilisateur sans piste (retour 2026-08-05).
+    console.error("[UPLOAD ERROR] decode", error);
+    return NextResponse.json(
+      { error: "Image illisible ou format non pris en charge (HEIC, RAW…). Réessaie en JPG ou PNG." },
+      { status: 400 }
+    );
+  }
 
-    // Re-vérifie avec la taille réelle après compression
+  try {
+    // Vrai contrôle de quota : taille réelle après compression.
     const finalCheck = await checkUploadAllowed(userId, processed.size);
     if (!finalCheck.allowed) {
       return NextResponse.json({ error: finalCheck.reason }, { status: 413 });
@@ -112,6 +128,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("[UPLOAD ERROR]", error);
-    return NextResponse.json({ error: "Erreur lors du traitement" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erreur serveur pendant l'enregistrement de l'image. Réessaie." },
+      { status: 500 }
+    );
   }
 }

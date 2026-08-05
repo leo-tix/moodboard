@@ -115,22 +115,22 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
       }
 
       const ids: string[] = [];
+      // Motifs de REFUS renvoyés par le serveur (format, quota…), à afficher tels
+      // quels. Auparavant un `catch` unique confondait refus serveur et incident
+      // réseau : le motif exact était perdu, l'utilisateur voyait « réseau
+      // instable », et la photo partait dans la file de rejeu où elle échouait
+      // indéfiniment pour la même raison (retour utilisateur 2026-08-05).
+      const rejected: string[] = [];
       for (const [i, uploadFile] of compressed.entries()) {
+        let res: Response;
         try {
           const fd = new FormData();
           fd.append("file", uploadFile);
           // Titre par défaut = nom de la visite (demande utilisateur 2026-07-19).
           if (visitTitle?.trim()) fd.append("title", visitTitle.trim());
-          const res = await fetch("/api/upload/image", { method: "POST", body: fd });
-          const data = await res.json().catch(() => ({}));
-          // ⚠ l'API renvoie `inspirationId`, pas `id` — lire le mauvais champ
-          // affichait "Échec de l'upload" alors que l'image était bien créée
-          // (retrouvée en triage), et le rattachement ne partait jamais.
-          if (res.ok && data.inspirationId) ids.push(data.inspirationId);
-          else throw new Error(data.error ?? "upload");
+          res = await fetch("/api/upload/image", { method: "POST", body: fd });
         } catch {
-          // Échec réseau en cours d'upload (pas un vrai hors-ligne franc, mais
-          // un blip) : plutôt que d'abandonner, mettre en file pour rejeu.
+          // Pas de réponse du tout = incident RÉSEAU : le rejeu a du sens.
           await enqueueCapture({
             kind: "photo",
             visitId,
@@ -139,7 +139,25 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
             title: visitTitle?.trim() || undefined,
           });
           setInfo("Réseau instable — photo mise en file, envoi automatique dès que possible.");
+          continue;
         }
+        const data = (await res.json().catch(() => ({}))) as { inspirationId?: string; error?: string };
+        // ⚠ l'API renvoie `inspirationId`, pas `id` — lire le mauvais champ
+        // affichait "Échec de l'upload" alors que l'image était bien créée
+        // (retrouvée en triage), et le rattachement ne partait jamais.
+        if (res.ok && data.inspirationId) { ids.push(data.inspirationId); continue; }
+        // Le serveur a RÉPONDU un refus : le rejeu échouerait à l'identique, on
+        // ne met donc pas en file et on remonte le motif exact.
+        rejected.push(data.error || `Échec de l'envoi (erreur ${res.status}).`);
+      }
+
+      if (rejected.length > 0) {
+        const uniques = Array.from(new Set(rejected));
+        setError(
+          rejected.length === 1
+            ? uniques[0]
+            : `${rejected.length} photos refusées — ${uniques.join(" · ")}`
+        );
       }
       if (ids.length > 0) {
         // L'image est déjà créée (visible en triage) à ce stade — sans

@@ -177,6 +177,10 @@ async function syncItem(item: OutboxItem): Promise<void> {
   }
 }
 
+// Nombre d'essais au-delà duquel on considère l'échec définitif (cf. boucle
+// de `flushOutbox`).
+const MAX_ATTEMPTS = 5;
+
 // Garde-fou de réentrance : plusieurs déclencheurs (online + visibilitychange +
 // enqueue) peuvent se chevaucher, on ne veut pas rejouer deux fois le même item.
 let flushing = false;
@@ -192,6 +196,12 @@ export async function flushOutbox(): Promise<{ synced: number; failed: number }>
   try {
     const items = await getAllItems();
     for (const item of items) {
+      // Un item peut échouer pour une raison DÉFINITIVE (format refusé, quota
+      // dépassé) : le rejouer ne changera rien. Sans plafond il repartait à
+      // chaque passage de la file, indéfiniment et en silence. Au-delà du
+      // plafond on cesse de réessayer — l'item reste stocké avec son motif
+      // d'échec (`lastError`) au lieu de tourner en boucle (retour 2026-08-05).
+      if (item.attempts >= MAX_ATTEMPTS) continue;
       try {
         await syncItem(item);
         await deleteItem(item.id);
