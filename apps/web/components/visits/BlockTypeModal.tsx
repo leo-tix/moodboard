@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, BookOpen, PenLine, SeparatorHorizontal, Loader2, X, type LucideIcon } from "lucide-react";
+import { Type, Mic, MapPin, Link2, Video, Star, ListChecks, Milestone, Landmark, Ticket, Palette, BookOpen, PenLine, SeparatorHorizontal, Loader2, X, CloudOff, type LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useServerReachable } from "@/lib/offline/useServerReachable";
 import { parseYouTubeId } from "@/lib/visits/linkPreview";
 import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 
@@ -31,7 +33,17 @@ interface BlockTypeModalProps {
   onSelectSeparator: () => void;
 }
 
+// Modules qui ne peuvent PAS fonctionner sans réseau (cf. docs/carnet-hors-ligne.md §11) :
+//  · Carte      — recherche de lieu (Photon) ET tuiles de fond, toutes deux distantes
+//  · Lien/YouTube — métadonnées de l'aperçu récupérées à distance
+//  · Fiche wiki — Wikipédia/Wikidata
+// Les autres se saisissent très bien hors ligne. Le cartel en fait partie :
+// seule sa fonction de SCAN est distante (tesseract.js et ses données de
+// langue sont téléchargés à la volée), pas la saisie manuelle.
 export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectEmbed, onSelectMap, onSelectHighlight, onSelectChecklist, onSelectTimeline, onSelectCartel, onSelectTicket, onSelectPalette, onSelectArtist, onSelectSketch, onSelectSeparator }: BlockTypeModalProps) {
+  // Sonde réelle : `navigator.onLine` mentirait sur un wifi captif.
+  const joignable = useServerReachable();
+  const horsLigne = joignable === false;
   const [mode, setMode] = useState<"menu" | "LINK" | "YOUTUBE" | "MAP" | "ARTIST">("menu");
 
   useEffect(() => {
@@ -82,20 +94,29 @@ export function BlockTypeModal({ onClose, onSelectText, onSelectAudio, onSelectE
           <div className="p-2 overflow-y-auto" style={{ maxHeight: "min(24rem, 68vh)" }}>
             {/* Sections thématiques : le catalogue s'étoffe (modules « musée »),
                 on regroupe pour garder le choix lisible. */}
+            {horsLigne && (
+              <p className="mx-2 mb-2 flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-2 text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                <CloudOff size={13} strokeWidth={2} className="mt-px shrink-0" />
+                <span>
+                  Serveur injoignable. Les modules grisés ont besoin d&apos;internet
+                  (carte, lien, YouTube, fiche wiki) — tous les autres fonctionnent.
+                </span>
+              </p>
+            )}
             <BlockSection label="Contenu">
               {/* Un seul module texte : titre, paragraphe et citation sont des
                   options de formatage à l'intérieur (fusion 2026-07-18). */}
               <BlockOption icon={Type} label="Texte" onClick={onSelectText} />
               <BlockOption icon={Mic} label="Audio" onClick={onSelectAudio} />
-              <BlockOption icon={MapPin} label="Carte" onClick={() => setMode("MAP")} />
-              <BlockOption icon={Link2} label="Lien externe" onClick={() => setMode("LINK")} />
-              <BlockOption icon={Video} label="YouTube" onClick={() => setMode("YOUTUBE")} />
+              <BlockOption icon={MapPin} label="Carte" onClick={() => setMode("MAP")} offline={horsLigne} />
+              <BlockOption icon={Link2} label="Lien externe" onClick={() => setMode("LINK")} offline={horsLigne} />
+              <BlockOption icon={Video} label="YouTube" onClick={() => setMode("YOUTUBE")} offline={horsLigne} />
             </BlockSection>
             <BlockSection label="Musée">
               <BlockOption icon={Landmark} label="Cartel" onClick={onSelectCartel} />
               <BlockOption icon={Ticket} label="Billet" onClick={onSelectTicket} />
               <BlockOption icon={Palette} label="Palette" onClick={onSelectPalette} />
-              <BlockOption icon={BookOpen} label="Fiche wiki" onClick={() => setMode("ARTIST")} />
+              <BlockOption icon={BookOpen} label="Fiche wiki" onClick={() => setMode("ARTIST")} offline={horsLigne} />
               <BlockOption icon={PenLine} label="Croquis" onClick={onSelectSketch} />
               <BlockOption icon={Star} label="Coup de cœur" onClick={onSelectHighlight} />
             </BlockSection>
@@ -258,13 +279,29 @@ function BlockSection({ label, children }: { label: string; children: React.Reac
   );
 }
 
-function BlockOption({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
+function BlockOption({ icon: Icon, label, onClick, offline }: {
+  icon: LucideIcon; label: string; onClick: () => void;
+  /** true = ce module a besoin du réseau et le serveur est injoignable. */
+  offline?: boolean;
+}) {
   return (
     <button
-      onClick={onClick}
-      className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition-colors"
+      onClick={offline ? undefined : onClick}
+      disabled={offline}
+      title={offline ? "Indisponible hors ligne — ce module a besoin d'internet." : undefined}
+      className={cn(
+        "relative flex flex-col items-center gap-1.5 py-3 rounded-lg text-[11px] transition-colors",
+        offline
+          ? "text-[var(--text-tertiary)] opacity-45 cursor-not-allowed"
+          : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]",
+      )}
     >
-      <Icon size={18} strokeWidth={1.75} />
+      <span className="relative">
+        <Icon size={18} strokeWidth={1.75} />
+        {offline && (
+          <CloudOff size={11} strokeWidth={2.2} className="absolute -bottom-1 -right-2 text-[var(--text-tertiary)]" />
+        )}
+      </span>
       {label}
     </button>
   );

@@ -12,6 +12,7 @@ import { isAutoHeight, isFicheContent, isNoteType, isSeparator, type TileWidth }
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { type CartelFields } from "@/lib/visits/cartelOcr";
 import { CartelScanModal } from "@/components/visits/bento/CartelScanModal";
+import { useServerReachable } from "@/lib/offline/useServerReachable";
 import { PaletteZoneModal } from "@/components/visits/bento/PaletteZoneModal";
 import type { BentoTile, ChecklistItem, TimelineEvent } from "@/lib/visits/bentoTypes";
 
@@ -290,6 +291,9 @@ function ImageForm({ title, author, year, showTitle, fitContain, onSave, onToggl
   const [scanFile, setScanFile] = useState<File | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  // Le scan repose sur tesseract.js et ses données de langue, téléchargés à
+  // l'usage : indisponible sans réseau. La saisie manuelle, elle, fonctionne.
+  const scanHorsLigne = useServerReachable() === false;
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -314,14 +318,14 @@ function ImageForm({ title, author, year, showTitle, fitContain, onSave, onToggl
       {/* Scan d'un cartel pour pré-remplir (même OCR que le module Cartel). */}
       <div>
         <div className="flex items-center gap-1.5">
-          <button type="button" onClick={() => galleryRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors">
+          <button type="button" disabled={scanHorsLigne} onClick={() => galleryRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             <ImagePlus size={13} strokeWidth={2} /> Galerie
           </button>
-          <button type="button" onClick={() => cameraRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity">
+          <button type="button" disabled={scanHorsLigne} onClick={() => cameraRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
             <ScanText size={13} strokeWidth={2} /> Scanner le cartel
           </button>
         </div>
-        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">Prends le cartel en photo pour pré-remplir titre / auteur / année.</p>
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">{scanHorsLigne ? "Scan indisponible hors ligne (la reconnaissance de texte se télécharge à l'usage). La saisie manuelle fonctionne." : "Prends le cartel en photo pour pré-remplir titre / auteur / année."}</p>
         <input ref={galleryRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
       </div>
@@ -543,6 +547,9 @@ function CartelForm({
     room: content.room ?? "",
     notes: content.notes ?? "",
   });
+  // Le scan repose sur tesseract.js et ses données de langue, téléchargés à
+  // l'usage : indisponible sans réseau. La saisie manuelle, elle, fonctionne.
+  const scanHorsLigne = useServerReachable() === false;
   const [scanFile, setScanFile] = useState<File | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -578,14 +585,14 @@ function CartelForm({
           recadrage → OCR → pré-remplissage. L'image n'est PAS stockée. */}
       <div>
         <div className="flex items-center gap-1.5">
-          <button type="button" onClick={() => galleryRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors">
+          <button type="button" disabled={scanHorsLigne} onClick={() => galleryRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             <ImagePlus size={13} strokeWidth={2} /> Galerie
           </button>
-          <button type="button" onClick={() => cameraRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity">
+          <button type="button" disabled={scanHorsLigne} onClick={() => cameraRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--text-primary)] text-[var(--bg-base)] transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
             <ScanText size={13} strokeWidth={2} /> Scanner un cartel
           </button>
         </div>
-        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">Recadre la zone du cartel, l&apos;OCR pré-remplit les champs (image non conservée).</p>
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-1 leading-snug">{scanHorsLigne ? "Scan indisponible hors ligne (la reconnaissance de texte se télécharge à l'usage). La saisie manuelle fonctionne." : "Recadre la zone du cartel, l'OCR pré-remplit les champs (image non conservée)."}</p>
         <input ref={galleryRef} type="file" accept="image/*" onChange={onPick} className="hidden" />
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onPick} className="hidden" />
       </div>
