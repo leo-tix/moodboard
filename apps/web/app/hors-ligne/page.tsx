@@ -77,9 +77,30 @@ export default function OfflinePage() {
     syncAllLocalVisits().finally(() => setSyncing(false));
   }, [online]);
 
+  // Déclare au service worker les fichiers que CETTE page a chargés, pour
+  // qu'elle puisse se réafficher hors ligne. Les URL viennent de ce qui a
+  // réellement transité, pas d'une supposition sur le HTML.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const sw = navigator.serviceWorker?.controller;
+        if (!sw) return;
+        const urls = performance
+          .getEntriesByType("resource")
+          .map((r) => r.name)
+          .filter((u) => u.startsWith(location.origin) && u.includes("/_next/"));
+        if (urls.length) sw.postMessage({ type: "cache-urls", urls });
+      } catch { /* sans conséquence : le repli reste la page en cache */ }
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     let vivant = true;
-    const sonder = () => { serveurJoignable().then((ok) => { if (vivant) setOnline(ok); }); };
+    // Garde-fou : si la sonde ne rendait jamais la main, l'écran restait bloqué
+    // sur « Vérification du réseau… ». Au-delà du délai, on tranche : hors ligne.
+    const secours = setTimeout(() => { if (vivant) setOnline((v) => (v === null ? false : v)); }, 6000);
+    const sonder = () => { serveurJoignable().then((ok) => { if (vivant) { clearTimeout(secours); setOnline(ok); } }); };
     sonder();
     // Re-sonde quand l'appareil signale un changement, et régulièrement tant
     // que la page est affichée (une connexion instable revient sans prévenir).
@@ -88,6 +109,7 @@ export default function OfflinePage() {
     window.addEventListener("offline", sonder);
     return () => {
       vivant = false;
+      clearTimeout(secours);
       clearInterval(iv);
       window.removeEventListener("online", sonder);
       window.removeEventListener("offline", sonder);

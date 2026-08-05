@@ -1,4 +1,4 @@
-const CACHE = 'mb-v10';
+const CACHE = 'mb-v11';
 const SHARE_DB = 'moodboard-share';
 // Coquille hors ligne : page entièrement rendue côté client, servie en repli
 // quand une navigation échoue faute de réseau (cf. docs/carnet-hors-ligne.md).
@@ -168,6 +168,21 @@ self.addEventListener('activate', (e) => {
       .then((noms) => Promise.all(noms.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
       .then(() => taillerCache())
       .then(() => clients.claim())
+  );
+});
+
+// La page hors ligne nous dit ce qu'elle a RÉELLEMENT chargé pour s'afficher.
+// L'extraction des URL depuis le HTML ne voyait que les attributs href/src :
+// Next charge une partie de ses bundles dynamiquement, par des URL construites
+// à l'exécution. Ils manquaient donc au cache, et la page s'affichait stylée
+// mais SANS hydratation — inerte (constaté sur mobile le 2026-08-06).
+self.addEventListener('message', (e) => {
+  const data = e.data;
+  if (!data || data.type !== 'cache-urls' || !Array.isArray(data.urls)) return;
+  e.waitUntil(
+    caches.open(CACHE).then((c) =>
+      Promise.allSettled(data.urls.slice(0, 200).map((u) => c.add(u))),
+    ),
   );
 });
 
