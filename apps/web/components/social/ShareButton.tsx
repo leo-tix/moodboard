@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Share2, X, Lock, Users, Globe, Search, Check, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/social/UserAvatar";
@@ -107,7 +108,15 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
         <Share2 size={14} strokeWidth={2} /> {label}
       </button>
 
-      {open && (
+      {/* PORTAL vers <body> : le panneau est `fixed`, mais un ancêtre appliquant
+          `backdrop-filter`, `transform` ou `filter` devient un BLOC CONTENEUR
+          pour les descendants fixes — le panneau se calait alors sur cet
+          ancêtre au lieu de la fenêtre. C'est le cas de la barre d'actions de
+          visite, qui n'active son fond dépoli (backdrop-filter) qu'une fois la
+          page scrollée : le partage s'affichait donc de travers uniquement
+          après un scroll (retour utilisateur 2026-08-05). Le portal met le
+          panneau hors de toute chaîne d'ancêtres et règle le cas partout. */}
+      {open && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
           <div className="relative w-full max-w-md bg-[var(--bg-base)] border border-[var(--border-default)] rounded-2xl shadow-2xl max-h-[85vh] overflow-y-auto">
@@ -209,7 +218,8 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
