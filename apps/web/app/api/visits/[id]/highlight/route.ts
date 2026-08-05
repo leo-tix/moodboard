@@ -10,7 +10,7 @@ interface Params { params: Promise<{ id: string }> }
 const createSchema = z.object({
   title: z.string().max(200).optional(),
   rating: z.number().int().min(0).max(5).optional(),
-  note: z.string().max(2000).optional(),
+  note: z.string().max(50_000).optional(),
 });
 
 // POST /api/visits/[id]/highlight — crée une tuile coup de cœur (vide par

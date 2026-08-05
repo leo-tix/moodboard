@@ -87,6 +87,11 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
   const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
   const debounceRef = useRef<number | null>(null);
   const savedFadeRef = useRef<number | null>(null);
+  // Lecteur du HTML en attente de sauvegarde. Tant qu'il est non-null, une
+  // écriture est due : le démontage doit la DÉCLENCHER (et non l'annuler),
+  // sinon jusqu'à 800 ms de frappe partent à la poubelle dès qu'on quitte la
+  // page — c'est la cause de la perte de modifications signalée (2026-08-05).
+  const pendingHtmlRef = useRef<(() => string) | null>(null);
   // Refs pour lire les callbacks/état à jour depuis les handlers Tiptap
   // (figés à la création de l'instance, cf. pièges useEditor plus bas).
   const onAutoSaveRef = useRef(onAutoSave);
@@ -96,8 +101,10 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
     if (!onAutoSaveRef.current) return;
     setSaveState("dirty");
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    pendingHtmlRef.current = getHtml;
     debounceRef.current = window.setTimeout(async () => {
       const html = getHtml();
+      pendingHtmlRef.current = null;
       // Un bloc momentanément vide ne se sauvegarde pas en continu — la
       // décision vide→suppression appartient au blur.
       if (!html.replace(/<[^>]*>/g, "").trim()) return;
@@ -113,9 +120,19 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
     }, AUTOSAVE_DEBOUNCE_MS);
   };
 
+  // Au démontage (navigation vers la visionneuse, fermeture d'onglet…), on
+  // FLUSHE la sauvegarde en attente au lieu de l'annuler. `onAutoSave` persiste
+  // via un fetch `keepalive` côté carnet → la requête aboutit même si le
+  // document est en train d'être démonté/déchargé.
   useEffect(() => () => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     if (savedFadeRef.current) window.clearTimeout(savedFadeRef.current);
+    const getHtml = pendingHtmlRef.current;
+    pendingHtmlRef.current = null;
+    if (!getHtml || !onAutoSaveRef.current) return;
+    const html = getHtml();
+    if (!html.replace(/<[^>]*>/g, "").trim()) return;
+    void onAutoSaveRef.current(html);
   }, []);
 
   // Extension par instance — useMemo sans deps (pas d'options dynamiques).
@@ -145,6 +162,8 @@ export function NoteEditor({ content, editable, onBlurSave, onAutoSave, placehol
       // Le blur prend la main : annule l'auto-save en attente pour ne pas
       // sauvegarder après coup un contenu que le blur a pu supprimer (vide).
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      pendingHtmlRef.current = null; // plus rien en attente : le blur sauvegarde
+
       setSaveState("idle");
       onBlurSave(e.getHTML());
     },

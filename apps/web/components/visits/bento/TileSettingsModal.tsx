@@ -44,7 +44,7 @@ interface TileSettingsModalProps {
   onSaveText: (tile: BentoTile, value: string) => void;
   onPersistText: (tile: BentoTile, value: string) => Promise<void>;
   onSaveImage: (id: string, title: string, author: string, year: string) => void;
-  onSetImageHideTitle: (id: string, hide: boolean) => void;
+  onSetImageShowTitle: (id: string, show: boolean) => void;
   onSetFitContain: (id: string, fit: boolean) => void;
   onSetFicheFlags: (id: string, patch: { hideImage?: boolean; hideInfo?: boolean; hideParagraph?: boolean }) => void;
   onSaveEmbed: (id: string, title: string, description: string) => void;
@@ -74,7 +74,7 @@ export function TileSettingsModal({
   onSaveText,
   onPersistText,
   onSaveImage,
-  onSetImageHideTitle,
+  onSetImageShowTitle,
   onSetFitContain,
   onSetFicheFlags,
   onSaveEmbed,
@@ -121,7 +121,7 @@ export function TileSettingsModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
             transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
-            className="fixed z-[81] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-sm bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            className="fixed z-[81] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-md bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             style={{ maxHeight: "min(85vh, 640px)" }}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] flex-shrink-0">
@@ -160,10 +160,10 @@ export function TileSettingsModal({
                   title={tile.content.title}
                   author={tile.content.author ?? ""}
                   year={tile.content.year ?? null}
-                  hideTitle={!!tile.hideTitle}
+                  showTitle={!!tile.showTitle}
                   fitContain={!!tile.fitContain}
                   onSave={(t, a, y) => onSaveImage(tile.id, t, a, y)}
-                  onToggleHideTitle={(hide) => onSetImageHideTitle(tile.id, hide)}
+                  onToggleShowTitle={(show) => onSetImageShowTitle(tile.id, show)}
                   onToggleFitContain={(fit) => onSetFitContain(tile.id, fit)}
                 />
               )}
@@ -278,10 +278,10 @@ const DRAWER_TITLES: Record<BentoTile["type"], string> = {
   separator: "Séparateur",
 };
 
-function ImageForm({ title, author, year, hideTitle, fitContain, onSave, onToggleHideTitle, onToggleFitContain }: {
-  title: string; author: string; year: number | null; hideTitle: boolean; fitContain: boolean;
+function ImageForm({ title, author, year, showTitle, fitContain, onSave, onToggleShowTitle, onToggleFitContain }: {
+  title: string; author: string; year: number | null; showTitle: boolean; fitContain: boolean;
   onSave: (title: string, author: string, year: string) => void;
-  onToggleHideTitle: (hide: boolean) => void;
+  onToggleShowTitle: (show: boolean) => void;
   onToggleFitContain: (fit: boolean) => void;
 }) {
   const [t, setT] = useState(title);
@@ -335,7 +335,7 @@ function ImageForm({ title, author, year, hideTitle, fitContain, onSave, onToggl
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-[var(--text-secondary)]">Afficher le cartel sur l&apos;image</span>
-        <Toggle on={!hideTitle} onChange={(v) => onToggleHideTitle(!v)} label="Afficher le cartel" />
+        <Toggle on={showTitle} onChange={(v) => onToggleShowTitle(v)} label="Afficher le cartel" />
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-[var(--text-secondary)]">Ratio d&apos;origine</span>
@@ -446,7 +446,7 @@ function HighlightForm({ title, rating, note, onSave }: { title: string; rating:
         </div>
       </Field>
       <Field label="Commentaire">
-        <textarea value={n} onChange={(e) => setN(e.target.value)} onBlur={() => onSave(t, r, n)} rows={3} className={inputClass} placeholder="Pourquoi ce coup de cœur ?" />
+        <textarea value={n} onChange={(e) => setN(e.target.value)} onBlur={() => onSave(t, r, n)} rows={6} className={longTextClass} placeholder="Pourquoi ce coup de cœur ?" />
       </Field>
     </div>
   );
@@ -606,7 +606,7 @@ function CartelForm({
       </div>
       <Field label="Technique"><input value={v.medium} onChange={(e) => set("medium", e.target.value)} onBlur={() => onSave(v)} className={inputClass} placeholder="Huile sur toile" /></Field>
       <Field label="Salle / section"><input value={v.room} onChange={(e) => set("room", e.target.value)} onBlur={() => onSave(v)} className={inputClass} /></Field>
-      <Field label="Notes"><textarea value={v.notes} onChange={(e) => set("notes", e.target.value)} onBlur={() => onSave(v)} rows={2} className={inputClass} /></Field>
+      <Field label="Notes"><textarea value={v.notes} onChange={(e) => set("notes", e.target.value)} onBlur={() => onSave(v)} rows={8} className={longTextClass} /></Field>
     </div>
   );
 }
@@ -784,6 +784,14 @@ function PaletteForm({
     </div>
   );
 }
+
+// Champs de texte LONG (notes de cartel, commentaire d'un coup de cœur…) :
+// hauteur généreuse + poignée de redimensionnement verticale. Le `resize-none`
+// global convient aux champs d'une ligne, mais rendait l'édition d'un cartel
+// recopié en entier impraticable — on ne voyait que 2 lignes à la fois
+// (retour utilisateur 2026-08-05).
+const longTextClass =
+  "w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)] resize-y min-h-[9rem] leading-relaxed";
 
 const inputClass =
   "w-full bg-[var(--bg-base)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-tertiary)] placeholder:text-[var(--text-tertiary)] resize-none";

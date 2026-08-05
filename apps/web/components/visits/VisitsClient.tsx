@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
-import { getThumbnailUrl } from "@/lib/storage/urls";
+import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 
 export interface VisitCard {
   id: string;
@@ -12,6 +12,7 @@ export interface VisitCard {
   visitDate: string;
   notes: string | null;
   count: number;
+  coverKey: string | null;
   thumbnails: string[];
 }
 
@@ -89,24 +90,37 @@ function VisitCardView({
       href={`/visites/${visit.id}`}
       className="group relative rounded-lg border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-elevated)] hover:border-[var(--border-default)] transition-colors block"
     >
-      {/* Mosaïque 2×2 */}
-      <div className="aspect-video grid grid-cols-2 grid-rows-2 gap-px bg-[var(--bg-base)]">
-        {Array.from({ length: 4 }).map((_, i) => {
-          const key = visit.thumbnails[i];
-          return key ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={i}
-              src={getThumbnailUrl(key)}
-              alt=""
-              loading="lazy"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div key={i} className="w-full h-full bg-[var(--bg-surface)]" />
-          );
-        })}
-      </div>
+      {/* Couverture choisie dans la visite si elle existe, sinon mosaïque 2×2
+          des premières images (repli d'origine). */}
+      {visit.coverKey ? (
+        <div className="aspect-video bg-[var(--bg-base)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getImageUrl(visit.coverKey)}
+            alt=""
+            loading="lazy"
+            className="w-full h-full object-cover"
+          />
+        </div>
+      ) : (
+        <div className="aspect-video grid grid-cols-2 grid-rows-2 gap-px bg-[var(--bg-base)]">
+          {Array.from({ length: 4 }).map((_, i) => {
+            const key = visit.thumbnails[i];
+            return key ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={i}
+                src={getThumbnailUrl(key)}
+                alt=""
+                loading="lazy"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div key={i} className="w-full h-full bg-[var(--bg-surface)]" />
+            );
+          })}
+        </div>
+      )}
 
       {/* Info */}
       <div className="px-3 py-2.5 flex items-start justify-between gap-2">

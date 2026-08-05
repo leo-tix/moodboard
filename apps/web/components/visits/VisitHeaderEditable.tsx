@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Check } from "lucide-react";
+import { PlaceAutocomplete, type PlaceGeo } from "@/components/visits/PlaceAutocomplete";
 import { cn } from "@/lib/utils";
 
 interface VisitHeaderEditableProps {
@@ -35,10 +37,19 @@ export function VisitHeaderEditable({ visitId, place, exhibition, visitDate, ima
     router.refresh();
   };
 
-  const savePlace = () => {
+  // `geo` renseigné = l'utilisateur a choisi une suggestion de la carte : on
+  // enregistre aussi les coordonnées, ce qui rend la mini-carte de la visite
+  // corrigeable APRÈS création (auparavant l'édition n'offrait qu'un champ
+  // texte libre, sans suggestions ni lat/lon — retour utilisateur 2026-08-05).
+  const savePlace = (geo?: PlaceGeo | null) => {
     setEditingField(null);
     const v = localPlace.trim();
-    if (!v || v === place) { setLocalPlace(place); return; }
+    if (!v) { setLocalPlace(place); return; }
+    if (geo) {
+      patch({ place: v, latitude: geo.latitude, longitude: geo.longitude, address: geo.address });
+      return;
+    }
+    if (v === place) { setLocalPlace(place); return; }
     patch({ place: v });
   };
 
@@ -107,19 +118,30 @@ export function VisitHeaderEditable({ visitId, place, exhibition, visitDate, ima
         </h1>
       )}
 
-      <p className={cn("text-sm mt-0.5 flex items-center gap-1.5 flex-wrap", subLineCls)}>
+      {/* <div> et non <p> : PlaceAutocomplete rend un conteneur bloc pour sa
+          liste de suggestions, invalide à l'intérieur d'un paragraphe. */}
+      <div className={cn("text-sm mt-0.5 flex items-center gap-1.5 flex-wrap", subLineCls)}>
         {editingField === "place" ? (
-          <input
-            autoFocus
-            value={localPlace}
-            onChange={(e) => setLocalPlace(e.target.value)}
-            onBlur={savePlace}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") savePlace();
-              if (e.key === "Escape") { setLocalPlace(place); setEditingField(null); }
-            }}
-            className={cn(inputCls, "text-sm w-44")}
-          />
+          <span className="inline-flex items-center gap-1.5">
+            <PlaceAutocomplete
+              value={localPlace}
+              onChange={setLocalPlace}
+              onSelectGeo={(geo) => { if (geo) savePlace(geo); }}
+              placeholder="Musée, ville…"
+              className={cn(inputCls, "text-sm w-56")}
+            />
+            {/* Valide un lieu tapé librement (sans suggestion). `onMouseDown`
+                neutralisé pour ne pas fermer la liste avant le clic. */}
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => savePlace(null)}
+              className="w-6 h-6 flex items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              title="Valider le lieu"
+            >
+              <Check size={14} strokeWidth={2} />
+            </button>
+          </span>
         ) : (
           <span
             onClick={() => setEditingField("place")}
@@ -145,7 +167,7 @@ export function VisitHeaderEditable({ visitId, place, exhibition, visitDate, ima
             {dateLabel}
           </span>
         )}
-      </p>
+      </div>
     </div>
   );
 }

@@ -21,7 +21,7 @@ const tileSchema = z.object({
   // hauteur automatique par paliers de grille — h peut donc dépasser 2 (borné
   // à 12 comme garde-fou). Voir apps/web/lib/visits/bentoSpans.ts.
   h: z.number().int().min(1).max(12),
-  hideTitle: z.boolean().optional(),
+  showTitle: z.boolean().optional(),
   hideImage: z.boolean().optional(),
   hideInfo: z.boolean().optional(),
   hideParagraph: z.boolean().optional(),

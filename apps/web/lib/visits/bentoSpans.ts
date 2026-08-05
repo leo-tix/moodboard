@@ -42,8 +42,11 @@ export interface JournalTile {
   id: string;
   w: TileWidth;
   h: number;
-  /** Image : masquer le cartel (titre/auteur/année) en surimpression. */
-  hideTitle?: boolean;
+  /** Image : AFFICHER le cartel (titre/auteur/année) en surimpression.
+   *  Drapeau POSITIF et absent par défaut → le cartel est masqué tant que
+   *  l'utilisateur ne l'active pas explicitement (demande 2026-08-05 ; c'était
+   *  l'inverse — `hideTitle` — donc affiché par défaut). */
+  showTitle?: boolean;
   /** Fiche wiki : masquer respectivement le portrait, l'infobox, le résumé. */
   hideImage?: boolean;
   hideInfo?: boolean;
@@ -59,7 +62,9 @@ export interface JournalTile {
 // est de longueur variable → on les laisse s'étendre par paliers de grille.
 // `cartel` en fait partie (2026-07-19) : une longue description/notes doit
 // rester entièrement lisible, comme le module texte.
-const AUTO_HEIGHT_TYPES = new Set<JournalTileType>(["note", "checklist", "timeline", "cartel"]);
+// `highlight` aussi (2026-08-05) : un avis un peu long était tronqué par un
+// line-clamp au lieu d'allonger la tuile (retour utilisateur).
+const AUTO_HEIGHT_TYPES = new Set<JournalTileType>(["note", "checklist", "timeline", "cartel", "highlight"]);
 
 export function isAutoHeight(type: JournalTileType): boolean {
   return AUTO_HEIGHT_TYPES.has(type);

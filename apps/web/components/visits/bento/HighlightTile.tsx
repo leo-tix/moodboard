@@ -8,17 +8,22 @@ type HighlightContent = Extract<JournalTileContent, { type: "highlight" }>;
 
 // Tuile « coup de cœur » — met en avant une œuvre favorite : titre + note
 // d'étoiles + commentaire libre. Accent chaleureux (dégradé ambré discret)
-// pour la distinguer d'une simple note. S'adapte aux 4 formats bento.
-export function HighlightTile({ content, w, h }: { content: HighlightContent; w: number; h: number }) {
-  const big = w === 2 && h === 2;
-  const compact = w === 1 && h === 1;
-  const starSize = big ? 20 : compact ? 14 : 16;
+// pour la distinguer d'une simple note.
+//
+// HAUTEUR AUTOMATIQUE (cf. AUTO_HEIGHT_TYPES) : la tuile s'étend par paliers de
+// grille pour afficher l'avis EN ENTIER. Elle doit donc se rendre à sa hauteur
+// naturelle — pas de `h-full`, pas de `justify-center`, pas de `line-clamp` —
+// sinon le texte est tronqué et la mesure est faussée (retour 2026-08-05).
+// Seule la largeur (1 ou 2 colonnes) est choisie par l'utilisateur.
+export function HighlightTile({ content, w }: { content: HighlightContent; w: number; h?: number }) {
+  const big = w === 2;
+  const starSize = big ? 18 : 15;
 
   return (
     <div
       className={cn(
-        "w-full h-full flex flex-col bg-[var(--bg-elevated)] relative overflow-hidden",
-        compact ? "p-3 justify-center gap-1.5" : "p-4 justify-center gap-2"
+        "w-full flex flex-col bg-[var(--bg-elevated)] relative overflow-hidden",
+        big ? "px-4 py-3.5 gap-2" : "px-3 py-3 gap-1.5"
       )}
     >
       {/* Halo ambré d'ambiance (coup de cœur) */}
@@ -28,7 +33,7 @@ export function HighlightTile({ content, w, h }: { content: HighlightContent; w:
       />
 
       <Heart
-        size={compact ? 14 : 16}
+        size={big ? 16 : 14}
         strokeWidth={2}
         className="text-[#f5a623] flex-shrink-0 fill-[#f5a623]/25"
       />
@@ -37,7 +42,7 @@ export function HighlightTile({ content, w, h }: { content: HighlightContent; w:
         <p
           className={cn(
             "font-serif text-[var(--text-primary)] leading-tight break-words",
-            big ? "text-2xl" : compact ? "text-sm line-clamp-2" : "text-lg line-clamp-2"
+            big ? "text-xl" : "text-base"
           )}
         >
           {content.title}
@@ -57,8 +62,11 @@ export function HighlightTile({ content, w, h }: { content: HighlightContent; w:
         </div>
       )}
 
-      {content.note && !compact && (
-        <p className={cn("text-[var(--text-secondary)] leading-snug break-words", big ? "text-sm line-clamp-6" : "text-xs line-clamp-3")}>
+      {/* Avis affiché INTÉGRALEMENT (plus de line-clamp, plus de masquage en
+          1 colonne) : la tuile grandit pour le contenir. `whitespace-pre-wrap`
+          conserve les retours à la ligne saisis par l'utilisateur. */}
+      {content.note && (
+        <p className={cn("text-[var(--text-secondary)] leading-snug break-words whitespace-pre-wrap", big ? "text-sm" : "text-xs")}>
           {content.note}
         </p>
       )}

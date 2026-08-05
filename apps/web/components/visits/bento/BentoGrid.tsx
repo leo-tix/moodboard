@@ -29,7 +29,11 @@ interface BentoGridProps {
   onAddClick?: () => void;
 }
 
-// Grille dense façon Bento.me : 2 colonnes mobile / 3 tablette / 4 desktop,
+// Grille dense façon Bento.me : 2 COLONNES PARTOUT (mobile → desktop), pour que
+// la mise en page du carnet soit identique quel que soit l'écran — demande
+// utilisateur 2026-08-05 (« faire 2 colonnes sur desktop comme sur mobile »).
+// Sur grand écran les colonnes sont donc plus larges, et les lignes plus hautes
+// pour garder des tuiles bien proportionnées.
 // `grid-auto-flow: dense` comble les trous. Les blocs texte s'étendent en
 // hauteur automatiquement (row-span mesuré dans BentoTile).
 export function BentoGrid({
@@ -69,8 +73,8 @@ export function BentoGrid({
     <>
       <div
         className={cn(
-          "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6",
-          "auto-rows-[150px] sm:auto-rows-[170px] lg:auto-rows-[190px]",
+          "grid grid-cols-2 gap-4 md:gap-6",
+          "auto-rows-[150px] sm:auto-rows-[190px] lg:auto-rows-[230px]",
           !hasSeparator && "[grid-auto-flow:dense]"
         )}
       >

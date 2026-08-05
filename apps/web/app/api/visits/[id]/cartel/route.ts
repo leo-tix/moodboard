@@ -6,14 +6,15 @@ import { z } from "zod";
 
 interface Params { params: Promise<{ id: string }> }
 
+// Mêmes plafonds (garde-fous anti-abus) que la route PATCH — cf. son commentaire.
 const createSchema = z.object({
-  artworkTitle: z.string().max(300).optional(),
-  artist: z.string().max(200).nullable().optional(),
-  dateText: z.string().max(120).nullable().optional(),
-  medium: z.string().max(300).nullable().optional(),
-  dimensions: z.string().max(200).nullable().optional(),
-  room: z.string().max(200).nullable().optional(),
-  notes: z.string().max(2000).nullable().optional(),
+  artworkTitle: z.string().max(2000).optional(),
+  artist: z.string().max(1000).nullable().optional(),
+  dateText: z.string().max(500).nullable().optional(),
+  medium: z.string().max(2000).nullable().optional(),
+  dimensions: z.string().max(1000).nullable().optional(),
+  room: z.string().max(1000).nullable().optional(),
+  notes: z.string().max(50_000).nullable().optional(),
 });
 
 // POST /api/visits/[id]/cartel — crée un cartel (vide par défaut, la photo et

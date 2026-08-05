@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TriangleAlert, X } from "lucide-react";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
 import { SectionNav } from "@/components/visits/bento/SectionNav";
@@ -45,6 +46,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   const [sketchPadOpen, setSketchPadOpen] = useState(false);
   const [sketchReplaceId, setSketchReplaceId] = useState<string | null>(null);
   const [sketchSaving, setSketchSaving] = useState(false);
+  // Message d'échec de sauvegarde (bandeau discret) — cf. persistModule.
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -55,23 +58,69 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     return () => mq.removeEventListener("change", update);
   }, []);
 
+  // Clés des tuiles dont le CONTENU a été édité localement (cf. patchTileContent).
+  const dirtyKeysRef = useRef<Set<string>>(new Set());
+
+  // ── Synchronisation serveur → local ────────────────────────────────────────
+  // `initialTiles` est ré-alloué à CHAQUE rendu serveur : router.refresh() après
+  // ajout de photo/mémo, mais aussi retour depuis la visionneuse — et là le
+  // routeur rejoue un payload mis en cache AVANT les modifications (staleTimes).
+  // L'ancienne version écrasait l'état local avec ce payload PUIS le
+  // re-persistait : les modifications étaient perdues à l'écran, puis effacées
+  // en base à l'édition suivante (retour utilisateur 2026-08-05).
+  //
+  // Désormais : FUSION additive, l'utilisateur est la source de vérité.
+  //  • l'ORDRE local est conservé (c'est lui que l'utilisateur manipule) ;
+  //  • le CONTENU local est conservé pour les tuiles éditées localement, sinon
+  //    on adopte celui du serveur (transcription de mémo, co-édition…) ;
+  //  • les tuiles nouvelles côté serveur (photo ajoutée) sont ajoutées à la fin ;
+  //  • les tuiles supprimées côté serveur disparaissent.
+  // Et surtout : cet effet ne persiste PLUS JAMAIS un état venu du serveur.
   const isFirstSync = useRef(true);
   useEffect(() => {
-    tilesRef.current = initialTiles;
-    setTiles(initialTiles);
-    if (isFirstSync.current) { isFirstSync.current = false; return; }
-    persistLayout(initialTiles);
+    if (isFirstSync.current) {
+      isFirstSync.current = false; // l'état initial vient déjà de useState(initialTiles)
+      return;
+    }
+    const serverByKey = new Map(initialTiles.map((t) => [tileKey(t), t] as const));
+    const localKeys = new Set(tilesRef.current.map(tileKey));
+
+    const kept = tilesRef.current
+      .filter((t) => serverByKey.has(tileKey(t)))
+      .map((t) => {
+        const k = tileKey(t);
+        if (dirtyKeysRef.current.has(k)) return t; // édité localement → intouchable
+        const srv = serverByKey.get(k)!;
+        // Contenu serveur adopté, mais on garde la disposition locale (w/h/flags).
+        return { ...t, content: srv.content } as BentoTile;
+      });
+    const added = initialTiles.filter((t) => !localKeys.has(tileKey(t)));
+    const merged = [...kept, ...added];
+
+    // Rien de neuf (cas le plus fréquent) → on ne touche à rien, ce qui évite
+    // aussi toute boucle de rendu.
+    const sameShape =
+      merged.length === tilesRef.current.length &&
+      merged.every((t, i) => t === tilesRef.current[i]);
+    if (sameShape) return;
+
+    tilesRef.current = merged;
+    setTiles(merged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTiles]);
 
   const persistLayout = (list: BentoTile[]) => {
     fetch(`/api/visits/${visitId}/layout`, {
       method: "PATCH",
+      // `keepalive` : la requête survit au démontage / changement de page — sans
+      // ça, un réordonnancement suivi d'un clic immédiat sur une image pouvait
+      // être annulé en vol (retour utilisateur 2026-08-05).
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         layout: list.map((t) => ({
           type: t.type, id: t.id, w: t.w, h: t.h,
-          ...(t.hideTitle ? { hideTitle: true } : {}),
+          ...(t.showTitle ? { showTitle: true } : {}),
           ...(t.hideImage ? { hideImage: true } : {}),
           ...(t.hideInfo ? { hideInfo: true } : {}),
           ...(t.hideParagraph ? { hideParagraph: true } : {}),
@@ -80,6 +129,22 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         })),
       }),
     }).catch(() => {});
+  };
+
+  // Écriture d'un module du carnet (avis, checklist, frise, cartel, billet,
+  // palette…). Auparavant chaque appel finissait par `.catch(() => {})` : un
+  // rejet serveur (ex. cartel dépassant la limite de longueur) était invisible,
+  // l'écran affichait le texte, et il disparaissait au rechargement. On vérifie
+  // désormais la réponse et on PRÉVIENT l'utilisateur (retour 2026-08-05).
+  const persistModule = (path: string, body: unknown) => {
+    fetch(`/api/visits/${visitId}/${path}`, {
+      method: "PATCH",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((res) => { if (!res.ok) throw new Error(String(res.status)); })
+      .catch(() => setSaveError("Modification non enregistrée. Vérifiez votre connexion, puis réessayez."));
   };
 
   // `tilesRef` est la source de vérité SYNCHRONE du layout : chaque mutation de
@@ -436,7 +501,13 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   // Mise à jour de CONTENU (pas de layout) — on garde tilesRef synchrone quand
   // même pour qu'une mutation de disposition juste après lise le contenu à jour.
   const patchTileContent = (id: string, patch: Record<string, unknown>) => {
-    const next = tilesRef.current.map((t) => (t.id === id ? ({ ...t, content: { ...t.content, ...patch } } as BentoTile) : t));
+    const next = tilesRef.current.map((t) => {
+      if (t.id !== id) return t;
+      // Cette tuile porte désormais une édition LOCALE : un futur payload
+      // serveur (potentiellement périmé) ne devra plus écraser son contenu.
+      dirtyKeysRef.current.add(tileKey(t));
+      return { ...t, content: { ...t.content, ...patch } } as BentoTile;
+    });
     tilesRef.current = next;
     setTiles(next);
   };
@@ -446,6 +517,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
     patchTileContent(tile.id, { content: value });
     return fetch(`/api/visits/${visitId}/notes/${tile.id}`, {
       method: "PATCH",
+      keepalive: true, // survit au démontage : flush de l'auto-save (NoteEditor)
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: value }),
     }).then((r) => { if (!r.ok) throw new Error("save failed"); });
@@ -475,9 +547,9 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   };
 
   // Affichage du cartel (titre/auteur/année) sur la tuile image — flag porté par
-  // le layout (par tuile, pas par image partagée).
-  const setImageHideTitle = (id: string, hide: boolean) => {
-    const next = tilesRef.current.map((t) => (t.id === id && t.type === "image" ? { ...t, hideTitle: hide } : t));
+  // le layout (par tuile, pas par image partagée). Masqué par défaut.
+  const setImageShowTitle = (id: string, show: boolean) => {
+    const next = tilesRef.current.map((t) => (t.id === id && t.type === "image" ? { ...t, showTitle: show } : t));
     commitLayout(next);
   };
 
@@ -506,17 +578,17 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
 
   const saveHighlight = (id: string, title: string, rating: number, note: string) => {
     patchTileContent(id, { title, rating, note: note.trim() || null });
-    fetch(`/api/visits/${visitId}/highlight/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, rating, note: note.trim() || null }) }).catch(() => {});
+    persistModule(`highlight/${id}`, { title, rating, note: note.trim() || null });
   };
 
   const saveChecklist = (id: string, title: string, items: { id: string; text: string; done: boolean }[]) => {
     patchTileContent(id, { title: title.trim() || null, items });
-    fetch(`/api/visits/${visitId}/checklist/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, items }) }).catch(() => {});
+    persistModule(`checklist/${id}`, { title: title.trim() || null, items });
   };
 
   const saveTimeline = (id: string, title: string, events: { id: string; dateText: string; label: string; description?: string }[]) => {
     patchTileContent(id, { title: title.trim() || null, events });
-    fetch(`/api/visits/${visitId}/timeline/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, events }) }).catch(() => {});
+    persistModule(`timeline/${id}`, { title: title.trim() || null, events });
   };
 
   const saveCartel = (id: string, v: CartelFormValues) => {
@@ -530,7 +602,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
       notes: v.notes.trim() || null,
     };
     patchTileContent(id, patch);
-    fetch(`/api/visits/${visitId}/cartel/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).catch(() => {});
+    persistModule(`cartel/${id}`, patch);
   };
 
   const saveTicket =(id: string, v: TicketFormValues) => {
@@ -542,7 +614,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
       category: v.category.trim() || null,
     };
     patchTileContent(id, patch);
-    fetch(`/api/visits/${visitId}/ticket/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).catch(() => {});
+    persistModule(`ticket/${id}`, patch);
   };
 
   const uploadTicketPhoto = async (id: string, file: File) => {
@@ -556,7 +628,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
 
   const savePalette = (id: string, title: string, colors: string[]) => {
     patchTileContent(id, { title: title.trim() || null, colors });
-    fetch(`/api/visits/${visitId}/palette/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || null, colors }) }).catch(() => {});
+    persistModule(`palette/${id}`, { title: title.trim() || null, colors });
   };
 
   const uploadPaletteSource = async (id: string, file: File) => {
@@ -578,6 +650,23 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
 
   return (
     <JournalAuthorProvider value={{ name: authorName ?? null, image: authorImage ?? null }}>
+      {/* Bandeau d'échec de sauvegarde — un rejet serveur n'est plus silencieux. */}
+      {saveError && (
+        <div
+          role="alert"
+          className="fixed left-1/2 -translate-x-1/2 z-[70] bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6 max-w-[92vw] flex items-center gap-2 px-3.5 py-2 rounded-lg border border-red-500/40 bg-[var(--bg-elevated)] shadow-lg"
+        >
+          <TriangleAlert size={14} strokeWidth={2} className="text-red-400 shrink-0" />
+          <span className="text-xs text-[var(--text-primary)]">{saveError}</span>
+          <button
+            onClick={() => setSaveError(null)}
+            className="ml-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="Fermer"
+          >
+            <X size={13} strokeWidth={2} />
+          </button>
+        </div>
+      )}
       <SectionNav tiles={tiles} />
       <BentoGrid
         tiles={tiles}
@@ -637,7 +726,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         onSaveText={saveText}
         onPersistText={persistText}
         onSaveImage={saveImage}
-        onSetImageHideTitle={setImageHideTitle}
+        onSetImageShowTitle={setImageShowTitle}
         onSetFitContain={setFitContain}
         onSetFicheFlags={setFicheFlags}
         onSaveEmbed={saveEmbed}

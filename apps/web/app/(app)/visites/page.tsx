@@ -39,7 +39,9 @@ export default async function VisitesPage({ searchParams }: { searchParams: Prom
       _count: { select: { inspirations: true } },
       inspirations: {
         take: 4,
-        orderBy: { createdAt: "asc" },
+        // Même tri que la page de la visite (visitOrder puis createdAt) : sans
+        // ça la mosaïque de repli montrait d'autres images que le carnet.
+        orderBy: [{ visitOrder: "asc" }, { createdAt: "asc" }],
         select: {
           id: true,
           images: {
@@ -59,6 +61,11 @@ export default async function VisitesPage({ searchParams }: { searchParams: Prom
     visitDate: v.visitDate.toISOString(),
     notes: v.notes,
     count: v._count.inspirations,
+    // Couverture CHOISIE dans la visite : la liste l'ignorait et affichait
+    // toujours une mosaïque des 4 premières images, en décalage avec la
+    // couverture réglée par l'utilisateur (retour 2026-08-05). Le feed et les
+    // profils l'honoraient déjà — on s'aligne dessus.
+    coverKey: v.coverKey,
     thumbnails: v.inspirations
       .map((i) => i.images[0]?.thumbnailKey)
       .filter((k): k is string => Boolean(k)),

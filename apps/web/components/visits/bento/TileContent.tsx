@@ -70,7 +70,7 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
     const c = tile.content;
     // Cartel masquable par tuile (retour utilisateur 2026-07-19 : choisir
     // d'afficher le titre ou non).
-    const cartel = !tile.hideTitle && (c.title || c.author || c.year) && (
+    const cartel = tile.showTitle && (c.title || c.author || c.year) && (
       <div className="pointer-events-none absolute bottom-0 inset-x-0 px-2.5 py-2 backdrop-blur-md bg-gradient-to-t from-black/70 to-transparent">
         {c.title && <p className="text-[12px] font-medium text-white truncate">{c.title}</p>}
         {(c.author || c.year) && (

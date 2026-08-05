@@ -7,14 +7,19 @@ import { z } from "zod";
 
 interface Params { params: Promise<{ id: string; cartelId: string }> }
 
+// Plafonds volontairement TRÈS hauts : ce ne sont plus des limites d'usage mais
+// de simples garde-fous anti-abus. Les colonnes Postgres sont en `text` (aucun
+// @db.VarChar au schéma) donc rien ne bride côté base. Un cartel recopié in
+// extenso dépassait les 2000 caractères et était rejeté en 400 — silencieusement,
+// car l'UI n'inspectait pas la réponse (retour utilisateur 2026-08-05).
 const patchSchema = z.object({
-  artworkTitle: z.string().max(300).optional(),
-  artist: z.string().max(200).nullable().optional(),
-  dateText: z.string().max(120).nullable().optional(),
-  medium: z.string().max(300).nullable().optional(),
-  dimensions: z.string().max(200).nullable().optional(),
-  room: z.string().max(200).nullable().optional(),
-  notes: z.string().max(2000).nullable().optional(),
+  artworkTitle: z.string().max(2000).optional(),
+  artist: z.string().max(1000).nullable().optional(),
+  dateText: z.string().max(500).nullable().optional(),
+  medium: z.string().max(2000).nullable().optional(),
+  dimensions: z.string().max(1000).nullable().optional(),
+  room: z.string().max(1000).nullable().optional(),
+  notes: z.string().max(50_000).nullable().optional(),
 });
 
 // PATCH /api/visits/[id]/cartel/[cartelId] — met à jour les champs texte.

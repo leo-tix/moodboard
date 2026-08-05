@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { usePathname } from "next/navigation";
 
 // Transition douce entre les pages : fondu d'entrée à chaque navigation.
@@ -20,11 +21,24 @@ import { usePathname } from "next/navigation";
 // « frame noire » entre chaque glissement (retour utilisateur 2026-07-20).
 // On n'utilise PAS les search params → pas de re-fondu à chaque filtre (?q=…).
 // Opacité seule : sans incidence sur le positionnement des `fixed` descendants.
+// Détail de bibliothèque : route INTERCEPTÉE (slot @modal). Le modal s'ouvre
+// PAR-DESSUS la page courante, que le slot `children` continue d'afficher.
+// Changer la clé sur cette navigation démonterait donc cette page de fond —
+// c'est ce qui faisait perdre les modifications en cours du carnet de visite
+// (édition → clic sur une image → retour = tout est perdu, retour 2026-08-05).
+const INTERCEPTED_DETAIL = /^\/library\/[^/]+$/;
+
 export function PageTransition({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const section = "/" + (pathname.split("/")[1] ?? "");
+  // On mémorise la dernière section RÉELLEMENT affichée par `children` : tant
+  // qu'un détail intercepté est ouvert, la clé ne bouge pas → aucun démontage.
+  // (Au chargement direct de /library/[id], le ref s'initialise à "/library" :
+  // comportement inchangé.)
+  const keyRef = useRef(section);
+  if (!INTERCEPTED_DETAIL.test(pathname)) keyRef.current = section;
   return (
-    <div key={section} className="page-fade-in-anim">
+    <div key={keyRef.current} className="page-fade-in-anim">
       {children}
     </div>
   );
