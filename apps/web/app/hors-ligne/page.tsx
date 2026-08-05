@@ -9,6 +9,7 @@ import { OfflineVisitEditor } from "@/components/offline/OfflineVisitEditor";
 import {
   createLocalVisit,
   listLocalVisits,
+  pruneSyncedVisits,
   LOCAL_VISITS_EVENT,
   type LocalVisit,
 } from "@/lib/offline/localVisits";
@@ -61,7 +62,9 @@ export default function OfflinePage() {
   // recharge à chaque mutation du magasin (événement émis par localVisits).
   useEffect(() => {
     const recharger = () => { listLocalVisits().then(setVisits).catch(() => {}); };
-    recharger();
+    // Purge des visites CONFIRMÉES et anciennes (jamais des non synchronisées),
+    // au montage : c'est le moment où l'on est sûr de ne rien interrompre.
+    pruneSyncedVisits().then(recharger).catch(recharger);
     window.addEventListener(LOCAL_VISITS_EVENT, recharger);
     return () => window.removeEventListener(LOCAL_VISITS_EVENT, recharger);
   }, []);

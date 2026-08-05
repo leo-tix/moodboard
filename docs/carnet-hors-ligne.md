@@ -226,3 +226,76 @@ Le hors-ligne ne se teste pas de façon crédible « à l'œil ». Ce qu'il faud
 3. **Modifier hors ligne une visite existante** : confirmé hors périmètre ?
    (C'est ce qui amènerait la gestion de conflits, de loin la partie la plus
    coûteuse et la plus risquée.)
+
+---
+
+## 10. Politique de purge (décidée le 2026-08-05)
+
+Deux stockages coexistent, et ils appellent des règles **opposées**. Les
+confondre, c'est soit perdre des données, soit saturer le téléphone.
+
+### IndexedDB — données utilisateur, jamais purgées d'office
+
+Contient les captures non encore confirmées : photos, mémos, notes, et les
+visites créées hors ligne. **Rien n'y est irremplaçable ailleurs.**
+
+- **Règle absolue** : aucune suppression tant que le serveur n'a pas confirmé.
+  Ni au bout d'un délai, ni sous pression de stockage — dans ce dernier cas on
+  AVERTIT, on n'efface pas.
+- **Libération bloc par bloc** : dès qu'un bloc reçoit son identifiant serveur,
+  son blob est supprimé localement. Le fichier est alors sur R2 ; le garder en
+  double ne protège plus rien. C'est ce qui empêche une visite synchronisée de
+  continuer à occuper 50-100 Mo.
+- **Rétention de la fiche** : une fois la visite entièrement synchronisée, il ne
+  reste qu'une fiche de quelques centaines d'octets, conservée 7 jours pour que
+  l'utilisateur voie ce qui est parti, puis effacée.
+- Une reprise de synchro n'a jamais besoin d'un blob déjà libéré : un bloc
+  porteur d'un `serverId` n'est jamais renvoyé.
+
+### Cache API — données dérivées, taillées librement
+
+Contient documents HTML, JS, CSS, polices. Tout est re-téléchargeable : purger
+ne coûte qu'un rechargement, **jamais une donnée**.
+
+- Les anciennes versions de cache sont supprimées à chaque activation.
+- La version courante est plafonnée à **120 entrées**, les plus anciennes
+  évincées en premier (l'ordre d'insertion de `Cache.keys()` fait foi).
+- `/` et `/hors-ligne` ne sont **jamais** évincées : ce sont elles qui font
+  tenir le mode hors ligne.
+- Le taillage est déclenché après les mises en cache d'exécution, avec un
+  débounce de 10 s pour ne pas repasser à chaque fichier d'une même page.
+- Les images R2 ne transitent pas par ce cache (origine différente, le worker
+  laisse passer) : le gros du volume n'est donc pas concerné.
+
+### Ce qui reste à surveiller
+
+`navigator.storage.persist()` protège de l'éviction automatique, mais un
+utilisateur peut toujours vider les données du site depuis les réglages du
+navigateur. C'est le seul cas où une capture non synchronisée serait perdue, et
+il est hors de portée du code. La coquille affiche l'occupation du stockage pour
+rendre la situation lisible.
+
+## 11. Parité fonctionnelle hors ligne — à faire
+
+Le hors-ligne couvre aujourd'hui **photo, mémo vocal, note**. Objectif retenu :
+l'intégralité des fonctionnalités de visite. Ce que ça implique, par ordre de
+difficulté croissante :
+
+1. **Modules purement textuels** (coup de cœur, checklist, frise, cartel,
+   billet, carte, séparateur) — stockage local du contenu, création à la
+   synchro. Aucune difficulté nouvelle.
+2. **Modules avec fichier** (croquis, photo de cartel, photo de billet, source
+   de palette) — même schéma que les photos : blob local, puis upload et
+   sous-route dédiée à la synchro.
+3. **Disposition bento** (ordre, formats) — c'est le point dur : hors ligne, la
+   disposition référencerait des identifiants LOCAUX, ce que le §4 évitait
+   jusqu'ici en ne la construisant qu'à la synchro. Il faudra donc un vrai
+   remappage `loc_ → serverId` appliqué à la disposition avant envoi.
+4. **Fiche artiste (Wikipédia)** — dépend d'une API externe, ne peut pas être
+   créée hors ligne. À désactiver explicitement avec un message clair plutôt
+   qu'à laisser échouer.
+
+Voie recommandée : extraire une **abstraction de persistance** derrière
+`VisitJournal` (une interface avec les ~20 opérations de sauvegarde, deux
+implémentations — serveur et locale). L'éditeur bento complet fonctionnerait
+alors tel quel hors ligne, au lieu de maintenir deux interfaces en parallèle.

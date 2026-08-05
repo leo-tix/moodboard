@@ -145,6 +145,12 @@ export async function syncLocalVisit(localId: string): Promise<SyncResult> {
     for (const block of visit.blocks) {
       if (block.serverId) continue; // déjà envoyé lors d'une tentative précédente
       block.serverId = await pushBlock(serverId, block, titre);
+      // LIBÉRATION IMMÉDIATE DU BLOB — dès que le serveur a confirmé le bloc,
+      // le fichier existe sur R2 : le garder en double sur l'appareil ne
+      // protège plus rien et sature le téléphone (une visite = 50-100 Mo de
+      // photos). On ne le supprime QU'APRÈS confirmation, et une reprise n'en
+      // a pas besoin puisqu'un bloc porteur d'un serverId n'est jamais renvoyé.
+      block.blob = undefined;
       // Persistance APRÈS CHAQUE bloc : c'est ce qui rend la reprise possible
       // et empêche les doublons si l'envoi s'interrompt au milieu.
       visit.updatedAt = Date.now();

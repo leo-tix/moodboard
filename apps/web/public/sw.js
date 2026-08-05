@@ -105,12 +105,46 @@ self.addEventListener('install', (e) => {
   e.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
-// Purge les anciennes versions de cache pour ne pas laisser traîner des
-// documents périmés (et de la place occupée pour rien).
+// PLAFOND DU CACHE D'ASSETS.
+//
+// Ce cache ne contient que du DÉRIVÉ : documents HTML, JS, CSS, polices. Tout
+// est re-téléchargeable — le purger ne coûte qu'un rechargement, jamais une
+// donnée. Il peut donc être taillé librement, à l'inverse d'IndexedDB qui
+// détient les captures non encore confirmées et n'est jamais purgé
+// automatiquement (cf. lib/offline/localVisits.ts).
+//
+// Sans plafond il grossissait indéfiniment entre deux changements de version :
+// chaque page visitée et chaque bundle d'un déploiement s'y accumulaient.
+const MAX_ENTREES = 120;
+// Jamais évincées : ce sont elles qui font tenir le mode hors ligne.
+const ESSENTIELLES = ['/', OFFLINE_URL];
+
+let tailleEnAttente = null;
+function planifierTaillage() {
+  if (tailleEnAttente) return;
+  // Débounce : une rafale de mises en cache (chargement d'une page) ne
+  // déclenche qu'un seul passage.
+  tailleEnAttente = setTimeout(() => { tailleEnAttente = null; taillerCache(); }, 10000);
+}
+
+async function taillerCache() {
+  const c = await caches.open(CACHE);
+  const cles = await c.keys();
+  if (cles.length <= MAX_ENTREES) return;
+  const estEssentielle = (req) => ESSENTIELLES.some((p) => new URL(req.url).pathname === p);
+  // `keys()` respecte l'ordre d'insertion : on retire les plus anciennes.
+  const evinçables = cles.filter((r) => !estEssentielle(r));
+  const trop = cles.length - MAX_ENTREES;
+  await Promise.all(evinçables.slice(0, trop).map((r) => c.delete(r)));
+}
+
+// Purge les anciennes VERSIONS de cache (documents périmés, place occupée pour
+// rien) puis ramène la version courante sous son plafond.
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((noms) => Promise.all(noms.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
+      .then(() => taillerCache())
       .then(() => clients.claim())
   );
 });
@@ -149,7 +183,7 @@ self.addEventListener('fetch', (e) => {
           // page n'était jamais mise en cache.
           if (res.ok && !res.redirected) {
             const clone = res.clone();
-            caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => {});
+            caches.open(CACHE).then((c) => c.put(request, clone)).then(planifierTaillage).catch(() => {});
           }
           return res;
         })
@@ -181,7 +215,7 @@ self.addEventListener('fetch', (e) => {
       .then((res) => {
         if (res.ok && !res.redirected) {
           const clone = res.clone();
-          caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => {});
+          caches.open(CACHE).then((c) => c.put(request, clone)).then(planifierTaillage).catch(() => {});
         }
         return res;
       })

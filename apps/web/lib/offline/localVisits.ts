@@ -170,3 +170,32 @@ export async function appendLocalBlock(
 export function localVisitBytes(visit: LocalVisit): number {
   return visit.blocks.reduce((n, b) => n + (b.blob?.size ?? 0), 0);
 }
+
+// ── Rétention ──────────────────────────────────────────────────────────────
+// RÈGLE ABSOLUE : on ne supprime JAMAIS une donnée que le serveur n'a pas
+// confirmée. Ni au bout d'un délai, ni sous pression de stockage — dans ce
+// dernier cas on avertit l'utilisateur, on n'efface pas.
+//
+// Une fois la visite entièrement synchronisée, ses fichiers vivent sur R2 et
+// ses blocs en base : la copie locale ne protège plus rien. Ses blobs ont déjà
+// été libérés bloc par bloc à la synchro (voir syncVisits.ts) ; il ne reste
+// qu'une fiche de quelques centaines d'octets, gardée un temps pour que
+// l'utilisateur voie ce qui est parti, puis effacée.
+const RETENTION_SYNCED_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
+
+export async function pruneSyncedVisits(now = Date.now()): Promise<number> {
+  const visites = await listLocalVisits();
+  let supprimees = 0;
+  for (const v of visites) {
+    if (v.syncState !== "synced") continue;          // jamais si non confirmé
+    if (now - v.updatedAt < RETENTION_SYNCED_MS) continue;
+    await deleteLocalVisit(v.localId);
+    supprimees++;
+  }
+  return supprimees;
+}
+
+/** Octets réellement retenus sur l'appareil (blobs non encore confirmés). */
+export async function pendingLocalBytes(): Promise<number> {
+  return (await listLocalVisits()).reduce((n, v) => n + localVisitBytes(v), 0);
+}
