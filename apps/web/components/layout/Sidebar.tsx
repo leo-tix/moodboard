@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Home, Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, type LucideIcon } from "lucide-react";
+import { Images, Layers, LayoutDashboard, Landmark, Search, Plus, Inbox, Settings, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/lib/storage/urls";
 import { TriageBadge } from "@/components/triage/TriageBadge";
@@ -30,8 +30,11 @@ function initialsOf(name: string | null, email: string): string {
   return (parts[0]?.[0] ?? "?").toUpperCase();
 }
 
+// Pas d'entrée « Accueil » : la route `/` ne fait que rediriger vers /library,
+// elle faisait donc double emploi avec « Bibliothèque » juste en dessous
+// (retour utilisateur 2026-08-05). La page `/` est conservée : elle reste le
+// point d'entrée d'un favori ou du lancement de la PWA.
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/", label: "Accueil", icon: Home },
   { href: "/library", label: "Bibliothèque", icon: Images },
   { href: "/collections", label: "Collections", icon: Layers },
   { href: "/moodboards", label: "Planches", icon: LayoutDashboard },
@@ -62,11 +65,9 @@ export function Sidebar({ user }: { user: SidebarUser }) {
       <nav className="flex-1 py-3 space-y-0.5 px-2 xl:px-3">
         {NAV_ITEMS.map((item) => {
           const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : item.href === "/feed"
-                ? SOCIAL_HREFS.some((h) => pathname.startsWith(h))
-                : pathname.startsWith(item.href);
+            item.href === "/feed"
+              ? SOCIAL_HREFS.some((h) => pathname.startsWith(h))
+              : pathname.startsWith(item.href);
 
           return (
             <Link
