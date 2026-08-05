@@ -104,6 +104,16 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
     return String(cree.id ?? "");
   }
 
+  // Croquis : dessin réalisé sur place, envoyé comme fichier (même contrat que
+  // les photos et les mémos : FormData + champ `file`).
+  if (block.type === "sketch") {
+    const fd = new FormData();
+    fd.append("file", block.blob!, block.filename ?? "croquis.png");
+    const res = await fetch(`/api/visits/${visitServerId}/sketch`, { method: "POST", body: fd });
+    const cree = await jsonOrThrow(res, "Envoi d'un croquis");
+    return String(cree.id ?? "");
+  }
+
   // Séparateur : pas de table dédiée, son libellé vit DANS la disposition.
   // Il n'a donc rien à créer côté serveur ; son identifiant local fait foi.
   if (block.type === "separator") return block.localId;

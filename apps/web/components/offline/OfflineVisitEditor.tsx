@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2, Pencil } from "lucide-react";
 import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
+import { SketchPad } from "@/components/visits/bento/SketchPad";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from "@/components/visits/bento/TileSettingsModal";
@@ -51,6 +52,7 @@ export function OfflineVisitEditor({
 }) {
   const [recorderOpen, setRecorderOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [sketchOpen, setSketchOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -272,7 +274,7 @@ export function OfflineVisitEditor({
           onSelectTicket={() => ajouterModule("ticket")}
           onSelectPalette={() => ajouterModule("palette")}
           onSelectSeparator={() => ajouterModule("separator")}
-          onSelectSketch={() => setPickerOpen(false)}
+          onSelectSketch={() => { setPickerOpen(false); setSketchOpen(true); }}
           // Types intrinsèquement distants : le sélecteur les grise déjà, ces
           // rappels ne peuvent donc pas être déclenchés hors ligne.
           onSelectEmbed={() => setPickerOpen(false)}
@@ -348,6 +350,18 @@ export function OfflineVisitEditor({
       {/* Enregistreur — mode tâche de fond : il remonte le clip brut, sans
           transcription ni upload (le modèle Whisper n'est de toute façon pas
           téléchargeable hors ligne ; la transcription se fera une fois en ligne). */}
+      <SketchPad
+          open={sketchOpen}
+          onClose={() => setSketchOpen(false)}
+          onSave={async (blob) => {
+            setSketchOpen(false);
+            const maj = await appendLocalBlock(visit.localId, {
+              type: "sketch", blob, filename: `croquis-${Date.now()}.png`,
+            });
+            if (maj) onChange(maj);
+          }}
+        />
+
       <VoiceMemoRecorder open={recorderOpen} onClose={() => setRecorderOpen(false)} onRecorded={addMemo} />
     </div>
   );

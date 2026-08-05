@@ -21,7 +21,8 @@ import { openDb, STORE_VISITS } from "./db";
 // donc jamais ici.
 export type LocalBlockType =
   | "photo" | "memo" | "note"
-  | "highlight" | "checklist" | "timeline" | "cartel" | "ticket" | "palette" | "separator";
+  | "highlight" | "checklist" | "timeline" | "cartel" | "ticket" | "palette" | "separator"
+  | "sketch";
 
 export interface LocalBlock {
   localId: string;
