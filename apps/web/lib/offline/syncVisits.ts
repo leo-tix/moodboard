@@ -88,6 +88,26 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
     return String(audio.id ?? "");
   }
 
+  // Modules de DONNÉES : une sous-route par type, même contrat (POST → { id }).
+  const SOUS_ROUTE: Partial<Record<string, string>> = {
+    highlight: "highlight", checklist: "checklist", timeline: "timeline",
+    cartel: "cartel", ticket: "ticket", palette: "palette",
+  };
+  const route = SOUS_ROUTE[block.type];
+  if (route) {
+    const res = await fetch(`/api/visits/${visitServerId}/${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(block.payload ?? {}),
+    });
+    const cree = await jsonOrThrow(res, `Envoi d'un module ${block.type}`);
+    return String(cree.id ?? "");
+  }
+
+  // Séparateur : pas de table dédiée, son libellé vit DANS la disposition.
+  // Il n'a donc rien à créer côté serveur ; son identifiant local fait foi.
+  if (block.type === "separator") return block.localId;
+
   // photo : upload de l'image, puis rattachement à la visite
   const fd = new FormData();
   fd.append("file", block.blob!, block.filename ?? "photo.jpg");
@@ -113,15 +133,38 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
  *  temps : reconstruire la disposition depuis l'ordre local écraserait son
  *  arrangement. On lit donc l'existant et on n'y AJOUTE que les tuiles absentes.
  */
-async function pushLayout(visitServerId: string, blocks: LocalBlock[]): Promise<void> {
-  const typeTuile = { photo: "image", memo: "audio", note: "note" } as const;
-  const locales = blocks
-    .filter((b) => b.serverId) // garde-fou : jamais d'identifiant local ici
-    .map((b) => {
-      const type = typeTuile[b.type];
-      const span = DEFAULT_SPAN[type];
-      return { type, id: b.serverId!, w: span.w, h: span.h };
-    });
+async function pushLayout(
+  visitServerId: string,
+  blocks: LocalBlock[],
+  layoutLocal?: LocalVisit["layout"],
+): Promise<void> {
+  // Type de tuile correspondant au type de bloc (identique sauf ces trois-là).
+  const typeTuile: Record<string, string> = { photo: "image", memo: "audio", note: "note" };
+  const tuileDe = (t: string) => typeTuile[t] ?? t;
+
+  // REMAPPAGE : la disposition éditée hors ligne référence les identifiants
+  // LOCAUX. On les traduit en identifiants serveur ici, à la toute fin, quand
+  // chaque bloc en possède un. Une tuile dont le bloc n'a pas été confirmé est
+  // ÉCARTÉE plutôt que référencée à vide — c'est ce qui ferait disparaître des
+  // tuiles de la grille (docs/carnet-hors-ligne.md §4).
+  const versServeur = new Map(blocks.filter((b) => b.serverId).map((b) => [b.localId, b.serverId!]));
+
+  const locales = (layoutLocal && layoutLocal.length > 0)
+    // Disposition explicitement éditée hors ligne : on la respecte.
+    ? layoutLocal
+        .map((t) => {
+          const id = versServeur.get(String(t.id)) ?? null;
+          return id ? { ...t, id, type: tuileDe(String(t.type)) } : null;
+        })
+        .filter((t): t is NonNullable<typeof t> => t !== null)
+    // Sinon : ordre de capture, formats par défaut.
+    : blocks
+        .filter((b) => b.serverId)
+        .map((b) => {
+          const type = tuileDe(b.type);
+          const span = DEFAULT_SPAN[type as keyof typeof DEFAULT_SPAN] ?? { w: 2, h: 1 };
+          return { type, id: b.serverId!, w: span.w, h: span.h };
+        });
   if (locales.length === 0) return;
 
   // Disposition déjà en place côté serveur (vide pour une visite neuve).
@@ -181,7 +224,7 @@ export async function syncLocalVisit(localId: string): Promise<SyncResult> {
       await putLocalVisit(visit);
     }
 
-    await pushLayout(serverId, visit.blocks);
+    await pushLayout(serverId, visit.blocks, visit.layout);
 
     visit.syncState = "synced";
     visit.updatedAt = Date.now();

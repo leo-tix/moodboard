@@ -16,7 +16,12 @@
 
 import { openDb, STORE_VISITS } from "./db";
 
-export type LocalBlockType = "photo" | "memo" | "note";
+// Tous les types éditables hors ligne. Les types intrinsèquement distants
+// (carte, lien/YouTube, fiche wiki) sont grisés dans le sélecteur et n'arrivent
+// donc jamais ici.
+export type LocalBlockType =
+  | "photo" | "memo" | "note"
+  | "highlight" | "checklist" | "timeline" | "cartel" | "ticket" | "palette" | "separator";
 
 export interface LocalBlock {
   localId: string;
@@ -32,6 +37,10 @@ export interface LocalBlock {
   durationSec?: number;
   transcript?: string;
   wordTimings?: { word: string; start: number; end: number }[];
+  /** Modules de données (coup de cœur, checklist, frise, cartel, billet,
+   *  palette, séparateur) : contenu libre, miroir des colonnes de la table
+   *  correspondante. Envoyé tel quel à la sous-route API à la synchro. */
+  payload?: Record<string, unknown>;
   createdAt: number;
 }
 
@@ -48,6 +57,10 @@ export interface LocalVisit {
   longitude?: number | null;
   address?: string | null;
   blocks: LocalBlock[];
+  /** Disposition bento éditée hors ligne. Elle référence les identifiants
+   *  LOCAUX des blocs ; ils sont remappés vers les identifiants serveur au
+   *  moment de la synchro (cf. syncVisits.ts). */
+  layout?: { type: string; id: string; w: number; h: number; [k: string]: unknown }[];
   createdAt: number;
   updatedAt: number;
   syncState: SyncState;
@@ -143,6 +156,7 @@ export async function createLocalVisit(input: {
     longitude: input.longitude ?? null,
     address: input.address ?? null,
     blocks: [],
+    layout: [],
     createdAt: now,
     updatedAt: now,
     syncState: "local",
@@ -165,6 +179,49 @@ export async function appendLocalBlock(
   // départ, ce qui est le cas d'usage réel en visite. Son `serverId` est
   // conservé, donc la synchro n'en recréera pas une seconde : elle se contente
   // d'envoyer les nouveaux blocs et de les AJOUTER à la disposition existante.
+  if (visit.syncState !== "syncing") visit.syncState = "local";
+  await putLocalVisit(visit);
+  return visit;
+}
+
+/** Remplace la disposition locale (ordre + formats). */
+export async function setLocalLayout(
+  localId: string,
+  layout: NonNullable<LocalVisit["layout"]>,
+): Promise<LocalVisit | null> {
+  const visit = await getLocalVisit(localId);
+  if (!visit) return null;
+  visit.layout = layout;
+  visit.updatedAt = Date.now();
+  if (visit.syncState !== "syncing") visit.syncState = "local";
+  await putLocalVisit(visit);
+  return visit;
+}
+
+/** Met à jour le contenu d'un bloc local (édition d'un module). */
+export async function patchLocalBlock(
+  localId: string,
+  blockLocalId: string,
+  payload: Record<string, unknown>,
+): Promise<LocalVisit | null> {
+  const visit = await getLocalVisit(localId);
+  if (!visit) return null;
+  const b = visit.blocks.find((x) => x.localId === blockLocalId);
+  if (!b) return null;
+  b.payload = { ...(b.payload ?? {}), ...payload };
+  visit.updatedAt = Date.now();
+  if (visit.syncState !== "syncing") visit.syncState = "local";
+  await putLocalVisit(visit);
+  return visit;
+}
+
+/** Supprime un bloc local (et sa tuile dans la disposition). */
+export async function removeLocalBlock(localId: string, blockLocalId: string): Promise<LocalVisit | null> {
+  const visit = await getLocalVisit(localId);
+  if (!visit) return null;
+  visit.blocks = visit.blocks.filter((b) => b.localId !== blockLocalId);
+  visit.layout = (visit.layout ?? []).filter((t) => t.id !== blockLocalId);
+  visit.updatedAt = Date.now();
   if (visit.syncState !== "syncing") visit.syncState = "local";
   await putLocalVisit(visit);
   return visit;

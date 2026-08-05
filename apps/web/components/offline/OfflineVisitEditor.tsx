@@ -1,10 +1,39 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2, Pencil } from "lucide-react";
 import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
 import { compressImageForUpload } from "@/lib/image/clientResize";
-import { appendLocalBlock, type LocalVisit } from "@/lib/offline/localVisits";
+import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
+import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from "@/components/visits/bento/TileSettingsModal";
+import { DEFAULT_SPAN } from "@/lib/visits/bentoSpans";
+import type { BentoTile } from "@/lib/visits/bentoTypes";
+import {
+  appendLocalBlock, patchLocalBlock, removeLocalBlock,
+  type LocalBlock, type LocalVisit,
+} from "@/lib/offline/localVisits";
+
+// Contenu par défaut d'un module créé hors ligne — miroir de ce que crée la
+// route API correspondante, pour que la tuile s'affiche et s'édite pareil.
+const DEFAUT: Record<string, Record<string, unknown>> = {
+  highlight: { title: "", rating: 0, note: null },
+  checklist: { title: null, items: [] },
+  timeline:  { title: null, events: [] },
+  cartel:    { artworkTitle: "", artist: null, dateText: null, medium: null, dimensions: null, room: null, notes: null },
+  ticket:    { eventName: "", place: null, dateText: null, price: null, category: null },
+  palette:   { title: null, colors: [] },
+  separator: { label: "Section" },
+};
+
+// Reconstruit une tuile bento à partir d'un bloc local, pour pouvoir réutiliser
+// TileSettingsModal — les MÊMES formulaires qu'en ligne, plutôt qu'une seconde
+// interface qui divergerait.
+function tuileDepuisBloc(b: LocalBlock): BentoTile | null {
+  if (!DEFAUT[b.type]) return null;
+  const span = DEFAULT_SPAN[b.type as keyof typeof DEFAULT_SPAN] ?? { w: 2, h: 1 };
+  const content = { type: b.type, id: b.localId, ...(b.payload ?? {}) };
+  return { type: b.type, id: b.localId, w: span.w, h: span.h, content } as unknown as BentoTile;
+}
 
 // Carnet HORS LIGNE d'une visite : volontairement centré sur la CAPTURE
 // (photo, mémo vocal, note), qui est ce qu'on fait réellement pendant une
@@ -21,6 +50,8 @@ export function OfflineVisitEditor({
   onChange: (v: LocalVisit) => void;
 }) {
   const [recorderOpen, setRecorderOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -70,6 +101,35 @@ export function OfflineVisitEditor({
     setNote("");
     setNoteOpen(false);
   };
+
+  // ── Modules ──────────────────────────────────────────────────────────────
+  const ajouterModule = async (type: string) => {
+    setPickerOpen(false);
+    const maj = await appendLocalBlock(visit.localId, {
+      type: type as LocalBlock["type"],
+      payload: { ...DEFAUT[type] },
+    });
+    if (maj) {
+      onChange(maj);
+      // Ouvre aussitôt le formulaire : un module vide n'a aucun intérêt.
+      setEditing(maj.blocks[maj.blocks.length - 1].localId);
+    }
+  };
+
+  const majModule = async (blockId: string, payload: Record<string, unknown>) => {
+    const maj = await patchLocalBlock(visit.localId, blockId, payload);
+    if (maj) onChange(maj);
+  };
+
+  const supprimerModule = async (blockId: string) => {
+    const maj = await removeLocalBlock(visit.localId, blockId);
+    if (maj) onChange(maj);
+    setEditing(null);
+  };
+
+  const blocEnEdition = visit.blocks.find((b) => b.localId === editing) ?? null;
+  const tuileEnEdition = blocEnEdition ? tuileDepuisBloc(blocEnEdition) : null;
+  const modules = visit.blocks.filter((b) => DEFAUT[b.type]);
 
   const compte = {
     photo: visit.blocks.filter((b) => b.type === "photo").length,
@@ -166,6 +226,95 @@ export function OfflineVisitEditor({
           </p>
         )}
       </div>
+
+      {/* Modules du carnet — mêmes formulaires qu'en ligne */}
+      <div className="space-y-2">
+        <button
+          onClick={() => setPickerOpen(true)}
+          className="w-full py-3 rounded-xl border-2 border-dashed border-[var(--border-default)] text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors"
+        >
+          + Ajouter un module
+        </button>
+        {modules.length > 0 && (
+          <ul className="space-y-1.5">
+            {modules.map((b) => (
+              <li key={b.localId}>
+                <button
+                  onClick={() => setEditing(b.localId)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] transition-colors text-left"
+                >
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm text-[var(--text-primary)] truncate">
+                      {String(
+                        b.payload?.artworkTitle || b.payload?.eventName ||
+                        b.payload?.title || b.payload?.label || "Sans titre",
+                      ) || "Sans titre"}
+                    </span>
+                    <span className="block text-[10px] text-[var(--text-tertiary)] capitalize">{b.type}</span>
+                  </span>
+                  <Pencil size={13} strokeWidth={1.9} className="text-[var(--text-tertiary)] shrink-0" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {pickerOpen && (
+        <BlockTypeModal
+          onClose={() => setPickerOpen(false)}
+          onSelectText={() => { setPickerOpen(false); setNoteOpen(true); }}
+          onSelectAudio={() => { setPickerOpen(false); setRecorderOpen(true); }}
+          onSelectHighlight={() => ajouterModule("highlight")}
+          onSelectChecklist={() => ajouterModule("checklist")}
+          onSelectTimeline={() => ajouterModule("timeline")}
+          onSelectCartel={() => ajouterModule("cartel")}
+          onSelectTicket={() => ajouterModule("ticket")}
+          onSelectPalette={() => ajouterModule("palette")}
+          onSelectSeparator={() => ajouterModule("separator")}
+          onSelectSketch={() => setPickerOpen(false)}
+          // Types intrinsèquement distants : le sélecteur les grise déjà, ces
+          // rappels ne peuvent donc pas être déclenchés hors ligne.
+          onSelectEmbed={() => setPickerOpen(false)}
+          onSelectMap={() => setPickerOpen(false)}
+          onSelectArtist={() => setPickerOpen(false)}
+        />
+      )}
+
+      {/* Édition d'un module : LE formulaire de l'app, pas une copie. */}
+      <TileSettingsModal
+        tile={tuileEnEdition}
+        isMobile
+        onClose={() => setEditing(null)}
+        onDelete={(t) => supprimerModule(t.id)}
+        onSaveHighlight={(id, title, rating, note) => majModule(id, { title, rating, note: note.trim() || null })}
+        onSaveChecklist={(id, title, items) => majModule(id, { title: title.trim() || null, items })}
+        onSaveTimeline={(id, title, events) => majModule(id, { title: title.trim() || null, events })}
+        onSaveCartel={(id, v: CartelFormValues) => majModule(id, {
+          artworkTitle: v.artworkTitle, artist: v.artist.trim() || null, dateText: v.dateText.trim() || null,
+          medium: v.medium.trim() || null, dimensions: v.dimensions.trim() || null,
+          room: v.room.trim() || null, notes: v.notes.trim() || null,
+        })}
+        onSaveTicket={(id, v: TicketFormValues) => majModule(id, {
+          eventName: v.eventName, place: v.place.trim() || null, dateText: v.dateText.trim() || null,
+          price: v.price.trim() || null, category: v.category.trim() || null,
+        })}
+        onSavePalette={(id, title, colors) => majModule(id, { title: title.trim() || null, colors })}
+        onSaveSeparator={(id, label) => majModule(id, { label })}
+        // Sans objet hors ligne : formats et médias se règlent une fois en ligne.
+        onSetFormat={() => {}}
+        onSaveText={() => {}}
+        onPersistText={async () => {}}
+        onSaveImage={() => {}}
+        onSetImageShowTitle={() => {}}
+        onSetFitContain={() => {}}
+        onSetFicheFlags={() => {}}
+        onSaveEmbed={() => {}}
+        onSaveMap={() => {}}
+        onUploadTicketPhoto={async () => {}}
+        onUploadPaletteSource={async () => {}}
+        onRedrawSketch={() => {}}
+      />
 
       {/* Saisie d'une note */}
       {noteOpen && (
