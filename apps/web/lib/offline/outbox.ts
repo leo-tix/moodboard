@@ -36,24 +36,12 @@ export interface OutboxItem {
 /** Entrée de mise en file : tout sauf les champs gérés en interne. */
 export type OutboxInput = Omit<OutboxItem, "id" | "createdAt" | "attempts" | "lastError">;
 
-const DB_NAME = "moodboard-offline";
-const STORE = "captures";
-const DB_VERSION = 1;
-export const OUTBOX_SYNCED_EVENT = "moodboard-outbox-synced";
+// L'ouverture de la base est factorisée dans ./db : le mode hors ligne y ajoute
+// un second magasin (`visits`), et deux modules qui ouvriraient IndexedDB avec
+// des numéros de version différents se bloqueraient mutuellement.
+import { openDb, STORE_CAPTURES as STORE } from "./db";
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+export const OUTBOX_SYNCED_EVENT = "moodboard-outbox-synced";
 
 async function putItem(item: OutboxItem): Promise<void> {
   const db = await openDb();
