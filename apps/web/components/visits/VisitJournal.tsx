@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { TriangleAlert, X } from "lucide-react";
+import { BookOpen, Pencil, TriangleAlert, X } from "lucide-react";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
 import { SectionNav } from "@/components/visits/bento/SectionNav";
@@ -48,6 +48,8 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   const [sketchSaving, setSketchSaving] = useState(false);
   // Message d'échec de sauvegarde (bandeau discret) — cf. persistModule.
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Mode LECTURE : parcourir le carnet sans pouvoir le modifier (bascule ci-dessous).
+  const [readOnly, setReadOnly] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -667,11 +669,27 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
           </button>
         </div>
       )}
+      {/* Bascule lecture / édition — permet de PARCOURIR le carnet sans risque
+          de déplacer une tuile ou d'ouvrir une édition par mégarde (demande
+          utilisateur 2026-08-05). Le mode lecture réutilise la même grille avec
+          `editable={false}`, exactement comme le rendu public. */}
+      <div className="flex justify-end mb-2">
+        <button
+          type="button"
+          onClick={() => { setReadOnly((v) => !v); setSettingsKey(null); setEditingContentKey(null); }}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors"
+          title={readOnly ? "Reprendre l'édition du carnet" : "Parcourir le carnet en lecture seule"}
+        >
+          {readOnly ? <Pencil size={13} strokeWidth={1.9} /> : <BookOpen size={13} strokeWidth={1.9} />}
+          {readOnly ? "Modifier" : "Lecture"}
+        </button>
+      </div>
+
       <SectionNav tiles={tiles} />
       <BentoGrid
         tiles={tiles}
-        editable
-        sortable={sortable}
+        editable={!readOnly}
+        sortable={readOnly ? undefined : sortable}
         isMobile={isMobile}
         selectedKey={settingsKey}
         editingContentKey={editingContentKey}

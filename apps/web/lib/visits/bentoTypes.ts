@@ -58,6 +58,10 @@ export type JournalTileContent =
       author: string | null;
       year: number | null;
       thumbnailKey: string | null;
+      /** Image PLEINE définition — nécessaire à la visionneuse plein écran du
+       *  carnet public (le lien partagé n'a pas accès à la visionneuse de la
+       *  bibliothèque). Était sélectionné en base mais jeté ici. */
+      storageKey: string | null;
       width: number | null;
       height: number | null;
     }

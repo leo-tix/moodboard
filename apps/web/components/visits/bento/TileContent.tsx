@@ -21,6 +21,8 @@ export interface ImageNavItem {
   id: string;
   title: string;
   thumbnailKey: string | null;
+  /** Pleine définition — visionneuse plein écran du carnet public. */
+  storageKey: string | null;
 }
 
 // Dates de vie extraites du 1er paragraphe Wikipédia (« né le … 1840 … mort le
@@ -41,6 +43,9 @@ interface TileContentProps {
   onPersistAudioTranscript?: (audioId: string, transcript: string) => Promise<void>;
   onToggleChecklistItem?: (checklistId: string, itemId: string) => void;
   imageNav?: ImageNavItem[];
+  /** Lecture seule : ouvrir l'image en grand (carnet public). Absent → image
+   *  non cliquable, comportement d'origine. */
+  onOpenImage?: (id: string) => void;
 }
 
 // Rendu du CONTENU d'une tuile — pas de chrome (bordure/ombre/drag/bouton).
@@ -48,7 +53,7 @@ interface TileContentProps {
 // est dimensionnée par BentoTile pour tout afficher (auto-hauteur), donc plus
 // de coupe ni de centrage (qui rognait le texte des deux côtés). Le fond des
 // tuiles texte est porté par BentoTile.
-export function TileContent({ tile, editable, onPersistAudioTranscript, onToggleChecklistItem, imageNav }: TileContentProps) {
+export function TileContent({ tile, editable, onPersistAudioTranscript, onToggleChecklistItem, imageNav, onOpenImage }: TileContentProps) {
   const author = useJournalAuthor();
 
   // Séparateur de section : ligne pleine largeur + puce centrée (multi-ligne si
@@ -103,7 +108,22 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
         {cartel}
       </>
     );
-    if (!editable) return <div className="relative w-full h-full bg-[var(--bg-surface)]">{picture}</div>;
+    if (!editable) {
+      // Lecture seule (carnet public / mode lecture) : l'image s'ouvre en grand
+      // avec zoom via ImmersiveViewer, SANS exposer la visionneuse de la
+      // bibliothèque (qui est réservée aux sessions connectées).
+      if (!onOpenImage) return <div className="relative w-full h-full bg-[var(--bg-surface)]">{picture}</div>;
+      return (
+        <button
+          type="button"
+          onClick={() => onOpenImage(c.id)}
+          className="relative w-full h-full bg-[var(--bg-surface)] block cursor-zoom-in"
+          aria-label={`Agrandir ${c.title || "l'image"}`}
+        >
+          {picture}
+        </button>
+      );
+    }
     return (
       <Link
         href={`/library/${c.id}`}

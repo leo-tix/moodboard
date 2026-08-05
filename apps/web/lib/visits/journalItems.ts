@@ -186,6 +186,7 @@ export function buildBentoLayout(visit: BentoSourceVisit): BentoTile[] {
       author: i.author,
       year: i.year,
       thumbnailKey: i.images[0]?.thumbnailKey ?? null,
+      storageKey: i.images[0]?.storageKey ?? null,
       width: i.images[0]?.width ?? null,
       height: i.images[0]?.height ?? null,
     });

@@ -69,6 +69,7 @@ interface BentoTileProps {
   selected?: boolean;
   isMobile?: boolean;
   imageNav?: ImageNavItem[];
+  onOpenImage?: (id: string) => void;
   /** true si CE bloc texte est en cours d'édition inline (desktop). */
   editingInline?: boolean;
   onSetFormat?: (tile: BentoTileData, w: TileWidth, h: 1 | 2) => void;
@@ -108,6 +109,7 @@ export function BentoTile({
   selected,
   isMobile,
   imageNav,
+  onOpenImage,
   editingInline,
   onSetFormat,
   onOpenSettings,
@@ -200,6 +202,7 @@ export function BentoTile({
           editable={editable}
           onPersistAudioTranscript={onPersistAudioTranscript}
           imageNav={imageNav}
+          onOpenImage={onOpenImage}
         />
       )}
 

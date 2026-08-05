@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ImmersiveViewer } from "@/components/library/ImmersiveViewer";
 import { cn } from "@/lib/utils";
 import { tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import { BentoTile } from "@/components/visits/bento/BentoTile";
@@ -56,6 +58,12 @@ export function BentoGrid({
 }: BentoGridProps) {
   const draggedTile = sortable?.draggingKey ? tiles.find((t) => tileKey(t) === sortable.draggingKey) : undefined;
 
+  // Visionneuse plein écran des images en LECTURE SEULE (carnet public partagé
+  // par lien, et mode lecture). ImmersiveViewer est autonome — aucun routeur,
+  // aucune session — donc utilisable par un visiteur anonyme, sans lui ouvrir
+  // la visionneuse de la bibliothèque (demande utilisateur 2026-08-05).
+  const [viewerId, setViewerId] = useState<string | null>(null);
+
   // Avec des séparateurs, on veut des SECTIONS nettes : le flux dense
   // remonterait des tuiles d'une section dans les trous d'une section
   // précédente. On coupe donc `dense` dès qu'un séparateur est présent (les
@@ -66,8 +74,10 @@ export function BentoGrid({
     .filter((t) => t.content.type === "image")
     .map((t) => {
       const c = t.content as Extract<BentoTileData["content"], { type: "image" }>;
-      return { id: c.id, title: c.title, thumbnailKey: c.thumbnailKey };
+      return { id: c.id, title: c.title, thumbnailKey: c.thumbnailKey, storageKey: c.storageKey };
     });
+
+  const viewerIdx = viewerId ? imageNav.findIndex((i) => i.id === viewerId) : -1;
 
   return (
     <>
@@ -89,6 +99,7 @@ export function BentoGrid({
             selected={selectedKey === tileKey(tile)}
             editingInline={editingContentKey === tileKey(tile)}
             imageNav={imageNav}
+            onOpenImage={editable ? undefined : (id) => setViewerId(id)}
             onSetFormat={onSetFormat}
             onOpenSettings={onOpenSettings}
             onStartInlineEdit={onStartInlineEdit}
@@ -103,6 +114,20 @@ export function BentoGrid({
       </div>
 
       {editable && <AddTileButton onClick={() => onAddClick?.()} />}
+
+      {!editable && viewerIdx !== -1 && (
+        <ImmersiveViewer
+          storageKey={imageNav[viewerIdx].storageKey}
+          title={imageNav[viewerIdx].title}
+          counter={`${viewerIdx + 1} / ${imageNav.length}`}
+          onClose={() => setViewerId(null)}
+          onPrev={viewerIdx > 0 ? () => setViewerId(imageNav[viewerIdx - 1].id) : null}
+          onNext={viewerIdx < imageNav.length - 1 ? () => setViewerId(imageNav[viewerIdx + 1].id) : null}
+          currentThumbKey={imageNav[viewerIdx].thumbnailKey}
+          prevThumbKey={viewerIdx > 0 ? imageNav[viewerIdx - 1].thumbnailKey : null}
+          nextThumbKey={viewerIdx < imageNav.length - 1 ? imageNav[viewerIdx + 1].thumbnailKey : null}
+        />
+      )}
 
       {editable && sortable && (
         <div ref={sortable.overlayRef} style={sortable.overlayStyle}>
