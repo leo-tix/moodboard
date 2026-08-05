@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export interface PlaceGeo {
   latitude: number;
@@ -56,12 +57,21 @@ export function PlaceAutocomplete({
   // Vrai juste après une sélection — évite de rouvrir le dropdown sur le
   // onChange déclenché par la sélection elle-même
   const justSelectedRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Position ANCRÉE du menu, en coordonnées viewport. Le menu est rendu dans un
+  // portal (voir plus bas) : il ne peut donc plus se positionner tout seul par
+  // rapport à l'input, on la calcule ici.
+  const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const t = e.target as Node;
+      // Le menu vit dans un portal : il n'est plus un descendant du conteneur,
+      // il faut donc l'exclure explicitement, sinon cliquer une suggestion
+      // fermait la liste avant que le clic n'aboutisse.
+      if (containerRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     document.addEventListener("touchstart", handler);
@@ -70,6 +80,35 @@ export function PlaceAutocomplete({
       document.removeEventListener("touchstart", handler);
     };
   }, []);
+
+  // Recalcule l'ancrage du menu tant qu'il est ouvert : à l'ouverture, puis au
+  // défilement (capture : n'importe quel conteneur défilant compte) et au
+  // redimensionnement — sinon le menu resterait figé pendant que l'input bouge.
+  useEffect(() => {
+    if (!open) { setAnchor(null); return; }
+    const place = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const dessous = window.innerHeight - r.bottom;
+      // Pas la place en dessous (clavier mobile ouvert…) → on affiche au-dessus.
+      // On ancre alors par le BAS, pour que le menu reste collé à l'input quelle
+      // que soit sa hauteur réelle (sinon un menu court laisse un écart).
+      const versLeHaut = dessous < 160 && r.top > dessous;
+      setAnchor(
+        versLeHaut
+          ? { bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width }
+          : { top: r.bottom + 4, left: r.left, width: r.width },
+      );
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, suggestions.length]);
 
   const search = (q: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -112,6 +151,7 @@ export function PlaceAutocomplete({
   return (
     <div ref={containerRef} className="relative">
       <input
+        ref={inputRef}
         className={className}
         placeholder={placeholder}
         value={value}
@@ -144,8 +184,16 @@ export function PlaceAutocomplete({
         spellCheck={false}
       />
 
-      {open && suggestions.length > 0 && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-[70] rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden max-h-56 overflow-y-auto">
+      {/* Menu rendu dans un PORTAL sur <body>, en position fixe ancrée à l'input.
+          En `absolute` dans le flux, il était ROGNÉ par le premier ancêtre à
+          `overflow-hidden` — typiquement la couverture arrondie de la visite,
+          où la liste se retrouvait coupée net (retour utilisateur 2026-08-05).
+          Un z-index n'y peut rien : on n'échappe pas à un clip par empilement. */}
+      {open && suggestions.length > 0 && anchor && typeof document !== "undefined" && createPortal(
+        <div
+          ref={listRef}
+          style={{ position: "fixed", top: anchor.top, bottom: anchor.bottom, left: anchor.left, width: anchor.width }}
+          className="z-[90] rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-xl overflow-hidden max-h-56 overflow-y-auto">
           {suggestions.map((f, i) => {
             const { name, detail } = featureLabel(f);
             return (
@@ -167,7 +215,8 @@ export function PlaceAutocomplete({
           <p className="px-3 py-1 text-[8px] text-[var(--text-tertiary)] border-t border-[var(--border-subtle)]">
             © OpenStreetMap
           </p>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
