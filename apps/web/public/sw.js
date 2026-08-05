@@ -1,4 +1,4 @@
-const CACHE = 'mb-v8';
+const CACHE = 'mb-v9';
 const SHARE_DB = 'moodboard-share';
 // Coquille hors ligne : page entièrement rendue côté client, servie en repli
 // quand une navigation échoue faute de réseau (cf. docs/carnet-hors-ligne.md).
@@ -81,14 +81,28 @@ async function handleShareTarget(request) {
   return Response.redirect('/upload', 303);
 }
 
+// `/` (start_url du manifeste) est une REDIRECTION 307 vers /library. Or
+// `cache.put()` refuse une réponse redirigée : `cache.add('/')` échouait donc
+// silencieusement, et l'ouverture à froid de la PWA hors ligne ne trouvait
+// rien en cache. On enregistre la coquille SOUS LES DEUX CLÉS : le lancement
+// hors réseau tombe alors directement dessus, sans dépendre du repli.
+// Le cache ne sert qu'en cas d'échec réseau (stratégie réseau d'abord), donc
+// `/` continue de rediriger normalement en ligne.
+async function precache() {
+  const c = await caches.open(CACHE);
+  try {
+    const shell = await fetch(OFFLINE_URL, { cache: 'reload' });
+    if (shell.ok) {
+      await c.put(OFFLINE_URL, shell.clone());
+      await c.put('/', shell.clone());
+    }
+  } catch (e) {
+    // Hors ligne à l'installation : on n'empêche pas le worker de s'installer.
+  }
+}
+
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE)
-      // `addAll` échouerait en bloc si UNE ressource manque ; on tolère les
-      // échecs unitaires pour ne jamais empêcher l'installation du worker.
-      .then((c) => Promise.allSettled([c.add('/'), c.add(OFFLINE_URL)]))
-      .then(() => self.skipWaiting())
-  );
+  e.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 // Purge les anciennes versions de cache pour ne pas laisser traîner des
@@ -129,9 +143,13 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(request)
         .then((res) => {
-          if (res.ok) {
+          // `res.redirected` : `cache.put()` REFUSE une réponse redirigée et
+          // lève une TypeError. Sans ce garde-fou, chaque passage sur `/` (307
+          // vers /library) produisait un rejet de promesse non traité, et la
+          // page n'était jamais mise en cache.
+          if (res.ok && !res.redirected) {
             const clone = res.clone();
-            caches.open(CACHE).then((c) => c.put(request, clone));
+            caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => {});
           }
           return res;
         })
@@ -161,9 +179,9 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(request)
       .then((res) => {
-        if (res.ok) {
+        if (res.ok && !res.redirected) {
           const clone = res.clone();
-          caches.open(CACHE).then((c) => c.put(request, clone));
+          caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => {});
         }
         return res;
       })
