@@ -98,13 +98,17 @@ export function OfflineVisitEditor({
         </p>
       </div>
 
-      {synced ? (
-        <p className="flex items-center gap-2 text-xs text-emerald-400 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-          <Check size={13} strokeWidth={2} />
-          Visite synchronisée. Ouvre-la dans l&apos;app pour la mettre en page.
+      {synced && (
+        <p className="flex items-start gap-2 text-xs text-emerald-400 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+          <Check size={13} strokeWidth={2} className="mt-px shrink-0" />
+          <span>
+            Déjà synchronisée. Tu peux continuer à capturer : les nouveaux
+            éléments s&apos;ajouteront au carnet existant, sans toucher à sa mise en page.
+          </span>
         </p>
-      ) : (
-        <>
+      )}
+      {/* Capture — disponible aussi sur une visite déjà synchronisée */}
+      <>
           {/* Capture */}
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -140,8 +144,7 @@ export function OfflineVisitEditor({
             onChange={(e) => addPhotos(e.target.files)} />
           <input ref={galerieRef} type="file" accept="image/*" multiple hidden
             onChange={(e) => addPhotos(e.target.files)} />
-        </>
-      )}
+      </>
 
       {busy && (
         <p className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">

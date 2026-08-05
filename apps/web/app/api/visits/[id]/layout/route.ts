@@ -55,3 +55,25 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   });
   return NextResponse.json(visit);
 }
+
+// GET /api/visits/[id]/layout — disposition actuelle.
+//
+// Nécessaire à la synchro hors ligne : quand on AJOUTE des blocs à une visite
+// déjà synchronisée, on ne doit surtout pas reconstruire la disposition depuis
+// l'ordre local — l'utilisateur a pu réorganiser ses tuiles en ligne entre
+// temps, et un PATCH complet écraserait son arrangement. On lit donc l'existant
+// pour n'y APPENDRE que les nouvelles tuiles (cf. docs/carnet-hors-ligne.md §4).
+export async function GET(_req: NextRequest, { params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+
+  const { id } = await params;
+  if (!(await canEditResource("VISIT", id, session.user.id))) {
+    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+  }
+
+  const visit = await db.visit.findUnique({ where: { id }, select: { journalLayout: true } });
+  if (!visit) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  return NextResponse.json({ layout: Array.isArray(visit.journalLayout) ? visit.journalLayout : [] });
+}

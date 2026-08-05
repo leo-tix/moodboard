@@ -106,22 +106,46 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
   return inspirationId;
 }
 
-/** Étape 3 — la disposition, construite à partir des identifiants SERVEUR. */
+/** Étape 3 — la disposition, construite à partir des identifiants SERVEUR.
+ *
+ *  FUSION, pas remplacement. Quand on ajoute des blocs à une visite déjà
+ *  synchronisée, l'utilisateur a pu réorganiser ses tuiles en ligne entre
+ *  temps : reconstruire la disposition depuis l'ordre local écraserait son
+ *  arrangement. On lit donc l'existant et on n'y AJOUTE que les tuiles absentes.
+ */
 async function pushLayout(visitServerId: string, blocks: LocalBlock[]): Promise<void> {
   const typeTuile = { photo: "image", memo: "audio", note: "note" } as const;
-  const layout = blocks
+  const locales = blocks
     .filter((b) => b.serverId) // garde-fou : jamais d'identifiant local ici
     .map((b) => {
       const type = typeTuile[b.type];
       const span = DEFAULT_SPAN[type];
       return { type, id: b.serverId!, w: span.w, h: span.h };
     });
-  if (layout.length === 0) return;
+  if (locales.length === 0) return;
+
+  // Disposition déjà en place côté serveur (vide pour une visite neuve).
+  let existante: { type: string; id: string }[] = [];
+  try {
+    const res = await fetch(`/api/visits/${visitServerId}/layout`);
+    if (res.ok) {
+      const data = (await res.json()) as { layout?: { type: string; id: string }[] };
+      if (Array.isArray(data.layout)) existante = data.layout;
+    }
+  } catch {
+    // Lecture impossible : on préfère ne rien écraser plutôt que deviner.
+    // Les tuiles nouvelles seront reprises à la prochaine synchro.
+    return;
+  }
+
+  const deja = new Set(existante.map((t) => `${t.type}:${t.id}`));
+  const ajouts = locales.filter((t) => !deja.has(`${t.type}:${t.id}`));
+  if (ajouts.length === 0) return; // rien de neuf à placer
 
   const res = await fetch(`/api/visits/${visitServerId}/layout`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ layout }),
+    body: JSON.stringify({ layout: [...existante, ...ajouts] }),
   });
   await jsonOrThrow(res, "Mise en page du carnet");
 }

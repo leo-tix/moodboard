@@ -160,8 +160,12 @@ export async function appendLocalBlock(
   if (!visit) return null;
   visit.blocks.push({ ...block, localId: newLocalId("blk"), createdAt: Date.now() });
   visit.updatedAt = Date.now();
-  // Une visite modifiée après un échec redevient « à synchroniser ».
-  if (visit.syncState === "error") visit.syncState = "local";
+  // Toute visite qui reçoit un bloc redevient « à synchroniser » — y compris
+  // une visite DÉJÀ synchronisée : on continue de capturer dedans après son
+  // départ, ce qui est le cas d'usage réel en visite. Son `serverId` est
+  // conservé, donc la synchro n'en recréera pas une seconde : elle se contente
+  // d'envoyer les nouveaux blocs et de les AJOUTER à la disposition existante.
+  if (visit.syncState !== "syncing") visit.syncState = "local";
   await putLocalVisit(visit);
   return visit;
 }
