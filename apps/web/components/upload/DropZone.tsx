@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Upload, Check, Pencil, Landmark, X } from "lucide-react";
+import { compressImageForUpload } from "@/lib/image/clientResize";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import { Button } from "@/components/ui/Button";
@@ -123,21 +124,42 @@ export function DropZone() {
           prev.map((f) => (f.id === item.id ? { ...f, status: "uploading" } : f))
         );
         try {
+          // Compression AVANT envoi (comme le FAB de visite et la barre du
+          // bas) : une photo de téléphone pleine résolution pèse 10-20 Mo, ce
+          // qui est lent en mobile et peut buter sur la limite de taille de
+          // corps de requête de la plateforme — laquelle renvoie une erreur
+          // NON-JSON que le serveur ne contrôle pas. Compressée, l'image fait
+          // ~1 Mo et le problème disparaît (retour utilisateur 2026-08-05).
+          const uploadFile = await compressImageForUpload(item.file);
           const formData = new FormData();
-          formData.append("file", item.file);
+          formData.append("file", uploadFile);
           const res = await fetch("/api/upload/image", { method: "POST", body: formData });
-          const data = await res.json();
+          // Réponse non-JSON possible (rejet plateforme, proxy) : sans ce
+          // garde-fou, `res.json()` levait et l'échec était étiqueté
+          // « Erreur réseau », masquant le vrai motif.
+          const data = (await res.json().catch(() => ({}))) as { inspirationId?: string; error?: string };
 
           if (!res.ok) {
             setFiles((prev) =>
               prev.map((f) =>
-                f.id === item.id ? { ...f, status: "error", error: data.error ?? "Erreur" } : f
+                f.id === item.id ? { ...f, status: "error", error: data.error ?? `Échec de l'envoi (erreur ${res.status})` } : f
               )
             );
             return null;
           }
 
-          const inspirationId: string = data.inspirationId;
+          // Réponse OK mais sans identifiant : anomalie côté serveur. On la
+          // signale au lieu de propager un identifiant vide (qui aurait fait
+          // échouer silencieusement le rattachement en aval).
+          const inspirationId = data.inspirationId;
+          if (!inspirationId) {
+            setFiles((prev) =>
+              prev.map((f) =>
+                f.id === item.id ? { ...f, status: "error", error: "Réponse inattendue du serveur." } : f
+              )
+            );
+            return null;
+          }
           setFiles((prev) =>
             prev.map((f) => (f.id === item.id ? { ...f, status: "done", inspirationId } : f))
           );
