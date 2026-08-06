@@ -31,9 +31,33 @@ export interface SyncResult {
 }
 
 async function jsonOrThrow(res: Response, quoi: string): Promise<Record<string, unknown>> {
+  // SESSION EXPIRÉE — cas courant après plusieurs heures hors ligne. Le proxy
+  // renvoie alors la page de connexion : une réponse 200 en HTML. Sans ce
+  // test, `res.ok` est vrai, `res.json()` échoue en silence et l'appelant
+  // conclut « le serveur n'a pas renvoyé d'identifiant » — un message trompeur
+  // pour un échec que seul un reconnexion résout (constaté le 2026-08-06).
+  const ct = res.headers.get("content-type") ?? "";
+  if (res.ok && !ct.includes("json")) {
+    throw new Error("Session expirée — rouvre l'application en ligne pour te reconnecter, puis réessaie.");
+  }
+  if (res.status === 401) {
+    throw new Error("Session expirée — reconnecte-toi, puis réessaie l'envoi.");
+  }
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error || `${quoi} — erreur ${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as { error?: unknown };
+    // `error` est une CHAÎNE sur nos routes métier, mais un OBJET zod (issu de
+    // `error.flatten()`) sur un rejet de validation. Le passer tel quel à
+    // `new Error` donnait « [object Object] » — soit un échec de synchro sans
+    // motif lisible. On aplatit, et on garde toujours l'opération + le code.
+    const brut = data.error;
+    let motif = "";
+    if (typeof brut === "string") motif = brut;
+    else if (brut && typeof brut === "object") {
+      const f = brut as { fieldErrors?: Record<string, string[]>; formErrors?: string[] };
+      const champs = Object.entries(f.fieldErrors ?? {}).map(([c, m]) => `${c} : ${m.join(", ")}`);
+      motif = [...(f.formErrors ?? []), ...champs].join(" · ") || JSON.stringify(brut).slice(0, 120);
+    }
+    throw new Error(`${quoi} — ${res.status}${motif ? ` : ${motif}` : ""}`);
   }
   return (await res.json().catch(() => ({}))) as Record<string, unknown>;
 }
@@ -95,10 +119,18 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
   };
   const route = SOUS_ROUTE[block.type];
   if (route) {
+    // Les champs NULS sont OMIS, pas envoyés à null : plusieurs schémas de
+    // création déclarent un champ `.optional()` sans `.nullable()` (ainsi
+    // `note` du coup de cœur), et un null y provoque un rejet de validation —
+    // donc un échec d'envoi bloquant. Omettre est toujours accepté, envoyer
+    // null ne l'est pas systématiquement (constaté le 2026-08-06).
+    const corps = Object.fromEntries(
+      Object.entries(block.payload ?? {}).filter(([, v]) => v !== null && v !== undefined),
+    );
     const res = await fetch(`/api/visits/${visitServerId}/${route}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(block.payload ?? {}),
+      body: JSON.stringify(corps),
     });
     const cree = await jsonOrThrow(res, `Envoi d'un module ${block.type}`);
     return String(cree.id ?? "");

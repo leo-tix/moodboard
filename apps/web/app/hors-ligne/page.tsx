@@ -13,7 +13,7 @@ import {
   LOCAL_VISITS_EVENT,
   type LocalVisit,
 } from "@/lib/offline/localVisits";
-import { syncAllLocalVisits } from "@/lib/offline/syncVisits";
+import { syncAllLocalVisits, syncLocalVisit } from "@/lib/offline/syncVisits";
 
 // ── Coquille HORS LIGNE ────────────────────────────────────────────────────
 // Volontairement placée HORS du groupe (app) : le layout de ce groupe appelle
@@ -244,6 +244,24 @@ export default function OfflinePage() {
                       <ChevronRight size={14} strokeWidth={2} className="text-[var(--text-tertiary)] shrink-0" />
                     )}
                   </button>
+                  {/* Motif d'échec + reprise manuelle. Il était stocké mais
+                      jamais affiché : impossible pour l'utilisateur de savoir
+                      pourquoi une visite restait bloquée. */}
+                  {v.syncState === "error" && (
+                    <div className="mt-1 ml-2.5 mb-1.5 space-y-1">
+                      {v.lastError && (
+                        <p className="text-[10px] text-red-400 leading-snug">{v.lastError}</p>
+                      )}
+                      <button
+                        onClick={() => { setSyncing(true); syncLocalVisit(v.localId).finally(() => setSyncing(false)); }}
+                        disabled={syncing || online !== true}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-40"
+                      >
+                        <RefreshCw size={11} strokeWidth={2} className={syncing ? "animate-spin" : undefined} />
+                        Réessayer
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
