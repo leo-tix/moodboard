@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ArrowUpDown, Check, Trash2, Eye } from "lucide-react";
+import { useSortableGrid } from "@/hooks/useSortableGrid";
+import { DragHandle } from "@/components/ui/DragHandle";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Pencil, X } from "lucide-react";
@@ -94,6 +97,85 @@ export function CollectionsClient({
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [reorderMode, setReorderMode] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  // Réorganisation de la LISTE. L'ordre est persisté au relâchement, comme
+  // pour les images d'une collection (même hook, même contrat).
+  const collectionsRef = useRef(collections);
+  collectionsRef.current = collections;
+  const sortable = useSortableGrid({
+    onReorder: (deId, versId) => {
+      setCollections((prev) => {
+        const de = prev.findIndex((c) => c.id === deId);
+        const vers = prev.findIndex((c) => c.id === versId);
+        if (de === -1 || vers === -1 || de === vers) return prev;
+        const next = [...prev];
+        const [bouge] = next.splice(de, 1);
+        next.splice(vers, 0, bouge);
+        return next;
+      });
+    },
+    onDrop: () => {
+      void fetch("/api/collections/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: collectionsRef.current.map((c) => c.id) }),
+      });
+    },
+  });
+
+  const basculerSelection = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const quitterSelection = () => { setSelectMode(false); setSelected(new Set()); setBulkError(null); };
+
+  const supprimerSelection = async () => {
+    const ids = Array.from(selected);
+    setBulkBusy("suppression"); setBulkError(null);
+    // Séquentiel plutôt que `Promise.all` : chaque suppression purge des objets
+    // R2 côté serveur, et lancer dix requêtes lourdes en parallèle depuis un
+    // téléphone est le meilleur moyen d'en voir échouer une au hasard.
+    const echecs: string[] = [];
+    for (const id of ids) {
+      const res = await fetch(`/api/collections/${id}`, { method: "DELETE" }).catch(() => null);
+      if (!res || !res.ok) echecs.push(id);
+    }
+    // On ne retire QUE ce qui est réellement parti : afficher une liste
+    // amputée d'éléments encore en base serait un mensonge.
+    const partis = new Set(ids.filter((id) => !echecs.includes(id)));
+    setCollections((prev) => prev.filter((c) => !partis.has(c.id)));
+    if (echecs.length) setBulkError(`${echecs.length} collection${echecs.length > 1 ? "s n'ont" : " n'a"} pas pu être supprimée${echecs.length > 1 ? "s" : ""}.`);
+    else quitterSelection();
+    setBulkBusy(null);
+  };
+
+  const changerVisibilite = async (visibility: "PRIVATE" | "CONNECTIONS" | "PUBLIC") => {
+    const ids = Array.from(selected);
+    setBulkBusy("visibilite"); setBulkError(null);
+    let echecs = 0;
+    for (const id of ids) {
+      // Le segment est le nom de ROUTE en minuscules (`collections`), pas le
+      // nom d'énumération ACL : `segmentToResource` ne connaît que le premier.
+      const res = await fetch(`/api/share/collections/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility }),
+      }).catch(() => null);
+      if (!res || !res.ok) echecs++;
+    }
+    if (echecs) setBulkError(`${echecs} collection${echecs > 1 ? "s" : ""} non modifiée${echecs > 1 ? "s" : ""}.`);
+    else quitterSelection();
+    setBulkBusy(null);
+  };
 
   const startRename = (col: CollectionWithCover) => {
     setRenamingId(col.id);
@@ -203,6 +285,52 @@ export function CollectionsClient({
             </button>
           </div>
         ) : (
+          <>
+          <div className="flex items-center justify-end gap-3 mb-3 min-h-[1.5rem]">
+            {bulkError && <span className="text-[11px] text-red-400 mr-auto">{bulkError}</span>}
+            {selectMode && selected.size > 0 && (
+              <>
+                <div className="flex items-center gap-1">
+                  <Eye size={12} strokeWidth={2} className="text-[var(--text-tertiary)]" />
+                  {([["PRIVATE", "Privé"], ["CONNECTIONS", "Connexions"], ["PUBLIC", "Public"]] as const).map(([v, label]) => (
+                    <button
+                      key={v}
+                      onClick={() => void changerVisibilite(v)}
+                      disabled={!!bulkBusy}
+                      className="px-2 py-1 rounded text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors disabled:opacity-40"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => void supprimerSelection()}
+                  disabled={!!bulkBusy}
+                  className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-40"
+                >
+                  <Trash2 size={12} strokeWidth={2} />
+                  {bulkBusy === "suppression" ? "Suppression…" : `Supprimer ${selected.size}`}
+                </button>
+              </>
+            )}
+            {!selectMode && collections.length > 1 && (
+              <button
+                onClick={() => setReorderMode((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              >
+                <ArrowUpDown size={12} strokeWidth={2} />
+                {reorderMode ? "Terminer" : "Réorganiser"}
+              </button>
+            )}
+            {!reorderMode && collections.length > 0 && (
+              <button
+                onClick={() => (selectMode ? quitterSelection() : setSelectMode(true))}
+                className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              >
+                {selectMode ? "Annuler" : "Sélectionner"}
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {/* Bouton créer */}
             <button
@@ -219,11 +347,37 @@ export function CollectionsClient({
                 .filter((t): t is string => !!t);
 
               return (
-                <div key={col.id} className="group relative">
-                  <Link href={`/collections/${col.id}`} className="block">
+                <div
+                  key={col.id}
+                  {...(reorderMode ? sortable.getContainerProps(col.id) : {})}
+                  className={`group relative ${reorderMode ? "cursor-grab" : ""} ${sortable.draggingKey === col.id ? "opacity-40" : ""}`}
+                >
+                  <Link
+                    href={`/collections/${col.id}`}
+                    className="block"
+                    // En réorganisation comme en sélection, le clic ne doit pas
+                    // NAVIGUER : c'est le même carré qui sert de poignée et de
+                    // case à cocher.
+                    onClick={(e) => {
+                      if (reorderMode) { e.preventDefault(); return; }
+                      if (selectMode) { e.preventDefault(); basculerSelection(col.id); }
+                    }}
+                  >
                     <div className="aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] mb-2 relative">
                       <CoverMosaic thumbs={thumbs} name={col.name} empty={thumbs.length === 0} />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                      {selectMode && (
+                        <div className={`absolute inset-0 transition-colors ${selected.has(col.id) ? "bg-black/30" : "bg-black/0"}`}>
+                          <span className={`absolute top-1.5 right-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected.has(col.id) ? "bg-[var(--accent,#a78bfa)] border-[var(--accent,#a78bfa)] text-white" : "border-white/80"}`}>
+                            {selected.has(col.id) && <Check size={11} strokeWidth={3} />}
+                          </span>
+                        </div>
+                      )}
+                      {reorderMode && (
+                        <div className="absolute top-1.5 left-1.5 z-10">
+                          <DragHandle {...sortable.getHandleProps(col.id)} />
+                        </div>
+                      )}
                     </div>
                   </Link>
 
@@ -288,6 +442,9 @@ export function CollectionsClient({
               );
             })}
           </div>
+          {/* Clone flottant du glisser-déposer (positionné par le hook). */}
+          <div ref={sortable.overlayRef} style={sortable.overlayStyle} />
+          </>
         )}
       </div>
 
