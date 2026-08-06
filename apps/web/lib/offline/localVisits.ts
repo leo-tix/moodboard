@@ -239,6 +239,25 @@ export async function patchLocalBlock(
   return visit;
 }
 
+/** Met à jour le TEXTE d'une note. Distinct de `patchLocalBlock`, qui ne
+ *  touche qu'au `payload` des modules : le texte d'une note vit dans
+ *  `content`. */
+export async function setLocalNote(
+  localId: string,
+  blockLocalId: string,
+  content: string,
+): Promise<LocalVisit | null> {
+  const visit = await getLocalVisit(localId);
+  if (!visit) return null;
+  const b = visit.blocks.find((x) => x.localId === blockLocalId);
+  if (!b) return null;
+  b.content = content;
+  visit.updatedAt = Date.now();
+  if (visit.syncState !== "syncing") visit.syncState = "local";
+  await putLocalVisit(visit);
+  return visit;
+}
+
 /** Rattache un fichier à un bloc-module (photo de billet, source de palette). */
 export async function attachLocalFile(
   localId: string,

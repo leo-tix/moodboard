@@ -247,6 +247,15 @@ export default function OfflinePage() {
                   {/* Motif d'échec + reprise manuelle. Il était stocké mais
                       jamais affiché : impossible pour l'utilisateur de savoir
                       pourquoi une visite restait bloquée. */}
+                  {/* Une visite SYNCHRONISÉE peut aussi porter une réserve —
+                      ainsi « visite recréée, N éléments non repris ». Ce n'est
+                      pas un échec, donc pas de rouge ni de bouton de reprise,
+                      mais le taire reviendrait à cacher une perte. */}
+                  {v.syncState === "synced" && v.lastError && (
+                    <p className="mt-1 ml-2.5 mb-1.5 text-[10px] text-amber-400/90 leading-snug">
+                      {v.lastError}
+                    </p>
+                  )}
                   {v.syncState === "error" && (
                     <div className="mt-1 ml-2.5 mb-1.5 space-y-1">
                       {v.lastError && (

@@ -64,6 +64,50 @@ async function jsonOrThrow(res: Response, quoi: string): Promise<Record<string, 
   return (await res.json().catch(() => ({}))) as Record<string, unknown>;
 }
 
+/**
+ * La visite visée par `serverId` existe-t-elle ENCORE et m'appartient-elle ?
+ *
+ * Une visite locale déjà synchronisée garde l'identifiant serveur obtenu. Si
+ * cette visite est supprimée côté serveur entre temps, chaque tentative
+ * suivante tape dans le vide : les routes répondent 404 « Introuvable » et la
+ * visite locale reste bloquée POUR TOUJOURS, avec son contenu prisonnier
+ * (constaté le 2026-08-06 : « Envoi d'un module ticket — 404 »).
+ *
+ * `null` = on ne sait pas (réseau) : dans le doute on ne touche à rien.
+ */
+async function visiteEncoreLa(serverId: string): Promise<boolean | null> {
+  try {
+    const res = await fetch(`/api/visits/${serverId}/layout`);
+    if (res.status === 404) return false;
+    if (res.ok) return true;
+    return null;                       // 401, 500… : indécidable
+  } catch {
+    return null;                       // hors ligne : indécidable
+  }
+}
+
+/**
+ * La visite distante a disparu : on oublie tous les identifiants serveur pour
+ * que la synchro la RECRÉE au lieu de s'acharner. Aucun risque de doublon —
+ * la visite d'origine n'existe plus.
+ *
+ * Un bloc dont le fichier a déjà été libéré ne peut plus être renvoyé ; on
+ * garde son identifiant mort pour qu'il soit sauté, et on le compte. Ses
+ * images restent dans la bibliothèque : la suppression d'une visite ne détruit
+ * pas les inspirations rattachées.
+ */
+function oublierLeServeur(visit: LocalVisit): number {
+  visit.serverId = undefined;
+  let irrecuperables = 0;
+  for (const b of visit.blocks) {
+    const renvoyable =
+      b.type === "note" || b.type === "separator" || !!b.payload || !!b.blob;
+    if (renvoyable) b.serverId = undefined;
+    else if (b.serverId) irrecuperables++;
+  }
+  return irrecuperables;
+}
+
 /** Étape 1 — la visite. Idempotente : ne recrée rien si `serverId` existe. */
 async function ensureVisit(visit: LocalVisit): Promise<string> {
   if (visit.serverId) return visit.serverId;
@@ -276,6 +320,15 @@ export async function syncLocalVisit(localId: string): Promise<SyncResult> {
   await putLocalVisit(visit);
 
   try {
+    // Visite déjà synchronisée : vérifier qu'elle EXISTE toujours avant de lui
+    // envoyer quoi que ce soit. Sinon on retape indéfiniment sur un identifiant
+    // mort et rien ne repart jamais.
+    let perdus = 0;
+    if (visit.serverId && (await visiteEncoreLa(visit.serverId)) === false) {
+      perdus = oublierLeServeur(visit);
+      await putLocalVisit(visit);
+    }
+
     const serverId = await ensureVisit(visit);
     const titre = visit.exhibition?.trim() || visit.place;
 
@@ -307,6 +360,11 @@ export async function syncLocalVisit(localId: string): Promise<SyncResult> {
 
     visit.syncState = "synced";
     visit.updatedAt = Date.now();
+    // Pas un échec — la visite est bien partie — mais l'utilisateur doit
+    // savoir que N éléments d'une visite supprimée n'ont pas pu suivre.
+    visit.lastError = perdus > 0
+      ? `Visite recréée (l'ancienne avait été supprimée). ${perdus} élément${perdus > 1 ? "s" : ""} déjà envoyé${perdus > 1 ? "s" : ""} n'${perdus > 1 ? "ont" : "a"} pas pu être repris — retrouve-les dans la bibliothèque.`
+      : undefined;
     await putLocalVisit(visit);
     return { ok: true, serverId };
   } catch (err) {

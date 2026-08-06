@@ -1,19 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2, Pencil, Trash2, PenLine } from "lucide-react";
+import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2 } from "lucide-react";
 import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
 import { SketchPad } from "@/components/visits/bento/SketchPad";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { BlockTypeModal } from "@/components/visits/BlockTypeModal";
 import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from "@/components/visits/bento/TileSettingsModal";
-import { DEFAULT_SPAN } from "@/lib/visits/bentoSpans";
-import type { BentoTile } from "@/lib/visits/bentoTypes";
+import { BentoGrid } from "@/components/visits/bento/BentoGrid";
+import { useSortableGrid } from "@/hooks/useSortableGrid";
+import {
+  DEFAULT_SPAN, isAutoHeight, isFicheContent, tileKey,
+  type TileWidth,
+} from "@/lib/visits/bentoSpans";
+import type { BentoTile, ChecklistItem } from "@/lib/visits/bentoTypes";
 import { useBlobUrls } from "@/lib/offline/useBlobUrls";
-import { OfflineLayoutEditor } from "@/components/offline/OfflineLayoutEditor";
+import { tuilesLocales } from "@/lib/offline/localTiles";
 import {
   appendLocalBlock, patchLocalBlock, removeLocalBlock, attachLocalFile,
-  type LocalBlock, type LocalVisit,
+  setLocalLayout, setLocalNote, type LocalBlock, type LocalVisit,
 } from "@/lib/offline/localVisits";
 
 // Contenu par défaut d'un module créé hors ligne — miroir de ce que crée la
@@ -36,71 +41,6 @@ function tuileDepuisBloc(b: LocalBlock): BentoTile | null {
   const span = DEFAULT_SPAN[b.type as keyof typeof DEFAULT_SPAN] ?? { w: 2, h: 1 };
   const content = { type: b.type, id: b.localId, ...(b.payload ?? {}) };
   return { type: b.type, id: b.localId, w: span.w, h: span.h, content } as unknown as BentoTile;
-}
-
-function dureeTexte(s?: number): string {
-  if (!s) return "";
-  const m = Math.floor(s / 60);
-  return `${m}:${String(Math.round(s - m * 60)).padStart(2, "0")}`;
-}
-
-/** Vignettes des captures, avec suppression à l'unité. */
-function CapturesGrid({
-  blocks, onDelete,
-}: { blocks: LocalBlock[]; onDelete: (id: string) => void }) {
-  const urls = useBlobUrls(blocks);
-  const captures = useMemo(
-    () => blocks.filter((b) => b.type === "photo" || b.type === "sketch" || b.type === "memo" || b.type === "note"),
-    [blocks],
-  );
-  if (captures.length === 0) return null;
-
-  return (
-    <ul className="grid grid-cols-3 gap-2">
-      {captures.map((b) => {
-        const url = urls[b.localId];
-        return (
-          <li
-            key={b.localId}
-            className="relative aspect-square rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-elevated)]"
-          >
-            {url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-1.5 text-center">
-                {b.type === "memo" ? (
-                  <>
-                    <Mic size={16} strokeWidth={1.6} className="text-[var(--text-tertiary)]" />
-                    <span className="text-[10px] text-[var(--text-tertiary)]">{dureeTexte(b.durationSec)}</span>
-                  </>
-                ) : b.type === "note" ? (
-                  <p className="text-[9px] leading-tight text-[var(--text-secondary)] line-clamp-4">
-                    {(b.content ?? "").replace(/<[^>]*>/g, " ").trim() || "Note"}
-                  </p>
-                ) : (
-                  <PenLine size={16} strokeWidth={1.6} className="text-[var(--text-tertiary)]" />
-                )}
-              </div>
-            )}
-            {b.serverId ? (
-              <span className="absolute top-1 right-1 p-0.5 rounded-full bg-emerald-500/90" title="Envoyée">
-                <Check size={10} strokeWidth={2.4} className="text-white" />
-              </span>
-            ) : (
-              <button
-                onClick={() => onDelete(b.localId)}
-                aria-label="Supprimer cette capture"
-                className="absolute top-1 right-1 p-1 rounded-full bg-black/55 text-white/90 hover:bg-red-500/85 transition-colors"
-              >
-                <Trash2 size={11} strokeWidth={2} />
-              </button>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
 }
 
 // Carnet HORS LIGNE d'une visite : volontairement centré sur la CAPTURE
@@ -208,15 +148,76 @@ export function OfflineVisitEditor({
     setEditing(null);
   };
 
+  // ── Le carnet, en tuiles ─────────────────────────────────────────────────
+  const urls = useBlobUrls(visit.blocks);
+  const tuiles = useMemo(() => tuilesLocales(visit, urls), [visit, urls]);
+  // Miroir des tuiles pour les rappels du glisser-déposer. Assigné dans un
+  // EFFET (et non pendant le rendu) ; `onReorder` le met à jour lui-même, sans
+  // quoi deux survols successifs pendant un même geste repartiraient tous deux
+  // de l'état d'avant le premier.
+  const tuilesRef = useRef(tuiles);
+  useEffect(() => { tuilesRef.current = tuiles; }, [tuiles]);
+
+  /** Écrit la disposition telle qu'elle est à l'écran. */
+  const enregistrerDisposition = async (suivantes: BentoTile[]) => {
+    const maj = await setLocalLayout(
+      visit.localId,
+      suivantes.map((t) => ({ type: t.type, id: String(t.id), w: t.w, h: t.h })),
+    );
+    if (maj) onChange(maj);
+  };
+
+  const sortable = useSortableGrid({
+    onReorder: (deKey, versKey) => {
+      const liste = tuilesRef.current;
+      const de = liste.findIndex((t) => tileKey(t) === deKey);
+      const vers = liste.findIndex((t) => tileKey(t) === versKey);
+      if (de < 0 || vers < 0 || de === vers) return;
+      const copie = [...liste];
+      const [bouge] = copie.splice(de, 1);
+      copie.splice(vers, 0, bouge);
+      tuilesRef.current = copie;
+      void enregistrerDisposition(copie);
+    },
+    onDrop: () => {},
+  });
+
+  const definirFormat = (tile: BentoTile, w: TileWidth, h: 1 | 2) => {
+    void enregistrerDisposition(
+      tuilesRef.current.map((t) =>
+        // Auto-hauteur (texte, checklist, frise) : seule la largeur se règle,
+        // la hauteur suit le contenu. Même règle qu'en ligne.
+        tileKey(t) === tileKey(tile)
+          ? { ...t, w, h: isAutoHeight(t.type) || isFicheContent(t.content) ? t.h : h }
+          : t,
+      ),
+    );
+  };
+
+  const definirHauteurAuto = (tile: BentoTile, rows: number) => {
+    if (tile.h === rows) return;
+    void enregistrerDisposition(
+      tuilesRef.current.map((t) => (tileKey(t) === tileKey(tile) ? { ...t, h: rows } : t)),
+    );
+  };
+
+  const majNote = async (blockId: string, contenu: string) => {
+    const maj = await setLocalNote(visit.localId, blockId, contenu);
+    if (maj) onChange(maj);
+  };
+
+  const basculerChecklist = (checklistId: string, itemId: string) => {
+    const bloc = visit.blocks.find((b) => b.localId === checklistId);
+    const items = Array.isArray(bloc?.payload?.items)
+      ? (bloc!.payload!.items as ChecklistItem[]) : [];
+    void majModule(checklistId, {
+      items: items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)),
+    });
+  };
+
   const blocEnEdition = visit.blocks.find((b) => b.localId === editing) ?? null;
   const tuileEnEdition = blocEnEdition ? tuileDepuisBloc(blocEnEdition) : null;
-  const modules = visit.blocks.filter((b) => DEFAUT[b.type]);
 
-  const compte = {
-    photo: visit.blocks.filter((b) => b.type === "photo").length,
-    memo: visit.blocks.filter((b) => b.type === "memo").length,
-    note: visit.blocks.filter((b) => b.type === "note").length,
-  };
 
   return (
     <div className="space-y-5">
@@ -293,65 +294,26 @@ export function OfflineVisitEditor({
         </p>
       )}
 
-      {/* Contenu capturé */}
-      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-2">
-        <p className="text-xs text-[var(--text-primary)]">
-          {visit.blocks.length === 0
-            ? "Rien de capturé pour l'instant."
-            : `${compte.photo} photo${compte.photo > 1 ? "s" : ""} · ${compte.memo} mémo${compte.memo > 1 ? "s" : ""} · ${compte.note} note${compte.note > 1 ? "s" : ""}`}
-        </p>
-        {visit.blocks.length > 0 && (
-          <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-            Tout est conservé sur l&apos;appareil. La visite partira d&apos;un bloc dès que
-            le serveur répondra — dans l&apos;ordre de capture.
-          </p>
-        )}
-        <CapturesGrid blocks={visit.blocks} onDelete={supprimerModule} />
-      </div>
-
-      {/* Modules du carnet — mêmes formulaires qu'en ligne */}
-      <div className="space-y-2">
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="w-full py-3 rounded-xl border-2 border-dashed border-[var(--border-default)] text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors"
-        >
-          + Ajouter un module
-        </button>
-        {modules.length > 0 && (
-          <ul className="space-y-1.5">
-            {modules.map((b) => (
-              <li key={b.localId}>
-                <button
-                  onClick={() => setEditing(b.localId)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)] transition-colors text-left"
-                >
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm text-[var(--text-primary)] truncate">
-                      {String(
-                        b.payload?.artworkTitle || b.payload?.eventName ||
-                        b.payload?.title || b.payload?.label || "Sans titre",
-                      ) || "Sans titre"}
-                    </span>
-                    <span className="block text-[10px] text-[var(--text-tertiary)] capitalize">
-                      {b.type}
-                      {b.files && <span className="text-emerald-400 normal-case"> · photo jointe</span>}
-                    </span>
-                  </span>
-                  <Pencil size={13} strokeWidth={1.9} className="text-[var(--text-tertiary)] shrink-0" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* Disposition du carnet — ordre et formats, éditables sans réseau. */}
-      {visit.blocks.length > 1 && (
-        <div className="space-y-2">
-          <h3 className="text-xs font-medium text-[var(--text-primary)]">Disposition du carnet</h3>
-          <OfflineLayoutEditor visit={visit} onChange={onChange} />
-        </div>
-      )}
+      {/* LE CARNET — exactement la grille de la version en ligne.
+          Les mêmes composants (BentoGrid / BentoTile / TileContent) sont
+          alimentés par les blocs locaux : les fichiers passent en URL d'objet
+          là où le rendu attend une clé R2. Il n'y a donc AUCUNE interface
+          parallèle à maintenir, et rien à réapprendre en passant hors ligne
+          (demande utilisateur 2026-08-06). */}
+      <BentoGrid
+        tiles={tuiles}
+        editable
+        sortable={sortable}
+        isMobile
+        selectedKey={editing}
+        onSetFormat={definirFormat}
+        onOpenSettings={(t) => setEditing(String(t.id))}
+        onSaveText={(t, v) => void majNote(String(t.id), v)}
+        onPersistText={async (t, v) => { await majNote(String(t.id), v); }}
+        onToggleChecklistItem={basculerChecklist}
+        onAutoRows={definirHauteurAuto}
+        onAddClick={() => setPickerOpen(true)}
+      />
 
       {pickerOpen && (
         <BlockTypeModal
