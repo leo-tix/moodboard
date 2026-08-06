@@ -10,7 +10,7 @@ import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from 
 import { BentoGrid } from "@/components/visits/bento/BentoGrid";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import {
-  DEFAULT_SPAN, isAutoHeight, isFicheContent, tileKey,
+  isAutoHeight, isFicheContent, tileKey,
   type TileWidth,
 } from "@/lib/visits/bentoSpans";
 import type { BentoTile, ChecklistItem } from "@/lib/visits/bentoTypes";
@@ -32,16 +32,6 @@ const DEFAUT: Record<string, Record<string, unknown>> = {
   palette:   { title: null, colors: [] },
   separator: { label: "Section" },
 };
-
-// Reconstruit une tuile bento à partir d'un bloc local, pour pouvoir réutiliser
-// TileSettingsModal — les MÊMES formulaires qu'en ligne, plutôt qu'une seconde
-// interface qui divergerait.
-function tuileDepuisBloc(b: LocalBlock): BentoTile | null {
-  if (!DEFAUT[b.type]) return null;
-  const span = DEFAULT_SPAN[b.type as keyof typeof DEFAULT_SPAN] ?? { w: 2, h: 1 };
-  const content = { type: b.type, id: b.localId, ...(b.payload ?? {}) };
-  return { type: b.type, id: b.localId, w: span.w, h: span.h, content } as unknown as BentoTile;
-}
 
 // Carnet HORS LIGNE d'une visite : volontairement centré sur la CAPTURE
 // (photo, mémo vocal, note), qui est ce qu'on fait réellement pendant une
@@ -162,9 +152,24 @@ export function OfflineVisitEditor({
   const enregistrerDisposition = async (suivantes: BentoTile[]) => {
     const maj = await setLocalLayout(
       visit.localId,
-      suivantes.map((t) => ({ type: t.type, id: String(t.id), w: t.w, h: t.h })),
+      // `content` est DÉRIVÉ des blocs et ne doit pas être persisté ; tout le
+      // reste l'est. Ne recopier que type/id/w/h perdrait les réglages portés
+      // par la tuile (afficher le cartel, ratio d'origine, libellé de
+      // séparateur) au premier réordonnancement venu.
+      suivantes.map((t) => {
+        const tuile: Record<string, unknown> = { ...t, id: String(t.id) };
+        delete tuile.content;
+        return tuile as NonNullable<LocalVisit["layout"]>[number];
+      }),
     );
     if (maj) onChange(maj);
+  };
+
+  /** Bascule un drapeau porté par la TUILE (et non par le bloc). */
+  const basculerDrapeau = (id: string, cle: "showTitle" | "fitContain", valeur: boolean) => {
+    void enregistrerDisposition(
+      tuilesRef.current.map((t) => (String(t.id) === id ? { ...t, [cle]: valeur } : t)),
+    );
   };
 
   const sortable = useSortableGrid({
@@ -215,8 +220,11 @@ export function OfflineVisitEditor({
     });
   };
 
-  const blocEnEdition = visit.blocks.find((b) => b.localId === editing) ?? null;
-  const tuileEnEdition = blocEnEdition ? tuileDepuisBloc(blocEnEdition) : null;
+  // La tuile en réglages vient de la GRILLE, pas d'une reconstruction : la
+  // version précédente repartait d'une table qui ne connaissait que les
+  // modules, donc les réglages d'une photo ou d'un croquis ne s'ouvraient
+  // jamais (signalé le 2026-08-06).
+  const tuileEnEdition = tuiles.find((t) => String(t.id) === editing) ?? null;
 
 
   return (
@@ -360,9 +368,12 @@ export function OfflineVisitEditor({
         onSetFormat={() => {}}
         onSaveText={() => {}}
         onPersistText={async () => {}}
-        onSaveImage={() => {}}
-        onSetImageShowTitle={() => {}}
-        onSetFitContain={() => {}}
+        onSaveImage={(id, title, author, year) => majModule(id, {
+          title: title.trim(), author: author.trim() || null,
+          year: year.trim() ? Number(year) : null,
+        })}
+        onSetImageShowTitle={(id, show) => basculerDrapeau(id, "showTitle", show)}
+        onSetFitContain={(id, fit) => basculerDrapeau(id, "fitContain", fit)}
         onSetFicheFlags={() => {}}
         onSaveEmbed={() => {}}
         onSaveMap={() => {}}

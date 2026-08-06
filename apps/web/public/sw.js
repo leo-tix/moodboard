@@ -1,4 +1,4 @@
-const CACHE = 'mb-v11';
+const CACHE = 'mb-v12';
 const SHARE_DB = 'moodboard-share';
 // Coquille hors ligne : page entièrement rendue côté client, servie en repli
 // quand une navigation échoue faute de réseau (cf. docs/carnet-hors-ligne.md).
@@ -88,6 +88,28 @@ async function handleShareTarget(request) {
 // hors réseau tombe alors directement dessus, sans dépendre du repli.
 // Le cache ne sert qu'en cas d'échec réseau (stratégie réseau d'abord), donc
 // `/` continue de rediriger normalement en ligne.
+// URL SYNTHÉTIQUE listant les ressources de la coquille. Stockée dans le cache
+// lui-même : le worker peut être arrêté à tout moment, une variable de module
+// ne survivrait pas.
+const MANIFESTE_URL = '/__coquille-manifeste';
+
+async function lireManifeste(c) {
+  try {
+    const r = await c.match(MANIFESTE_URL);
+    if (!r) return [];
+    const d = await r.json();
+    return Array.isArray(d.urls) ? d.urls : [];
+  } catch { return []; }
+}
+
+async function ajouterAuManifeste(c, urls) {
+  const deja = await lireManifeste(c);
+  const fusion = [...new Set([...deja, ...urls])].slice(0, 400);
+  await c.put(MANIFESTE_URL, new Response(JSON.stringify({ urls: fusion }), {
+    headers: { 'content-type': 'application/json' },
+  }));
+}
+
 async function precache() {
   const c = await caches.open(CACHE);
   try {
@@ -115,6 +137,8 @@ async function precache() {
     // Échecs unitaires tolérés : une ressource manquante ne doit pas empêcher
     // l'installation du worker ni annuler la mise en cache des autres.
     await Promise.allSettled([...urls].map((u) => c.add(u)));
+    // Inscrites au manifeste : le taillage ne doit JAMAIS les évincer.
+    await ajouterAuManifeste(c, [...urls]);
 
     await c.put(OFFLINE_URL, shell.clone());
     await c.put('/', shell.clone());
@@ -153,7 +177,23 @@ async function taillerCache() {
   const c = await caches.open(CACHE);
   const cles = await c.keys();
   if (cles.length <= MAX_ENTREES) return;
-  const estEssentielle = (req) => ESSENTIELLES.some((p) => new URL(req.url).pathname === p);
+
+  // LES FICHIERS DE LA COQUILLE SONT INTOUCHABLES.
+  //
+  // Ne protéger que les deux documents HTML était une erreur de conception :
+  // les assets précachés sont les entrées les PLUS ANCIENNES du cache, donc
+  // les PREMIÈRES évincées dès qu'on dépasse le plafond en naviguant. On
+  // jetait exactement ce qui fait tenir le mode hors ligne, tout en gardant
+  // les pages visitées ensuite — d'où une coquille servie sans style ni
+  // JavaScript (constaté sur mobile le 2026-08-06).
+  const coquille = new Set(await lireManifeste(c));
+  const estEssentielle = (req) => {
+    const u = new URL(req.url);
+    return ESSENTIELLES.includes(u.pathname)
+      || u.pathname === MANIFESTE_URL
+      || coquille.has(u.pathname + u.search)
+      || coquille.has(u.pathname);
+  };
   // `keys()` respecte l'ordre d'insertion : on retire les plus anciennes.
   const evinçables = cles.filter((r) => !estEssentielle(r));
   const trop = cles.length - MAX_ENTREES;
@@ -180,8 +220,15 @@ self.addEventListener('message', (e) => {
   const data = e.data;
   if (!data || data.type !== 'cache-urls' || !Array.isArray(data.urls)) return;
   e.waitUntil(
-    caches.open(CACHE).then((c) =>
-      Promise.allSettled(data.urls.slice(0, 200).map((u) => c.add(u))),
+    caches.open(CACHE).then(async (c) => {
+      const urls = data.urls.slice(0, 200);
+      await Promise.allSettled(urls.map((u) => c.add(u)));
+      // Ce sont les bundles dont la page a BESOIN pour s'hydrater : ils
+      // rejoignent la coquille protégée, sinon ils repartiraient au taillage.
+      await ajouterAuManifeste(c, urls.map((u) => {
+        try { return new URL(u, self.location.origin).pathname; } catch { return u; }
+      }));
+    },
     ),
   );
 });

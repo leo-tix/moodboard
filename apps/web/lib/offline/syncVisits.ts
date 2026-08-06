@@ -202,7 +202,13 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
   // photo : upload de l'image, puis rattachement à la visite
   const fd = new FormData();
   fd.append("file", block.blob!, block.filename ?? "photo.jpg");
-  if (visitTitle) fd.append("title", visitTitle);
+  // Titre saisi dans les réglages de la tuile hors ligne, sinon le nom de la
+  // visite (comportement par défaut en ligne). Sans cette priorité, une
+  // légende écrite pendant la visite serait perdue à l'envoi.
+  const titrePhoto = typeof block.payload?.title === "string" && block.payload.title.trim()
+    ? block.payload.title.trim()
+    : visitTitle;
+  if (titrePhoto) fd.append("title", titrePhoto);
   const up = await fetch("/api/upload/image", { method: "POST", body: fd });
   const img = await jsonOrThrow(up, "Envoi d'une photo");
   const inspirationId = String(img.inspirationId ?? "");
