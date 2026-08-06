@@ -31,7 +31,10 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
   // force la prise de vue) — même pipeline d'upload derrière les deux.
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // COMPTEUR, pas un booléen : plusieurs photos peuvent être en vol en même
+  // temps, puisque la capture n'attend plus la fin de l'envoi. `uploadingPhoto`
+  // ne sert donc plus à BLOQUER le bouton — seulement à afficher l'activité.
+  const [enVol, setEnVol] = useState(0);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const fabButtonRef = useRef<HTMLButtonElement>(null);
@@ -84,17 +87,43 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
     return () => window.clearTimeout(t);
   }, [info]);
 
+  // Le RATTACHEMENT est sérialisé, alors même que les envois sont parallèles :
+  // le serveur calcule `nextBlockOrder` au moment du PATCH, et deux appels
+  // concurrents en tireraient le même rang. Les photos ne seraient pas perdues
+  // (chaque ligne est écrite indépendamment) mais leur ordre dans le carnet
+  // deviendrait arbitraire. Une simple chaîne de promesses suffit.
+  const chaineRattachement = useRef<Promise<unknown>>(Promise.resolve());
+  const enSerie = <T,>(fn: () => Promise<T>): Promise<T> => {
+    const suivant = chaineRattachement.current.then(fn, fn);
+    chaineRattachement.current = suivant.catch(() => {});
+    return suivant;
+  };
+
   // ── Photo (tap) ──
-  const handlePhotoFiles = async (files: FileList | null) => {
+  //
+  // NE BLOQUE PAS la capture suivante. En visite on mitraille : attendre
+  // l'aller-retour réseau entre deux photos faisait rater l'instant, surtout en
+  // wifi de musée. On lit la sélection, on libère l'input aussitôt, et l'envoi
+  // continue en arrière-plan (retour utilisateur 2026-08-05).
+  const handlePhotoFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setUploadingPhoto(true);
+    const liste = Array.from(files);
+    // Libéré TOUT DE SUITE : sans ça, reprendre la même photo ne déclencherait
+    // aucun `change`, et l'appareil resterait bloqué sur le cliché précédent.
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    void traiterPhotos(liste);
+  };
+
+  const traiterPhotos = async (liste: File[]) => {
+    setEnVol((n) => n + liste.length);
     setError(null);
     const offline = typeof navigator !== "undefined" && navigator.onLine === false;
     try {
       // Une photo caméra brute dépasse souvent la limite serveur (10 Mo) —
       // compression/ré-encodage local AVANT tout (aussi bien pour l'envoi direct
       // que pour la mise en file, où l'on stocke déjà le blob compressé).
-      const compressed = await Promise.all(Array.from(files).map((f) => compressImageForUpload(f)));
+      const compressed = await Promise.all(liste.map((f) => compressImageForUpload(f)));
 
       // Hors ligne : mettre en file, ne rien perdre. Le rejeu se fera au retour
       // du réseau (voir lib/offline/outbox.ts).
@@ -172,8 +201,8 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ addInspirationIds: ids }),
           });
-        let res = await attach();
-        if (!res.ok) res = await attach();
+        let res = await enSerie(attach);
+        if (!res.ok) res = await enSerie(attach);
         if (!res.ok) {
           setError(
             `${ids.length > 1 ? "Photos envoyées" : "Photo envoyée"} mais pas rattachée à la visite (réseau instable ?) — elle${ids.length > 1 ? "s restent" : " reste"} disponible${ids.length > 1 ? "s" : ""} en triage.`
@@ -183,9 +212,7 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
         }
       }
     } finally {
-      setUploadingPhoto(false);
-      if (galleryInputRef.current) galleryInputRef.current.value = "";
-      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      setEnVol((n) => Math.max(0, n - liste.length));
     }
   };
 
@@ -211,7 +238,7 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
   };
   const onFabPointerUp = () => {
     if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
-    if (!longPressFired.current && !memoOpen && !uploadingPhoto) {
+    if (!longPressFired.current && !memoOpen) {
       setActionMenuOpen((v) => !v);
     }
   };
@@ -317,15 +344,26 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
           "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6",
           "bg-[var(--text-primary)] text-[var(--bg-base)] shadow-2xl shadow-black/50",
           "active:scale-95 transition-transform select-none touch-none",
-          (uploadingPhoto || memoProcessing) && "opacity-70 pointer-events-none"
+          memoProcessing && "opacity-70 pointer-events-none"
         )}
         style={{ WebkitTouchCallout: "none" }}
         title={memoProcessing ? "Traitement du mémo en cours…" : "Ajouter (appui long : mémo vocal)"}
       >
-        {uploadingPhoto || memoProcessing ? (
+        {/* Le « + » RESTE affiché pendant les envois : le bouton est utilisable,
+            un spinner à sa place laisserait croire le contraire. L'activité se
+            lit sur la pastille, qui compte les photos encore en vol. */}
+        {memoProcessing ? (
           <span className="w-5 h-5 border-2 border-[var(--bg-base)] border-t-transparent rounded-full animate-spin" />
         ) : (
           <Plus size={24} strokeWidth={2} />
+        )}
+        {enVol > 0 && !memoProcessing && (
+          <span
+            className="absolute -top-1 -right-1 min-w-[1.15rem] h-[1.15rem] px-1 rounded-full bg-[var(--bg-base)] text-[var(--text-primary)] border border-[var(--text-primary)] text-[10px] font-medium flex items-center justify-center tabular-nums"
+            title={`${enVol} photo${enVol > 1 ? "s" : ""} en cours d'envoi`}
+          >
+            {enVol}
+          </span>
         )}
       </button>
 
