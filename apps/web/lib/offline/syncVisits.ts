@@ -23,6 +23,7 @@ import {
   type LocalBlock,
   type LocalVisit,
 } from "./localVisits";
+import { serverReachable } from "./useServerReachable";
 
 export interface SyncResult {
   ok: boolean;
@@ -345,4 +346,50 @@ export async function syncAllLocalVisits(): Promise<{ synced: number; failed: nu
     enCours = false;
   }
   return { synced, failed };
+}
+
+/** Événement émis quand des visites locales viennent d'être envoyées. */
+export const VISITS_SYNCED_EVENT = "moodboard-visits-synced";
+
+let autoSyncInstalle = false;
+
+/**
+ * Arme la synchro AUTOMATIQUE des visites locales, pour toute l'application.
+ *
+ * Sans ça, `syncAllLocalVisits` n'était appelé que depuis /hors-ligne : une
+ * visite éditée sans réseau ne repartait JAMAIS si l'on rouvrait ensuite
+ * l'application connectée, puisqu'on atterrit alors sur les pages normales et
+ * que la coquille hors ligne n'est jamais montée. Les modifications restaient
+ * en base locale indéfiniment, sans que rien ne l'indique (2026-08-06).
+ *
+ * Même forme qu'`ensureAutoFlush` de l'outbox : installation unique, au
+ * chargement, au retour du réseau, et au retour au premier plan — c'est ce
+ * dernier cas qui couvre la réouverture de la PWA.
+ */
+export function ensureAutoSyncVisits(): void {
+  if (autoSyncInstalle || typeof window === "undefined") return;
+  autoSyncInstalle = true;
+
+  let enCours = false;
+  const tenter = async () => {
+    if (enCours) return;
+    // Sonde EFFECTIVE : `navigator.onLine` ment sur un wifi captif, et lancer
+    // la synchro dans le vide marquerait toutes les visites « en échec ».
+    if (!(await serverReachable())) return;
+    enCours = true;
+    try {
+      const { synced } = await syncAllLocalVisits();
+      if (synced > 0) {
+        window.dispatchEvent(new CustomEvent(VISITS_SYNCED_EVENT, { detail: { synced } }));
+      }
+    } finally {
+      enCours = false;
+    }
+  };
+
+  window.addEventListener("online", () => void tenter());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void tenter();
+  });
+  void tenter();
 }

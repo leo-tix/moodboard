@@ -7,6 +7,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { GlobalUploadProvider } from "@/components/upload/GlobalUploadProvider";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { TopProgressBar } from "@/components/layout/TopProgressBar";
+import { OfflineSyncBoot } from "@/components/offline/OfflineSyncBoot";
 
 export default async function AppLayout({
   children,
@@ -61,6 +62,11 @@ export default async function AppLayout({
 
       {/* Bottom nav — mobile only */}
       <BottomNav />
+
+      {/* Rattrapage hors ligne pour TOUTE l'application : sans ça, ni l'outbox
+          ni les visites locales ne repartaient si l'on rouvrait la PWA
+          ailleurs que sur /hors-ligne. */}
+      <OfflineSyncBoot />
 
       {/* Intercepted modal (e.g. /library/[id] opened from library grid) */}
       {modal}
