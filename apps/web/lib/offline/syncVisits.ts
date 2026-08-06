@@ -20,6 +20,7 @@ import {
   getLocalVisit,
   listLocalVisits,
   putLocalVisit,
+  TYPE_TUILE,
   type LocalBlock,
   type LocalVisit,
 } from "./localVisits";
@@ -209,9 +210,7 @@ async function pushLayout(
   blocks: LocalBlock[],
   layoutLocal?: LocalVisit["layout"],
 ): Promise<void> {
-  // Type de tuile correspondant au type de bloc (identique sauf ces trois-là).
-  const typeTuile: Record<string, string> = { photo: "image", memo: "audio", note: "note" };
-  const tuileDe = (t: string) => typeTuile[t] ?? t;
+  const tuileDe = (t: string) => TYPE_TUILE[t as keyof typeof TYPE_TUILE] ?? t;
 
   // REMAPPAGE : la disposition éditée hors ligne référence les identifiants
   // LOCAUX. On les traduit en identifiants serveur ici, à la toute fin, quand

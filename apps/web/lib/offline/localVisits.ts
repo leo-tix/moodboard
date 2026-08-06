@@ -15,6 +15,7 @@
 // palette, frise…) restent en ligne — ils s'ajoutent au carnet après coup.
 
 import { openDb, STORE_VISITS } from "./db";
+import type { JournalTileType } from "@/lib/visits/bentoSpans";
 
 // Tous les types éditables hors ligne. Les types intrinsèquement distants
 // (carte, lien/YouTube, fiche wiki) sont grisés dans le sélecteur et n'arrivent
@@ -23,6 +24,22 @@ export type LocalBlockType =
   | "photo" | "memo" | "note"
   | "highlight" | "checklist" | "timeline" | "cartel" | "ticket" | "palette" | "separator"
   | "sketch";
+
+/**
+ * Type de TUILE correspondant à un type de bloc local.
+ *
+ * Les deux vocabulaires diffèrent pour trois entrées : on capture une « photo »
+ * et un « mémo », le carnet affiche une « image » et un « audio ». La table
+ * vivait dans `pushLayout` ; elle est partagée depuis que l'interface hors
+ * ligne édite elle aussi la disposition — les formats proposés dépendent du
+ * type de tuile, et une divergence entre l'écran et la synchro produirait une
+ * disposition refusée par le serveur.
+ */
+export const TYPE_TUILE: Record<LocalBlockType, JournalTileType> = {
+  photo: "image", memo: "audio", note: "note", sketch: "sketch",
+  highlight: "highlight", checklist: "checklist", timeline: "timeline",
+  cartel: "cartel", ticket: "ticket", palette: "palette", separator: "separator",
+};
 
 export interface LocalBlock {
   localId: string;
