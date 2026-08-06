@@ -38,6 +38,12 @@ export interface LocalBlock {
   durationSec?: number;
   transcript?: string;
   wordTimings?: { word: string; start: number; end: number }[];
+  /** Fichiers rattachés à un MODULE (photo de billet, image source d'une
+   *  palette). Volontairement HORS de `payload` : celui-ci part en JSON à la
+   *  synchro, et un Blob y serait sérialisé en `{}` — le fichier disparaîtrait
+   *  en silence. Ces fichiers partent en FormData sur la sous-route du module,
+   *  une fois celui-ci créé côté serveur. */
+  files?: Record<string, { blob: Blob; filename: string }>;
   /** Modules de données (coup de cœur, checklist, frise, cartel, billet,
    *  palette, séparateur) : contenu libre, miroir des colonnes de la table
    *  correspondante. Envoyé tel quel à la sous-route API à la synchro. */
@@ -216,6 +222,25 @@ export async function patchLocalBlock(
   return visit;
 }
 
+/** Rattache un fichier à un bloc-module (photo de billet, source de palette). */
+export async function attachLocalFile(
+  localId: string,
+  blockLocalId: string,
+  cle: string,
+  blob: Blob,
+  filename: string,
+): Promise<LocalVisit | null> {
+  const visit = await getLocalVisit(localId);
+  if (!visit) return null;
+  const b = visit.blocks.find((x) => x.localId === blockLocalId);
+  if (!b) return null;
+  b.files = { ...(b.files ?? {}), [cle]: { blob, filename } };
+  visit.updatedAt = Date.now();
+  if (visit.syncState !== "syncing") visit.syncState = "local";
+  await putLocalVisit(visit);
+  return visit;
+}
+
 /** Supprime un bloc local (et sa tuile dans la disposition). */
 export async function removeLocalBlock(localId: string, blockLocalId: string): Promise<LocalVisit | null> {
   const visit = await getLocalVisit(localId);
@@ -230,7 +255,11 @@ export async function removeLocalBlock(localId: string, blockLocalId: string): P
 
 /** Poids approximatif des blobs d'une visite — pour l'affichage du stockage. */
 export function localVisitBytes(visit: LocalVisit): number {
-  return visit.blocks.reduce((n, b) => n + (b.blob?.size ?? 0), 0);
+  return visit.blocks.reduce(
+    (n, b) => n + (b.blob?.size ?? 0)
+      + Object.values(b.files ?? {}).reduce((m, f) => m + f.blob.size, 0),
+    0,
+  );
 }
 
 // ── Rétention ──────────────────────────────────────────────────────────────

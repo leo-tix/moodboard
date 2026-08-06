@@ -90,6 +90,14 @@ async function ensureVisit(visit: LocalVisit): Promise<string> {
 }
 
 /** Étape 2 — un bloc. Renvoie son identifiant serveur. */
+// Modules de DONNÉES : une sous-route par type, même contrat (POST → { id }).
+// Au niveau du module car `pushBlockFiles` s'en sert aussi pour composer
+// l'adresse de la sous-route fichier `/<module>/<id>/photo`.
+const SOUS_ROUTE: Partial<Record<string, string>> = {
+  highlight: "highlight", checklist: "checklist", timeline: "timeline",
+  cartel: "cartel", ticket: "ticket", palette: "palette",
+};
+
 async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: string): Promise<string> {
   if (block.type === "note") {
     const res = await fetch(`/api/visits/${visitServerId}/notes`, {
@@ -112,11 +120,6 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
     return String(audio.id ?? "");
   }
 
-  // Modules de DONNÉES : une sous-route par type, même contrat (POST → { id }).
-  const SOUS_ROUTE: Partial<Record<string, string>> = {
-    highlight: "highlight", checklist: "checklist", timeline: "timeline",
-    cartel: "cartel", ticket: "ticket", palette: "palette",
-  };
   const route = SOUS_ROUTE[block.type];
   if (route) {
     // Les champs NULS sont OMIS, pas envoyés à null : plusieurs schémas de
@@ -175,6 +178,31 @@ async function pushBlock(visitServerId: string, block: LocalBlock, visitTitle: s
  *  temps : reconstruire la disposition depuis l'ordre local écraserait son
  *  arrangement. On lit donc l'existant et on n'y AJOUTE que les tuiles absentes.
  */
+/**
+ * Fichiers d'un module (photo de billet, source de palette) — envoyés sur la
+ * sous-route `/<module>/<id>/photo`, donc seulement une fois le module créé.
+ * Idempotent : `block.files` est vidé après confirmation, et un bloc sans
+ * fichier en attente ne repasse pas ici.
+ */
+async function pushBlockFiles(visitServerId: string, block: LocalBlock): Promise<void> {
+  const route = SOUS_ROUTE[block.type];
+  const fichiers = Object.entries(block.files ?? {});
+  if (!route || !block.serverId || fichiers.length === 0) return;
+
+  for (const [, f] of fichiers) {
+    const fd = new FormData();
+    fd.append("file", f.blob, f.filename);
+    const res = await fetch(
+      `/api/visits/${visitServerId}/${route}/${block.serverId}/photo`,
+      { method: "POST", body: fd },
+    );
+    await jsonOrThrow(res, "Envoi de la photo d'un module");
+  }
+  // Libéré comme les blobs de capture : le fichier vit sur R2, le garder en
+  // double ne protège plus rien.
+  block.files = undefined;
+}
+
 async function pushLayout(
   visitServerId: string,
   blocks: LocalBlock[],
@@ -252,8 +280,17 @@ export async function syncLocalVisit(localId: string): Promise<SyncResult> {
     const titre = visit.exhibition?.trim() || visit.place;
 
     for (const block of visit.blocks) {
-      if (block.serverId) continue; // déjà envoyé lors d'une tentative précédente
-      block.serverId = await pushBlock(serverId, block, titre);
+      // Un bloc déjà envoyé est sauté — SAUF s'il lui reste un fichier à
+      // joindre. Un module se crée en deux temps (la ligne, puis sa photo sur
+      // une sous-route) : si l'envoi s'interrompt entre les deux, un simple
+      // `continue` perdrait la photo définitivement, alors que le module, lui,
+      // est bien passé. On reprend donc au fichier.
+      if (block.serverId && !block.files) continue;
+
+      if (!block.serverId) {
+        block.serverId = await pushBlock(serverId, block, titre);
+      }
+      await pushBlockFiles(serverId, block);
       // LIBÉRATION IMMÉDIATE DU BLOB — dès que le serveur a confirmé le bloc,
       // le fichier existe sur R2 : le garder en double sur l'appareil ne
       // protège plus rien et sature le téléphone (une visite = 50-100 Mo de

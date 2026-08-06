@@ -10,7 +10,7 @@ import { TileSettingsModal, type CartelFormValues, type TicketFormValues } from 
 import { DEFAULT_SPAN } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 import {
-  appendLocalBlock, patchLocalBlock, removeLocalBlock,
+  appendLocalBlock, patchLocalBlock, removeLocalBlock, attachLocalFile,
   type LocalBlock, type LocalVisit,
 } from "@/lib/offline/localVisits";
 
@@ -216,6 +216,18 @@ export function OfflineVisitEditor({
     if (maj) onChange(maj);
   };
 
+  // Fichier d'un module (photo de billet, image source d'une palette). Il est
+  // rangé À PART du payload : celui-ci part en JSON à la synchro, où un Blob
+  // deviendrait `{}`. Il est envoyé sur la sous-route du module, après que
+  // celui-ci existe côté serveur.
+  const joindreFichier = async (blockId: string, file: File) => {
+    const blob = await compressImageForUpload(file);
+    const maj = await attachLocalFile(
+      visit.localId, blockId, "photo", blob, blob.name || `module-${Date.now()}.jpg`,
+    );
+    if (maj) onChange(maj);
+  };
+
   const supprimerModule = async (blockId: string) => {
     const maj = await removeLocalBlock(visit.localId, blockId);
     if (maj) onChange(maj);
@@ -346,7 +358,10 @@ export function OfflineVisitEditor({
                         b.payload?.title || b.payload?.label || "Sans titre",
                       ) || "Sans titre"}
                     </span>
-                    <span className="block text-[10px] text-[var(--text-tertiary)] capitalize">{b.type}</span>
+                    <span className="block text-[10px] text-[var(--text-tertiary)] capitalize">
+                      {b.type}
+                      {b.files && <span className="text-emerald-400 normal-case"> · photo jointe</span>}
+                    </span>
                   </span>
                   <Pencil size={13} strokeWidth={1.9} className="text-[var(--text-tertiary)] shrink-0" />
                 </button>
@@ -407,8 +422,8 @@ export function OfflineVisitEditor({
         onSetFicheFlags={() => {}}
         onSaveEmbed={() => {}}
         onSaveMap={() => {}}
-        onUploadTicketPhoto={async () => {}}
-        onUploadPaletteSource={async () => {}}
+        onUploadTicketPhoto={(id, file) => joindreFichier(id, file)}
+        onUploadPaletteSource={(id, file) => joindreFichier(id, file)}
         onRedrawSketch={() => {}}
       />
 
