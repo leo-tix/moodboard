@@ -108,7 +108,9 @@ export default async function CollectionDetailPage({ params }: Props) {
                 images: {
                   orderBy: [{ isMain: "desc" }, { order: "asc" }],
                   take: 1,
-                  select: { id: true, thumbnailKey: true, blurHash: true, width: true, height: true, isMain: true },
+                  // `storageKey` sert à DÉSIGNER la couverture : c'est la clé
+                  // que porte `Collection.coverImageKey`.
+                  select: { id: true, thumbnailKey: true, storageKey: true, blurHash: true, width: true, height: true, isMain: true },
                 },
                 categories: { include: { category: { select: { name: true } } }, take: 3 },
                 tags: { include: { tag: { select: { name: true } } }, take: 5 },
@@ -153,6 +155,7 @@ export default async function CollectionDetailPage({ params }: Props) {
         initialName={collection.name}
         initialDescription={collection.description}
         initialItems={collection.items}
+        initialCoverKey={collection.coverImageKey}
         suggestions={suggestions}
       />
     </div>

@@ -16,6 +16,7 @@ export interface SuggestedAddition {
   title: string;
   year: number | null;
   thumbnailKey: string | null;
+  storageKey: string;
   blurHash: string | null;
   width: number | null;
   height: number | null;
@@ -287,7 +288,9 @@ export async function getSuggestedAdditions(
       images: {
         orderBy: [{ isMain: "desc" }, { order: "asc" }],
         take: 1,
-        select: { thumbnailKey: true, blurHash: true, width: true, height: true },
+        // `storageKey` : permet d'épingler une image tout juste ajoutée comme
+      // couverture de la collection, sans recharger la page.
+      select: { thumbnailKey: true, storageKey: true, blurHash: true, width: true, height: true },
       },
       tags: { select: { tagId: true } },
       categories: { select: { categoryId: true } },
@@ -317,6 +320,7 @@ export async function getSuggestedAdditions(
       title: c.title,
       year: c.year,
       thumbnailKey: c.images[0]?.thumbnailKey ?? null,
+      storageKey: c.images[0]?.storageKey ?? "",
       blurHash: c.images[0]?.blurHash ?? null,
       width: c.images[0]?.width ?? null,
       height: c.images[0]?.height ?? null,

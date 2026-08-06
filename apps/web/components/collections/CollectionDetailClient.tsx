@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Pencil, X, ArrowUpDown, Check } from "lucide-react";
+import { Pencil, X, ArrowUpDown, Check, Pin, PinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSortableGrid } from "@/hooks/useSortableGrid";
 import { getThumbnailUrl } from "@/lib/storage/urls";
@@ -25,6 +25,8 @@ interface InspirationItem {
     images: {
       id: string;
       thumbnailKey: string | null;
+      /** Clé portée par `Collection.coverImageKey` quand on épingle la couverture. */
+      storageKey: string;
       blurHash: string | null;
       width: number | null;
       height: number | null;
@@ -41,6 +43,8 @@ interface CollectionDetailClientProps {
   initialName: string;
   initialDescription: string | null;
   initialItems: InspirationItem[];
+  /** Couverture explicite. `null` = repli sur la première image. */
+  initialCoverKey: string | null;
   suggestions: SuggestedAddition[];
 }
 
@@ -51,9 +55,12 @@ export function CollectionDetailClient({
   initialName,
   initialDescription,
   initialItems,
+  initialCoverKey,
   suggestions: initialSuggestions,
 }: CollectionDetailClientProps) {
   const [items, setItems] = useState(initialItems);
+  const [coverKey, setCoverKey] = useState<string | null>(initialCoverKey);
+  const [coverError, setCoverError] = useState<string | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
   const isShared = members.length > 1;
   const meMember = members.find((m) => m.id === viewerId) ?? null;
@@ -83,6 +90,25 @@ export function CollectionDetailClient({
     },
   });
   const dragged = sortable.draggingKey ? items.find((it) => it.inspiration.id === sortable.draggingKey) : null;
+  // Couverture de la collection. Envoyer `null` réinitialise le repli sur la
+  // première image ; le serveur refuse toute clé qui n'appartient pas à la
+  // collection.
+  const definirCouverture = async (key: string | null) => {
+    const avant = coverKey;
+    setCoverKey(key);            // optimiste : le retour visuel doit être immédiat
+    setCoverError(null);
+    const res = await fetch(`/api/collections/${collectionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ coverImageKey: key }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      setCoverKey(avant);        // le serveur n'a pas suivi : on ne ment pas à l'écran
+      const motif = res ? ((await res.json().catch(() => ({}))) as { error?: string }).error : null;
+      setCoverError(motif || "Impossible de changer la couverture.");
+    }
+  };
+
   const [removing, setRemoving] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -167,6 +193,7 @@ export function CollectionDetailClient({
               {
                 id: "",
                 thumbnailKey: suggestion.thumbnailKey,
+                storageKey: suggestion.storageKey,
                 blurHash: suggestion.blurHash,
                 width: suggestion.width,
                 height: suggestion.height,
@@ -257,6 +284,7 @@ export function CollectionDetailClient({
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs text-[var(--text-tertiary)]">
                 {items.length} image{items.length !== 1 ? "s" : ""}
+                {coverError && <span className="ml-2 text-red-400">{coverError}</span>}
               </p>
               <div className="flex items-center gap-3">
                 {selectMode && selected.size > 0 && (
@@ -332,6 +360,7 @@ export function CollectionDetailClient({
                   const img = inspiration.images[0];
                   const url = img?.thumbnailKey ? getThumbnailUrl(img.thumbnailKey) : null;
                   const isSel = selected.has(inspiration.id);
+                  const estCouverture = !!img?.storageKey && img.storageKey === coverKey;
                   const inner = (
                     <div className={cn("aspect-square rounded-md overflow-hidden bg-[var(--bg-surface)] relative group", isSel && "ring-2 ring-[var(--accent,#a78bfa)]")}>
                       {url && (
@@ -355,6 +384,26 @@ export function CollectionDetailClient({
                           title="Retirer de la collection"
                         >
                           {removing === inspiration.id ? "…" : <X size={12} strokeWidth={2} />}
+                        </button>
+                      )}
+
+                      {/* Couverture : épinglée en permanence si c'est elle,
+                          proposée au survol sinon. Placée à gauche pour ne pas
+                          se disputer le coin du bouton « retirer ». */}
+                      {!selectMode && img?.storageKey && (
+                        <button
+                          onClick={(e) => { e.preventDefault(); void definirCouverture(estCouverture ? null : img.storageKey); }}
+                          title={estCouverture ? "Ne plus utiliser comme couverture" : "Définir comme couverture"}
+                          aria-label={estCouverture ? "Ne plus utiliser comme couverture" : "Définir comme couverture"}
+                          aria-pressed={estCouverture}
+                          className={cn(
+                            "absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center transition-opacity z-10",
+                            estCouverture
+                              ? "bg-[var(--text-primary)] text-[var(--bg-base)] opacity-100"
+                              : "bg-black/60 text-white opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-black/80",
+                          )}
+                        >
+                          {estCouverture ? <PinOff size={11} strokeWidth={2} /> : <Pin size={11} strokeWidth={2} />}
                         </button>
                       )}
 
