@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2, Pencil } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Camera, Mic, Type, Image as ImageIcon, Check, Loader2, Pencil, Trash2, PenLine } from "lucide-react";
 import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
 import { SketchPad } from "@/components/visits/bento/SketchPad";
 import { compressImageForUpload } from "@/lib/image/clientResize";
@@ -34,6 +34,99 @@ function tuileDepuisBloc(b: LocalBlock): BentoTile | null {
   const span = DEFAULT_SPAN[b.type as keyof typeof DEFAULT_SPAN] ?? { w: 2, h: 1 };
   const content = { type: b.type, id: b.localId, ...(b.payload ?? {}) };
   return { type: b.type, id: b.localId, w: span.w, h: span.h, content } as unknown as BentoTile;
+}
+
+/**
+ * URL d'objet par bloc porteur d'un blob (photo, croquis).
+ *
+ * Les URL sont RÉVOQUÉES au démontage et à chaque recomposition : sans ça,
+ * chaque re-rendu d'une visite de 50 photos fuirait autant de blobs retenus en
+ * mémoire par l'onglet — précisément sur l'appareil où l'on économise le plus.
+ * La dépendance est la LISTE DES IDENTIFIANTS porteurs d'un blob, pas le
+ * tableau `blocks` (recréé à chaque rendu, ce qui boucherait à l'infini). Elle
+ * change aussi quand la synchro libère un blob : l'URL correspondante est alors
+ * révoquée d'elle-même.
+ */
+function useBlobUrls(blocks: LocalBlock[]): Record<string, string> {
+  const cle = blocks.filter((b) => b.blob).map((b) => b.localId).join(",");
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const b of blocks) {
+      if (b.blob && (b.type === "photo" || b.type === "sketch")) {
+        map[b.localId] = URL.createObjectURL(b.blob);
+      }
+    }
+    setUrls(map);
+    return () => { for (const u of Object.values(map)) URL.revokeObjectURL(u); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle]);
+  return urls;
+}
+
+function dureeTexte(s?: number): string {
+  if (!s) return "";
+  const m = Math.floor(s / 60);
+  return `${m}:${String(Math.round(s - m * 60)).padStart(2, "0")}`;
+}
+
+/** Vignettes des captures, avec suppression à l'unité. */
+function CapturesGrid({
+  blocks, onDelete,
+}: { blocks: LocalBlock[]; onDelete: (id: string) => void }) {
+  const urls = useBlobUrls(blocks);
+  const captures = useMemo(
+    () => blocks.filter((b) => b.type === "photo" || b.type === "sketch" || b.type === "memo" || b.type === "note"),
+    [blocks],
+  );
+  if (captures.length === 0) return null;
+
+  return (
+    <ul className="grid grid-cols-3 gap-2">
+      {captures.map((b) => {
+        const url = urls[b.localId];
+        return (
+          <li
+            key={b.localId}
+            className="relative aspect-square rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-elevated)]"
+          >
+            {url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-1.5 text-center">
+                {b.type === "memo" ? (
+                  <>
+                    <Mic size={16} strokeWidth={1.6} className="text-[var(--text-tertiary)]" />
+                    <span className="text-[10px] text-[var(--text-tertiary)]">{dureeTexte(b.durationSec)}</span>
+                  </>
+                ) : b.type === "note" ? (
+                  <p className="text-[9px] leading-tight text-[var(--text-secondary)] line-clamp-4">
+                    {(b.content ?? "").replace(/<[^>]*>/g, " ").trim() || "Note"}
+                  </p>
+                ) : (
+                  <PenLine size={16} strokeWidth={1.6} className="text-[var(--text-tertiary)]" />
+                )}
+              </div>
+            )}
+            {b.serverId ? (
+              <span className="absolute top-1 right-1 p-0.5 rounded-full bg-emerald-500/90" title="Envoyée">
+                <Check size={10} strokeWidth={2.4} className="text-white" />
+              </span>
+            ) : (
+              <button
+                onClick={() => onDelete(b.localId)}
+                aria-label="Supprimer cette capture"
+                className="absolute top-1 right-1 p-1 rounded-full bg-black/55 text-white/90 hover:bg-red-500/85 transition-colors"
+              >
+                <Trash2 size={11} strokeWidth={2} />
+              </button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 // Carnet HORS LIGNE d'une visite : volontairement centré sur la CAPTURE
@@ -227,6 +320,7 @@ export function OfflineVisitEditor({
             le serveur répondra — dans l&apos;ordre de capture.
           </p>
         )}
+        <CapturesGrid blocks={visit.blocks} onDelete={supprimerModule} />
       </div>
 
       {/* Modules du carnet — mêmes formulaires qu'en ligne */}
