@@ -5,41 +5,50 @@ import { getThumbnailUrl } from "@/lib/storage/urls";
 // Une texture WebGL par image, ce serait 370 appels de dessin et autant de
 // changements d'état par frame — injouable. Toutes les vignettes sont donc
 // peintes dans quelques grandes textures, et chaque quad ne lit que sa case :
-// un seul appel de dessin par atlas, soit deux pour une bibliothèque de 500
-// images.
+// un seul appel de dessin par atlas.
 //
 // 2048² à 128 px la case = 256 images par atlas, 16 Mo en mémoire vidéo. Un
-// atlas de 4096² offrirait une meilleure netteté au zoom mais coûterait 64 Mo
-// pièce : disproportionné pour une vue d'ensemble où les vignettes font
-// quelques dizaines de pixels à l'écran.
+// atlas de 4096² serait plus net au zoom mais coûterait 64 Mo pièce.
 export const CELL = 128;
 export const ATLAS = 2048;
 export const PAR_LIGNE = ATLAS / CELL;          // 16
 export const PAR_ATLAS = PAR_LIGNE * PAR_LIGNE; // 256
 
-export interface AtlasResultat {
-  /** Un canvas par atlas, prêt à devenir une texture. */
+export interface Atlas {
+  /** Canvas VIDES, disponibles immédiatement : la scène se monte sans attendre. */
   canvases: HTMLCanvasElement[];
-  /** Par image : atlas, décalage UV, et ratio réel (pour ne pas déformer). */
-  cases: { atlas: number; u: number; v: number; ratio: number }[];
+  /** Par image : atlas et décalage UV — connus d'avance, sans charger un octet. */
+  cases: { atlas: number; u: number; v: number }[];
+  /**
+   * Lance le remplissage. `onLot` est appelé après chaque paquet avec les
+   * atlas modifiés, pour que l'appelant rafraîchisse SES textures.
+   */
+  remplir: (
+    onLot: (atlasModifies: number[], charges: number, total: number) => void,
+    signal?: AbortSignal,
+  ) => Promise<void>;
 }
 
+// Concurrence VOLONTAIREMENT BASSE.
+//
+// Le domaine public de R2 étrangle les rafales, et sa réponse d'étranglement
+// ne porte pas d'en-tête CORS : le navigateur signale alors « No
+// Access-Control-Allow-Origin », ce qui fait chercher un problème de CORS là
+// où il n'y en a pas. À 12 requêtes simultanées la moitié des vignettes
+// tombait ; à 6, avec reprise, tout passe (constaté le 2026-08-06).
+const LOT = 6;
+const REPRISES = 2;
+
 /**
- * Peint les vignettes dans les atlas, par lots.
+ * Prépare les atlas SANS rien charger, puis laisse l'appelant déclencher le
+ * remplissage.
  *
- * `onProgres` est appelé à chaque lot pour que la scène s'affiche EN COURS de
- * chargement plutôt qu'après : sur 370 images et une connexion moyenne, tout
- * attendre laisserait un écran vide plusieurs secondes.
- *
- * `crossOrigin` est indispensable : sans lui le canvas devient « teinté » et
- * WebGL refuse d'en faire une texture (vérifié contre R2, qui envoie bien les
- * en-têtes nécessaires).
+ * La version précédente attendait la dernière vignette avant de rendre la
+ * main : le nuage restait vide plusieurs secondes derrière un compteur qui
+ * défilait tout seul. Ici les canvas existent tout de suite, la scène
+ * s'affiche, et les images apparaissent au fur et à mesure.
  */
-export async function construireAtlas(
-  cles: string[],
-  onProgres?: (charges: number, total: number) => void,
-  signal?: AbortSignal,
-): Promise<AtlasResultat> {
+export function preparerAtlas(cles: string[]): Atlas {
   const nbAtlas = Math.max(1, Math.ceil(cles.length / PAR_ATLAS));
   const canvases: HTMLCanvasElement[] = [];
   const ctxs: CanvasRenderingContext2D[] = [];
@@ -50,82 +59,66 @@ export async function construireAtlas(
     ctxs.push(cv.getContext("2d")!);
   }
 
-  const cases: AtlasResultat["cases"] = cles.map((_, i) => {
+  const cases = cles.map((_, i) => {
     const atlas = Math.floor(i / PAR_ATLAS);
     const dans = i % PAR_ATLAS;
     return {
       atlas,
       u: (dans % PAR_LIGNE) / PAR_LIGNE,
       v: Math.floor(dans / PAR_LIGNE) / PAR_LIGNE,
-      ratio: 1,
     };
   });
 
-  // Concurrence VOLONTAIREMENT BASSE.
-  //
-  // Le domaine public de R2 étrangle les rafales, et sa réponse d'étranglement
-  // ne porte pas d'en-tête CORS : le navigateur signale alors « No
-  // Access-Control-Allow-Origin », ce qui fait chercher un problème de CORS là
-  // où il n'y en a pas. Avec 12 requêtes simultanées la moitié des vignettes
-  // tombait ; à 6, avec une reprise, tout passe (constaté le 2026-08-06).
-  const LOT = 6;
-  const REPRISES = 2;
-  let charges = 0;
-
   const charger = (i: number, essai: number) =>
     new Promise<boolean>((resolve) => {
-      if (signal?.aborted) return resolve(true);
       const im = new Image();
       im.crossOrigin = "anonymous";
-      const fin = (ok: boolean) => resolve(ok);
       im.onload = () => {
         const c = cases[i];
         const x = (c.u * ATLAS) | 0;
         const y = (c.v * ATLAS) | 0;
         const r = im.naturalWidth / im.naturalHeight;
-        c.ratio = r;
-        // L'image REMPLIT sa case (recadrage centré) : la déformer pour
-        // l'ajuster serait pire, et laisser des bandes ferait apparaître des
-        // bords de case au filtrage.
-        const src = r > 1
-          ? { sx: (im.naturalWidth - im.naturalHeight) / 2, sy: 0, s: im.naturalHeight }
-          : { sx: 0, sy: (im.naturalHeight - im.naturalWidth) / 2, s: im.naturalWidth };
-        ctxs[c.atlas].drawImage(im, src.sx, src.sy, src.s, src.s, x, y, CELL, CELL);
-        fin(true);
+        // L'image REMPLIT sa case (recadrage centré) : la déformer serait pire,
+        // et laisser des bandes ferait apparaître les bords de case au filtrage.
+        const s = r > 1
+          ? { sx: (im.naturalWidth - im.naturalHeight) / 2, sy: 0, t: im.naturalHeight }
+          : { sx: 0, sy: (im.naturalHeight - im.naturalWidth) / 2, t: im.naturalWidth };
+        try { ctxs[c.atlas].drawImage(im, s.sx, s.sy, s.t, s.t, x, y, CELL, CELL); }
+        catch { return resolve(false); }
+        resolve(true);
       };
-      im.onerror = () => fin(false);
-      // VARIANTE DE CACHE DÉDIÉE (`cors=1`).
-      //
-      // Les vignettes sont d'abord chargées par le site en <img> ordinaires,
-      // donc SANS en-tête `Origin`. Le CDN met alors en cache une réponse
-      // dépourvue d'`Access-Control-Allow-Origin`, et la sert telle quelle aux
-      // requêtes CORS suivantes : l'atlas échouait en bloc alors que R2 envoie
-      // bien l'en-tête sur une réponse fraîche (constaté le 2026-08-06).
-      //
-      // Ce paramètre donne à l'atlas sa propre entrée de cache, jamais
-      // demandée autrement qu'avec `Origin` — elle porte donc toujours
-      // l'en-tête. Une politique CORS explicite sur le bucket, avec
-      // `Vary: Origin`, rendrait ce contournement inutile.
+      im.onerror = () => resolve(false);
+      setTimeout(() => resolve(false), 12000);
+      // VARIANTE DE CACHE DÉDIÉE. Les vignettes sont d'abord chargées par le
+      // site en <img> ordinaires, donc sans en-tête `Origin` ; le CDN met en
+      // cache une réponse sans `Access-Control-Allow-Origin` et la ressert aux
+      // requêtes CORS. Ce paramètre donne à l'atlas sa propre entrée, jamais
+      // demandée autrement qu'avec `Origin`.
       const base = getThumbnailUrl(cles[i]);
-      im.src = base + (base.includes("?") ? "&" : "?") + "cors=1"
-        + (essai > 0 ? `&r=${essai}` : "");
+      im.src = base + (base.includes("?") ? "&" : "?") + "cors=1" + (essai ? `&r=${essai}` : "");
     });
 
-  // Une vignette qui échoue est retentée après une pause : l'étranglement est
-  // transitoire, et abandonner laisserait un trou définitif dans le nuage.
-  const peindre = async (i: number) => {
-    for (let essai = 0; essai <= REPRISES; essai++) {
-      if (await charger(i, essai)) break;
-      if (essai < REPRISES) await new Promise((r) => setTimeout(r, 350 * (essai + 1)));
+  const remplir: Atlas["remplir"] = async (onLot, signal) => {
+    let charges = 0;
+    for (let i = 0; i < cles.length; i += LOT) {
+      if (signal?.aborted) return;
+      const tranche = cles.slice(i, i + LOT);
+      const touches = new Set<number>();
+      await Promise.all(
+        tranche.map(async (_, j) => {
+          const idx = i + j;
+          for (let e = 0; e <= REPRISES; e++) {
+            if (await charger(idx, e)) { touches.add(cases[idx].atlas); break; }
+            // L'étranglement est transitoire : abandonner laisserait un trou
+            // définitif dans le nuage.
+            if (e < REPRISES) await new Promise((r) => setTimeout(r, 350 * (e + 1)));
+          }
+          charges++;
+        }),
+      );
+      if (!signal?.aborted) onLot([...touches], charges, cles.length);
     }
-    charges++;
-    onProgres?.(charges, cles.length);
   };
 
-  for (let i = 0; i < cles.length; i += LOT) {
-    if (signal?.aborted) break;
-    await Promise.all(cles.slice(i, i + LOT).map((_, j) => peindre(i + j)));
-  }
-
-  return { canvases, cases };
+  return { canvases, cases, remplir };
 }

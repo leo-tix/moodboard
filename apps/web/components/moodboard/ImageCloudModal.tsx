@@ -19,6 +19,8 @@ export interface CloudPick {
 
 interface Props {
   open: boolean;
+  /** Déclenche le chargement AVANT l'ouverture (survol du bouton). */
+  precharger?: boolean;
   onClose: () => void;
   /** Identifiants déjà présents sur la planche — assombris dans le nuage. */
   dejaPosees: Set<string>;
@@ -32,26 +34,40 @@ interface CarteEnVol {
   y: number;
 }
 
-export function ImageCloudModal({ open, onClose, dejaPosees, onAdd }: Props) {
+export function ImageCloudModal({ open, precharger, onClose, dejaPosees, onAdd }: Props) {
   const [images, setImages] = useState<CloudImage[] | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [mode, setMode] = useState<CloudMode>("tags");
   const [progres, setProgres] = useState({ c: 0, t: 0 });
   const [vols, setVols] = useState<CarteEnVol[]>([]);
   const [ajoutees, setAjoutees] = useState(0);
+  const [taille, setTaille] = useState(7);
+  const scene = useRef<HTMLDivElement>(null);
   const volId = useRef(0);
 
-  // Chargé à la PREMIÈRE ouverture seulement : la bibliothèque entière et ses
-  // atlas coûtent trop cher pour être refaits à chaque aller-retour.
+  // Taille des vignettes : transmise par événement DOM, pas par prop. La
+  // scène se remonterait autrement, et rechargerait tous les atlas pour un
+  // simple changement d'échelle.
   useEffect(() => {
-    if (!open || images) return;
+    scene.current?.querySelector<HTMLElement>("[data-cloud]")
+      ?.dispatchEvent(new CustomEvent("cloud-taille", { detail: taille }));
+  }, [taille]);
+
+  // Chargé une SEULE fois, et si possible AVANT l'ouverture.
+  //
+  // Mesuré : entre le clic et la première image, 2,1 s partaient dans cet
+  // appel (latence de la base) contre 100 ms pour monter toute la scène. Le
+  // survol du bouton suffit à prendre cette avance, sans rien coûter à qui
+  // n'ouvre jamais le nuage.
+  useEffect(() => {
+    if ((!open && !precharger) || images) return;
     let vivant = true;
     fetch("/api/library/cloud")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => { if (vivant) setImages(d.images ?? []); })
       .catch(() => { if (vivant) setErreur("Impossible de charger la bibliothèque."); });
     return () => { vivant = false; };
-  }, [open, images]);
+  }, [open, precharger, images]);
 
   useEffect(() => {
     if (!open) return;
@@ -105,6 +121,15 @@ export function ImageCloudModal({ open, onClose, dejaPosees, onAdd }: Props) {
           ))}
         </div>
 
+        <label className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
+          Taille
+          <input
+            type="range" min={3} max={16} step={0.5} value={taille}
+            onChange={(e) => setTaille(Number(e.target.value))}
+            className="w-24 accent-[var(--text-primary)]"
+          />
+        </label>
+
         <span className="ml-auto flex items-center gap-3 text-xs text-[var(--text-tertiary)]">
           {chargement && (
             <span className="flex items-center gap-1.5">
@@ -135,6 +160,7 @@ export function ImageCloudModal({ open, onClose, dejaPosees, onAdd }: Props) {
             Ta bibliothèque est vide.
           </p>
         ) : images ? (
+          <div ref={scene} className="absolute inset-0">
           <ImageCloudScene
             images={images}
             mode={mode}
@@ -142,6 +168,7 @@ export function ImageCloudModal({ open, onClose, dejaPosees, onAdd }: Props) {
             onPick={surPick}
             onProgres={(c, t) => setProgres({ c, t })}
           />
+          </div>
         ) : null}
 
         <p className="pointer-events-none absolute bottom-4 right-5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] leading-relaxed text-right">

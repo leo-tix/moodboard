@@ -112,6 +112,7 @@ export function MoodboardEditor({ initialData }: Props) {
   const [showLibrary, setShowLibrary] = useState(false);
   // Nuage 3D de la bibliothèque, en survol de la planche.
   const [nuageOuvert, setNuageOuvert] = useState(false);
+  const [nuagePrecharge, setNuagePrecharge] = useState(false);
   // Mémo audio (2026-07-14) — même popup d'enregistrement que le carnet de
   // visite (VoiceMemoRecorder généralisé), voir addAudio ci-dessous.
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
@@ -2692,6 +2693,10 @@ export function MoodboardEditor({ initialData }: Props) {
 
         <button
           onClick={() => setNuageOuvert(true)}
+          // Le survol lance le chargement : la requête prend 2 s là où la
+          // scène se monte en 100 ms, autant la couvrir par le geste.
+          onMouseEnter={() => setNuagePrecharge(true)}
+          onFocus={() => setNuagePrecharge(true)}
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors px-1.5 py-1 rounded flex-shrink-0"
           title="Explorer la bibliothèque en nuage 3D"
         >
@@ -2780,6 +2785,7 @@ export function MoodboardEditor({ initialData }: Props) {
         {/* Nuage 3D — en survol de toute la planche (portail vers le body). */}
         <ImageCloudModal
           open={nuageOuvert}
+          precharger={nuagePrecharge}
           onClose={() => setNuageOuvert(false)}
           dejaPosees={dejaPosees}
           onAdd={ajouterDepuisNuage}
