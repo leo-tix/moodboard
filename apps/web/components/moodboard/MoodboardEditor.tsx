@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { useRouter } from "next/navigation";
-import { Images, ArrowLeft, ArrowRight, Ban, Mic } from "lucide-react";
+import { Images, ArrowLeft, ArrowRight, Ban, Mic, Orbit } from "lucide-react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   MoodboardData,
@@ -24,6 +24,8 @@ import type {
   AudioElement,
 } from "@/lib/moodboard/types";
 import { LibraryPanel } from "@/components/moodboard/LibraryPanel";
+import { ImageCloudModal, type CloudPick } from "@/components/moodboard/ImageCloudModal";
+import { placerAuPremierCreux } from "@/lib/moodboard/placement";
 import { ShareButton } from "@/components/social/ShareButton";
 import { ContextualToolbar } from "@/components/moodboard/ContextualToolbar";
 import { PencilLayer, type Stroke, type PencilTool, type StrokeElement, type PencilLayerHandle } from "@/components/moodboard/PencilLayer";
@@ -108,6 +110,8 @@ export function MoodboardEditor({ initialData }: Props) {
 
   // ── Panel visibility ──
   const [showLibrary, setShowLibrary] = useState(false);
+  // Nuage 3D de la bibliothèque, en survol de la planche.
+  const [nuageOuvert, setNuageOuvert] = useState(false);
   // Mémo audio (2026-07-14) — même popup d'enregistrement que le carnet de
   // visite (VoiceMemoRecorder généralisé), voir addAudio ci-dessous.
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
@@ -293,6 +297,14 @@ export function MoodboardEditor({ initialData }: Props) {
   // Sync refs
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   useEffect(() => { elementsRef.current = elements; }, [elements]);
+
+  // Images déjà sur la planche : le nuage les assombrit pour qu'on ne les
+  // rajoute pas sans s'en rendre compte (elles restent cliquables — on peut
+  // vouloir un doublon).
+  const dejaPosees = useMemo(
+    () => new Set(elements.filter((e) => e.type === "image").map((e) => (e as ImageElement).inspirationId)),
+    [elements],
+  );
 
   // Detect touch device after mount (no SSR mismatch)
   useEffect(() => {
@@ -2127,6 +2139,34 @@ export function MoodboardEditor({ initialData }: Props) {
     [getViewportCenter, updateElements, snap]
   );
 
+  // Ajout depuis le nuage 3D. Diffère de `addImage` sur un seul point : la
+  // position. On en enchaîne plusieurs d'affilée, donc les empiler au centre
+  // du viewport comme le fait l'ajout classique produirait un tas.
+  const ajouterDepuisNuage = useCallback(
+    (pick: CloudPick) => {
+      const ratio = pick.width && pick.height ? pick.width / pick.height : 16 / 9;
+      const W = Math.min(480, Math.max(160, pick.width ?? 320));
+      const H = Math.round(W / ratio);
+      const centre = getViewportCenter();
+      const occupees = elementsRef.current.map((e) => ({ x: e.x, y: e.y, w: e.w, h: e.h }));
+      const { x, y } = placerAuPremierCreux(occupees, { w: W, h: H }, centre);
+      const el: ImageElement = {
+        id: makeId(),
+        type: "image",
+        x: snap(x), y: snap(y), w: W, h: H,
+        zIndex: ++nextZRef.current,
+        inspirationId: pick.inspirationId,
+        storageKey: pick.storageKey,
+        thumbnailKey: pick.thumbnailKey,
+        title: pick.title,
+        aspectRatio: ratio,
+        isAnimated: false,
+      };
+      updateElements((prev) => [...prev, el]);
+    },
+    [getViewportCenter, updateElements, snap],
+  );
+
   // ── Add audio memo (2026-07-14) — même carte carrée partout (300×300 par
   // défaut, redimensionnable comme tout élément du canvas). ──
   const addAudio = useCallback(
@@ -2651,6 +2691,14 @@ export function MoodboardEditor({ initialData }: Props) {
         </button>
 
         <button
+          onClick={() => setNuageOuvert(true)}
+          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors px-1.5 py-1 rounded flex-shrink-0"
+          title="Explorer la bibliothèque en nuage 3D"
+        >
+          <span className="flex items-center gap-1"><Orbit size={13} strokeWidth={1.75} /> Nuage</span>
+        </button>
+
+        <button
           onClick={() => setShowAudioRecorder(true)}
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors px-1.5 py-1 rounded flex-shrink-0"
           title="Enregistrer un mémo audio"
@@ -2728,6 +2776,14 @@ export function MoodboardEditor({ initialData }: Props) {
 
       {/* ── Body ── */}
       <div className="flex-1 flex overflow-hidden">
+
+        {/* Nuage 3D — en survol de toute la planche (portail vers le body). */}
+        <ImageCloudModal
+          open={nuageOuvert}
+          onClose={() => setNuageOuvert(false)}
+          dejaPosees={dejaPosees}
+          onAdd={ajouterDepuisNuage}
+        />
 
         {/* Library panel */}
         {showLibrary && (
