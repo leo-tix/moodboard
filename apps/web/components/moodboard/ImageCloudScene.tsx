@@ -15,37 +15,57 @@ interface Props {
   onProgres?: (charges: number, total: number) => void;
 }
 
+// Deux positions et un curseur : le changement de mode s'interpole
+// ENTIÈREMENT sur la carte graphique. La version précédente réécrivait le
+// tampon de positions à chaque frame côté processeur — un transfert complet
+// vers le GPU soixante fois par seconde pour une animation de deux secondes.
+// (Technique reprise de PixPlot, qui anime un uniforme `transitionPercent`.)
 const VS = `
-attribute vec3 aPos;
+attribute vec3 aPosA;
+attribute vec3 aPosB;
 attribute vec2 aUv;
 attribute float aDim;
 attribute float aIdx;
 uniform float uCell;
 uniform float uHover;
 uniform float uTaille;
+uniform float uT;
 varying vec2 vUv;
 varying float vDim;
+varying float vFond;
 void main() {
   vUv = aUv + uv * uCell;
   vDim = aDim;
   float survol = step(abs(aIdx - uHover), 0.5);
   float k = uTaille * (1.0 + survol * 0.4);
-  vec4 mv = modelViewMatrix * vec4(aPos, 1.0);
+  vec3 pos = mix(aPosA, aPosB, uT);
+  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   mv.xy += position.xy * k;
+  // Fondu de profondeur (Codrops, Infinite Canvas) : les images lointaines
+  // se fondent dans le fond. Donne la profondeur que la seule perspective ne
+  // suffit pas à faire lire dans un nuage dense, et adoucit les apparitions.
+  float d = -mv.z;
+  vFond = clamp((d - 170.0) / 160.0, 0.0, 1.0);
   gl_Position = projectionMatrix * mv;
 }`;
 
 const FS = `
 precision mediump float;
 uniform sampler2D uTex;
+uniform vec3 uFond;
 varying vec2 vUv;
 varying float vDim;
+varying float vFond;
 void main() {
   vec4 c = texture2D(uTex, vUv);
   // Case d'atlas pas encore peinte : on ne dessine rien plutôt qu'un carré
   // noir. C'est ce qui rend le remplissage progressif acceptable à l'œil.
   if (c.a < 0.02) discard;
-  gl_FragColor = vec4(mix(c.rgb, vec3(0.09), vDim * 0.72), 1.0);
+  vec3 rgb = mix(c.rgb, vec3(0.09), vDim * 0.72);
+  // Fondu vers le FOND, pas vers la transparence : un quad translucide
+  // exigerait un tri par profondeur et casserait les occlusions dans un nuage
+  // aussi dense.
+  gl_FragColor = vec4(mix(rgb, uFond, vFond), 1.0);
 }`;
 
 export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }: Props) {
@@ -74,21 +94,37 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       if (abort.signal.aborted) return;
 
       const scene = new THREE.Scene();
+      // Groupe pivotant : la caméra de l'article ne tourne pas, elle se
+      // déplace. Pour rester capable d'examiner un nuage sous un autre angle,
+      // c'est le CONTENU qu'on oriente, pas l'observateur.
+      const monde = new THREE.Group();
+      scene.add(monde);
       const camera = new THREE.PerspectiveCamera(50, 1, 1, 3000);
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+      // Réglages repris de Codrops (Infinite Canvas) : l'antialiasing est
+      // sacrifié à la stabilité d'image, et le ratio de pixels plafonné à 1,5
+      // — à 2 on dessinait 1,8 fois plus de pixels pour un gain invisible sur
+      // des vignettes de quelques dizaines de pixels.
+      const tactile = matchMedia("(pointer: coarse)").matches;
+      const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
+      renderer.setPixelRatio(Math.min(devicePixelRatio || 1, tactile ? 1.25 : 1.5));
       el.appendChild(renderer.domElement);
 
+      // Couleur de fond réelle de la page, pour que le fondu de profondeur
+      // s'y confonde au lieu de virer au gris.
+      const fondCss = getComputedStyle(document.body).backgroundColor;
+      const uFond = { value: new THREE.Color(fondCss || "#0a0a0a") };
+
       const n = images.length;
-      const aPos = new Float32Array(n * 3);
-      const posDe = new Float32Array(n * 3);
-      const posVers = new Float32Array(n * 3);
+      const aPosA = new Float32Array(n * 3);   // départ de la transition
+      const aPosB = new Float32Array(n * 3);   // arrivée
       const aUv = new Float32Array(n * 2);
       const aDim = new Float32Array(n);
       const aIdx = new Float32Array(n);
       for (let i = 0; i < n; i++) aIdx[i] = i;
 
       let sale = true;   // faut-il redessiner ?
+      const uT = { value: 1 };   // curseur de transition, lu par le shader
       let transition = 1;
       let etiquettes = calculerDisposition(images, modeRef.current).labels;
       let noeuds: HTMLSpanElement[] = [];
@@ -107,23 +143,28 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         });
       };
 
+      // UNE seule écriture de tampon par changement de mode, au lieu d'une par
+      // frame : le point de départ est figé (position courante, interpolée) et
+      // le shader fait le reste.
       const appliquer = (m: CloudMode, anime: boolean) => {
         const { points, labels } = calculerDisposition(images, m);
+        const t = uT.value;
         for (let i = 0; i < n; i++) {
-          posDe[i * 3] = anime ? aPos[i * 3] : points[i].x;
-          posDe[i * 3 + 1] = anime ? aPos[i * 3 + 1] : points[i].y;
-          posDe[i * 3 + 2] = anime ? aPos[i * 3 + 2] : points[i].z;
-          posVers[i * 3] = points[i].x;
-          posVers[i * 3 + 1] = points[i].y;
-          posVers[i * 3 + 2] = points[i].z;
+          for (let k = 0; k < 3; k++) {
+            const j = i * 3 + k;
+            const courant = anime ? aPosA[j] + (aPosB[j] - aPosA[j]) * t : 0;
+            const dest = k === 0 ? points[i].x : k === 1 ? points[i].y : points[i].z;
+            aPosA[j] = anime ? courant : dest;
+            aPosB[j] = dest;
+          }
         }
+        uT.value = anime ? 0 : 1;
         transition = anime ? 0 : 1;
         etiquettes = labels;
         construireEtiquettes();
+        pousserPositions();
         sale = true;
       };
-      appliquer(modeRef.current, false);
-      aPos.set(posVers);
 
       // ── Atlas : canvas VIDES tout de suite, remplis ensuite ─────────────
       // La version précédente attendait la DERNIÈRE vignette avant d'ajouter
@@ -169,7 +210,13 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
           idx.forEach((i, j) => { for (let k = 0; k < taille; k++) out[j * taille + k] = src[i * taille + k]; });
           return out;
         };
-        geo.setAttribute("aPos", new THREE.InstancedBufferAttribute(sub(aPos, 3), 3));
+        const attrA = new THREE.InstancedBufferAttribute(sub(aPosA, 3), 3);
+        const attrB = new THREE.InstancedBufferAttribute(sub(aPosB, 3), 3);
+        // Ces deux tampons ne changent qu'au changement de mode ; l'animation
+        // se fait par uniforme. Pas de `DynamicDrawUsage` ici, contrairement à
+        // l'ancienne version qui les réécrivait en boucle.
+        geo.setAttribute("aPosA", attrA);
+        geo.setAttribute("aPosB", attrB);
         geo.setAttribute("aUv", new THREE.InstancedBufferAttribute(sub(aUv, 2), 2));
         geo.setAttribute("aDim", new THREE.InstancedBufferAttribute(sub(aDim, 1), 1));
         geo.setAttribute("aIdx", new THREE.InstancedBufferAttribute(sub(aIdx, 1), 1));
@@ -180,15 +227,33 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         tailleUniforms.push(uTaille);
         const mat = new THREE.ShaderMaterial({
           vertexShader: VS, fragmentShader: FS,
-          uniforms: { uTex: { value: textures[a] }, uCell: { value: 1 / PAR_LIGNE }, uHover, uTaille },
+          uniforms: { uTex: { value: textures[a] }, uCell: { value: 1 / PAR_LIGNE }, uHover, uTaille, uT, uFond },
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.frustumCulled = false;   // les quads sont replacés dans le shader
-        scene.add(mesh);
+        monde.add(mesh);
         meshes.push(mesh);
         geos.push(geo);
         indexParMesh.push(idx);
       }
+
+      const pousserPositions = () => {
+        for (let mi = 0; mi < geos.length; mi++) {
+          const idx = indexParMesh[mi];
+          const a = geos[mi].attributes.aPosA as InstanceType<typeof THREE.InstancedBufferAttribute>;
+          const b = geos[mi].attributes.aPosB as InstanceType<typeof THREE.InstancedBufferAttribute>;
+          const ta = a.array as Float32Array, tb = b.array as Float32Array;
+          for (let j = 0; j < idx.length; j++) {
+            const i = idx[j];
+            ta[j * 3] = aPosA[i * 3]; ta[j * 3 + 1] = aPosA[i * 3 + 1]; ta[j * 3 + 2] = aPosA[i * 3 + 2];
+            tb[j * 3] = aPosB[i * 3]; tb[j * 3 + 1] = aPosB[i * 3 + 1]; tb[j * 3 + 2] = aPosB[i * 3 + 2];
+          }
+          a.needsUpdate = true; b.needsUpdate = true;
+        }
+      };
+
+      // Première disposition, une fois les maillages construits.
+      appliquer(modeRef.current, false);
 
       void atlas.remplir((atlasModifies, charges, total) => {
         for (const a of atlasModifies) if (textures[a]) textures[a].needsUpdate = true;
@@ -196,23 +261,36 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         sale = true;
       }, abort.signal);
 
-      // ── Caméra : inertie et amortissement ───────────────────────────────
-      // La version précédente appliquait le déplacement du pointeur
-      // directement aux angles : le mouvement s'arrêtait net au relâchement,
-      // sensation raide. Ici le geste donne une VITESSE, qui retombe.
-      let theta = 0.6, phi = 1.25;
-      let vTheta = 0, vPhi = 0;
-      let dist = 190, distCible = 190;
-      const cible = new THREE.Vector3(0, 0, 0);
-      const cibleVoulue = new THREE.Vector3(0, 0, 0);
+      // ── Caméra : vélocité intégrée (modèle Codrops, Infinite Canvas) ────
+      //
+      // Le geste n'agit pas sur la position mais sur une VITESSE CIBLE, vers
+      // laquelle la vitesse réelle est interpolée à chaque frame, et qui
+      // retombe d'elle-même. Toute l'intégration se fait en UN point, ce qui
+      // découple la saisie de la physique : le mouvement continue après le
+      // relâchement au lieu de s'arrêter net.
+      //
+      // Constantes de l'article, conservées telles quelles.
+      const VELOCITY_LERP = 0.18;
+      const VELOCITY_DECAY = 0.92;
+      const GLISSE_VERS_VITESSE = 0.025;
+      const MOLETTE_VERS_Z = 0.006;
+      const MOLETTE_DECAY = 0.8;
+      const Z_MIN = 45, Z_MAX = 520;
+
+      const basePos = { x: 0, y: 0, z: 190 };
+      const vitesse = { x: 0, y: 0, z: 0 };
+      const vitesseCible = { x: 0, y: 0, z: 0 };
+      let molette = 0;
+      // Rotation : l'article n'en a pas — sa caméra regarde toujours dans la
+      // même direction. Ici le nuage a une structure en trois dimensions
+      // qu'il faut pouvoir examiner, donc on fait pivoter le CONTENU.
+      let rotX = 0, rotY = 0, vRotX = 0, vRotY = 0;
 
       const majCamera = () => {
-        camera.position.set(
-          cible.x + dist * Math.sin(phi) * Math.cos(theta),
-          cible.y + dist * Math.cos(phi),
-          cible.z + dist * Math.sin(phi) * Math.sin(theta),
-        );
-        camera.lookAt(cible);
+        camera.position.set(basePos.x, basePos.y, basePos.z);
+        camera.lookAt(basePos.x, basePos.y, basePos.z - 1);
+        monde.rotation.set(rotX, rotY, 0);
+        monde.updateMatrixWorld();
       };
 
       const redim = () => {
@@ -256,9 +334,17 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         const w = el.clientWidth, h = el.clientHeight;
         const echelle = h / (2 * Math.tan((camera.fov * Math.PI) / 360));
         const demiMonde = tailleUniforms[0]?.value ?? 7;
+        const t = uT.value;
         let meilleur = -1, plusProche = Infinity;
         for (let i = 0; i < n; i++) {
-          v.set(aPos[i * 3], aPos[i * 3 + 1], aPos[i * 3 + 2]).applyMatrix4(camera.matrixWorldInverse);
+          // Même calcul que le shader : position interpolée, puis matrice du
+          // groupe (rotation) avant celle de la caméra. Omettre l'une des deux
+          // ferait cliquer à côté dès qu'on tourne ou change de mode.
+          v.set(
+            aPosA[i * 3] + (aPosB[i * 3] - aPosA[i * 3]) * t,
+            aPosA[i * 3 + 1] + (aPosB[i * 3 + 1] - aPosA[i * 3 + 1]) * t,
+            aPosA[i * 3 + 2] + (aPosB[i * 3 + 2] - aPosA[i * 3 + 2]) * t,
+          ).applyMatrix4(monde.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
           if (v.z > -1) continue;
           const demi = (demiMonde / 2) * (echelle / -v.z);
           const sx = w / 2 + (v.x * echelle) / -v.z;
@@ -271,16 +357,15 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       };
 
       // ── Entrées ─────────────────────────────────────────────────────────
-      let glisse: "orbite" | "pan" | null = null;
+      let glisse: "rotation" | "pan" | null = null;
       let bougé = false, px = 0, py = 0;
 
       const onDown = (e: PointerEvent) => {
-        // Clic droit ou Maj = déplacement latéral. Sans lui, impossible
-        // d'examiner un amas excentré : la caméra tournait toujours autour du
-        // même point.
-        glisse = e.button === 2 || e.shiftKey ? "pan" : "orbite";
+        // Glisser DÉPLACE, comme dans l'article : on se promène dans l'espace
+        // plutôt que de tourner autour d'un point. Maj ou clic droit fait
+        // pivoter le nuage, pour en voir la structure sous un autre angle.
+        glisse = e.button === 2 || e.shiftKey ? "rotation" : "pan";
         bougé = false; px = e.clientX; py = e.clientY;
-        vTheta = 0; vPhi = 0;
         el.setPointerCapture(e.pointerId);
         el.style.cursor = "grabbing";
       };
@@ -290,18 +375,19 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         if (!glisse) { designer(); return; }
         const dx = e.clientX - px, dy = e.clientY - py;
         if (Math.abs(dx) + Math.abs(dy) > 4) bougé = true;
-        if (glisse === "orbite") {
-          vTheta = -dx * 0.0042;
-          vPhi = -dy * 0.0042;
-          theta += vTheta;
-          phi = Math.min(Math.PI - 0.06, Math.max(0.06, phi + vPhi));
+        if (glisse === "rotation") {
+          vRotY = -dx * 0.0045;
+          vRotX = -dy * 0.0045;
+          rotY += vRotY;
+          rotX = Math.max(-1.4, Math.min(1.4, rotX + vRotX));
         } else {
-          // Déplacement dans le plan de la caméra, proportionnel à la distance
-          // pour que le geste garde la même amplitude apparente au zoom.
-          const k = dist * 0.0022;
-          const droite = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
-          const haut = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
-          cibleVoulue.addScaledVector(droite, -dx * k).addScaledVector(haut, dy * k);
+          // Le geste alimente la vitesse CIBLE, il ne déplace pas la caméra
+          // lui-même — c'est ce qui donne l'élan après le relâchement.
+          // Mise à l'échelle par la distance : à fort zoom, un même geste doit
+          // parcourir moins de monde, sinon on traverse tout d'un coup.
+          const k = GLISSE_VERS_VITESSE * (basePos.z / 190);
+          vitesseCible.x -= dx * k;
+          vitesseCible.y += dy * k;
         }
         px = e.clientX; py = e.clientY;
         sale = true;
@@ -313,17 +399,17 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         try { el.releasePointerCapture(e.pointerId); } catch { /* déjà relâché */ }
         // Un glissement N'EST PAS un clic : sans ce test, toute rotation
         // ajouterait une image à la planche.
-        if (etait === "orbite" && !bougé && survolIdx >= 0) {
+        if (etait === "pan" && !bougé && survolIdx >= 0) {
           onPickRef.current(images[survolIdx], e.clientX, e.clientY);
         }
       };
       const onLeave = () => { souris.dedans = false; majSurvol(-1); };
       const onWheel = (e: WheelEvent) => {
         e.preventDefault();
-        // Proportionnel à l'amplitude réelle : le pas fixe précédent ignorait
-        // la finesse d'un pavé tactile et rendait le zoom haché.
-        const pas = Math.max(-0.5, Math.min(0.5, e.deltaY * 0.0016));
-        distCible = Math.min(500, Math.max(35, distCible * (1 + pas)));
+        // Accumulation puis relâchement progressif (Codrops) : le zoom garde
+        // son élan, et suit l'amplitude réelle du geste au lieu d'un pas fixe
+        // qui ignorait la finesse d'un pavé tactile.
+        molette += e.deltaY * MOLETTE_VERS_Z;
         sale = true;
       };
       const onMenu = (e: Event) => e.preventDefault();
@@ -360,30 +446,45 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       const boucle = () => {
         brut = requestAnimationFrame(boucle);
 
-        // Inertie : la rotation se poursuit puis s'éteint.
-        if (!glisse && (Math.abs(vTheta) > 1e-4 || Math.abs(vPhi) > 1e-4)) {
-          theta += vTheta;
-          phi = Math.min(Math.PI - 0.06, Math.max(0.06, phi + vPhi));
-          vTheta *= 0.92; vPhi *= 0.92;
+        // Molette : accumulée puis relâchée progressivement, ce qui donne au
+        // zoom son élan au lieu d'un à-coup par cran.
+        if (Math.abs(molette) > 1e-4) {
+          vitesseCible.z += molette;
+          molette *= MOLETTE_DECAY;
           sale = true;
         }
-        if (Math.abs(distCible - dist) > 0.05) { dist += (distCible - dist) * 0.15; sale = true; }
-        if (cible.distanceToSquared(cibleVoulue) > 0.01) { cible.lerp(cibleVoulue, 0.18); sale = true; }
 
+        // Intégration en UN point : vitesse → position → amortissement.
+        const bouge =
+          Math.abs(vitesse.x) > 1e-3 || Math.abs(vitesse.y) > 1e-3 || Math.abs(vitesse.z) > 1e-3 ||
+          Math.abs(vitesseCible.x) > 1e-3 || Math.abs(vitesseCible.y) > 1e-3 || Math.abs(vitesseCible.z) > 1e-3;
+        if (bouge) {
+          vitesse.x += (vitesseCible.x - vitesse.x) * VELOCITY_LERP;
+          vitesse.y += (vitesseCible.y - vitesse.y) * VELOCITY_LERP;
+          vitesse.z += (vitesseCible.z - vitesse.z) * VELOCITY_LERP;
+          basePos.x += vitesse.x;
+          basePos.y += vitesse.y;
+          basePos.z = Math.min(Z_MAX, Math.max(Z_MIN, basePos.z + vitesse.z));
+          vitesseCible.x *= VELOCITY_DECAY;
+          vitesseCible.y *= VELOCITY_DECAY;
+          vitesseCible.z *= VELOCITY_DECAY;
+          sale = true;
+        }
+
+        // Même modèle pour la rotation du contenu.
+        if (Math.abs(vRotX) > 1e-5 || Math.abs(vRotY) > 1e-5) {
+          rotX = Math.max(-1.4, Math.min(1.4, rotX + vRotX));
+          rotY += vRotY;
+          vRotX *= VELOCITY_DECAY;
+          vRotY *= VELOCITY_DECAY;
+          sale = true;
+        }
+
+        // Transition de mode : un seul uniforme avance, aucun tampon n'est
+        // retouché. Deux secondes, comme PixPlot.
         if (transition < 1) {
-          transition = Math.min(1, transition + 0.02);
-          const t = transition < 0.5 ? 4 * transition ** 3 : 1 - (-2 * transition + 2) ** 3 / 2;
-          for (let i = 0; i < n * 3; i++) aPos[i] = posDe[i] + (posVers[i] - posDe[i]) * t;
-          for (let mi = 0; mi < geos.length; mi++) {
-            const at = geos[mi].attributes.aPos as InstanceType<typeof THREE.InstancedBufferAttribute>;
-            const arr = at.array as Float32Array;
-            const idx = indexParMesh[mi];
-            for (let j = 0; j < idx.length; j++) {
-              const i = idx[j];
-              arr[j * 3] = aPos[i * 3]; arr[j * 3 + 1] = aPos[i * 3 + 1]; arr[j * 3 + 2] = aPos[i * 3 + 2];
-            }
-            at.needsUpdate = true;
-          }
+          transition = Math.min(1, transition + 1 / 120);
+          uT.value = transition < 0.5 ? 4 * transition ** 3 : 1 - (-2 * transition + 2) ** 3 / 2;
           sale = true;
         }
 
@@ -391,7 +492,7 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         sale = false;
         majCamera();
         placerEtiquettes();
-        if (glisse || Math.abs(vTheta) > 1e-4) designer();
+        if (glisse || bouge) designer();
         renderer.render(scene, camera);
       };
       boucle();
