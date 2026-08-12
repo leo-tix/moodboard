@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { CloudImage } from "@/app/api/library/cloud/route";
 import { calculerDisposition, type CloudMode } from "@/lib/moodboard/cloudLayout";
 import { preparerAtlas, PAR_LIGNE } from "@/lib/moodboard/cloudAtlas";
+import { getImageUrl } from "@/lib/storage/urls";
 
 interface Props {
   images: CloudImage[];
@@ -85,6 +86,7 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
   const hote = useRef<HTMLDivElement>(null);
   const couche = useRef<HTMLDivElement>(null);   // étiquettes, en DOM impératif
   const bulle = useRef<HTMLDivElement>(null);    // titre au survol
+  const anime = useRef<HTMLImageElement>(null);  // lecture du GIF survolé
 
   const onPickRef = useRef(onPick);
   const onProgresRef = useRef(onProgres);
@@ -136,7 +138,22 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       const aIdx = new Float32Array(n);
       const aFormat = new Float32Array(n * 2);
       const aT0 = new Float32Array(n).fill(-1);   // -1 = pas encore chargée
-      for (let i = 0; i < n; i++) { aIdx[i] = i; aFormat[i * 2] = 1; aFormat[i * 2 + 1] = 1; }
+      // FORMAT CONNU D'AVANCE, depuis les dimensions renvoyées par l'API.
+      //
+      // Il était calculé à la volée quand chaque vignette finissait de charger,
+      // et écrit UNIQUEMENT dans les tampons par maillage. Deux conséquences :
+      // tout restait carré pendant le chargement, et surtout la désignation —
+      // qui lit ce tableau global — visait une boîte carrée alors que l'image
+      // affichée était large ou haute. On cliquait sur ce qu'on voyait et ça
+      // ratait (signalé le 2026-08-06).
+      for (let i = 0; i < n; i++) {
+        aIdx[i] = i;
+        const im = images[i];
+        const r = im.w && im.h ? Math.max(0.2, Math.min(5, im.w / im.h)) : 1;
+        const k = Math.sqrt(r);   // aire constante : un panoramique ne pèse pas plus qu'un portrait
+        aFormat[i * 2] = k;
+        aFormat[i * 2 + 1] = 1 / k;
+      }
       const uTemps = { value: 0 };
       const debut = performance.now();
       let dernierNe = -1;   // instant de la dernière apparition, pour savoir quand cesser d'animer
@@ -287,16 +304,9 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         for (const i of indexCharges) {
           const p = place.get(i);
           if (!p) continue;
-          // Aire constante quel que soit le format : une image panoramique ne
-          // doit pas peser visuellement plus qu'un portrait.
-          const r = Math.max(0.2, Math.min(5, atlas.cases[i].ratio || 1));
-          const k = Math.sqrt(r);
-          const fa = geos[p.m].attributes.aFormat as InstanceType<typeof THREE.InstancedBufferAttribute>;
           const ft = geos[p.m].attributes.aT0 as InstanceType<typeof THREE.InstancedBufferAttribute>;
-          (fa.array as Float32Array)[p.j * 2] = k;
-          (fa.array as Float32Array)[p.j * 2 + 1] = 1 / k;
           (ft.array as Float32Array)[p.j] = t;
-          fa.needsUpdate = true; ft.needsUpdate = true;
+          ft.needsUpdate = true;
         }
         onProgresRef.current?.(charges, total);
         sale = true;
@@ -368,6 +378,22 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
             b.textContent = (img.t || "Sans titre") + (img.g.length ? ` · ${img.g.slice(0, 3).join(" · ")}` : "");
             b.style.opacity = "1";
           } else b.style.opacity = "0";
+        }
+        // IMAGES ANIMÉES.
+        //
+        // Une texture d'atlas est figée : animer 62 GIF dans le nuage
+        // demanderait de repeindre l'atlas à chaque frame. On joue donc le
+        // fichier d'origine, en vrai, sur la seule image SURVOLÉE — c'est là
+        // que ça compte, et le coût reste celui d'une balise <img>.
+        const g = anime.current;
+        if (g) {
+          if (i >= 0 && images[i].a) {
+            g.src = getImageUrl(images[i].s);
+            g.style.opacity = "1";
+          } else {
+            g.style.opacity = "0";
+            g.removeAttribute("src");   // stoppe la lecture, libère le décodeur
+          }
         }
         if (!glisse) el.style.cursor = i >= 0 ? "pointer" : "grab";
         sale = true;
@@ -611,6 +637,13 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
   return (
     <div ref={hote} data-cloud className="absolute inset-0 select-none touch-none" style={{ cursor: "grab" }}>
       <div ref={couche} className="pointer-events-none absolute inset-0 overflow-hidden" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={anime}
+        alt=""
+        className="pointer-events-none absolute bottom-16 left-1/2 -translate-x-1/2 max-h-56 max-w-[45%] rounded-lg shadow-2xl ring-1 ring-white/10 transition-opacity duration-150"
+        style={{ opacity: 0 }}
+      />
       <div
         ref={bulle}
         className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-default)] px-3 py-1.5 text-xs text-[var(--text-primary)] max-w-[70%] truncate transition-opacity duration-150"

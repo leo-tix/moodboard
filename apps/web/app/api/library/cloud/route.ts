@@ -26,6 +26,7 @@ export interface CloudImage {
   c: string | null;        // catégorie (1re)
   g: string[];             // tags (slugs)
   col: string[];           // palette (jusqu'à 5), pour choisir la plus chromatique
+  a: boolean;              // animée (GIF/WebP animé)
 }
 
 export async function GET() {
@@ -45,7 +46,7 @@ export async function GET() {
       images: {
         orderBy: [{ isMain: "desc" }, { order: "asc" }],
         take: 1,
-        select: { thumbnailKey: true, storageKey: true, width: true, height: true },
+        select: { thumbnailKey: true, storageKey: true, width: true, height: true, isAnimated: true },
       },
       categories: { take: 1, select: { category: { select: { name: true } } } },
       tags: { select: { tag: { select: { slug: true } } } },
@@ -73,6 +74,7 @@ export async function GET() {
       c: r.categories[0]?.category.name ?? null,
       g: r.tags.map((t) => t.tag.slug),
       col: r.colorPalette.map((c) => c.hex),
+      a: r.images[0].isAnimated,
     }));
 
   return NextResponse.json({ images, tronque: rows.length >= PLAFOND });
