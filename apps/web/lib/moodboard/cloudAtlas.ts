@@ -17,8 +17,16 @@ export const PAR_ATLAS = PAR_LIGNE * PAR_LIGNE; // 256
 export interface Atlas {
   /** Canvas VIDES, disponibles immédiatement : la scène se monte sans attendre. */
   canvases: HTMLCanvasElement[];
-  /** Par image : atlas, décalage UV, et RATIO réel une fois chargée. */
-  cases: { atlas: number; u: number; v: number; ratio: number }[];
+  /**
+   * Par image : son atlas, sa case, et son décalage de TEXTURE.
+   *
+   * `col`/`row` repèrent la case dans le canvas (origine en HAUT à gauche),
+   * `u`/`v` la repèrent dans la texture (origine en BAS à gauche). Les deux
+   * ne coïncident PAS, et les avoir confondus faisait afficher à chaque image
+   * le contenu de la ligne miroir — donc une autre image que celle à laquelle
+   * elle était liée (signalé le 2026-08-06).
+   */
+  cases: { atlas: number; col: number; row: number; u: number; v: number; ratio: number }[];
   /**
    * Lance le remplissage. `onLot` est appelé après chaque paquet avec les
    * atlas modifiés, pour que l'appelant rafraîchisse SES textures.
@@ -62,10 +70,16 @@ export function preparerAtlas(cles: string[]): Atlas {
   const cases = cles.map((_, i) => {
     const atlas = Math.floor(i / PAR_ATLAS);
     const dans = i % PAR_ATLAS;
+    const col = dans % PAR_LIGNE;
+    const row = Math.floor(dans / PAR_LIGNE);
     return {
-      atlas,
-      u: (dans % PAR_LIGNE) / PAR_LIGNE,
-      v: Math.floor(dans / PAR_LIGNE) / PAR_LIGNE,
+      atlas, col, row,
+      u: col / PAR_LIGNE,
+      // Three retourne la texture au téléversement (`flipY`, actif par
+      // défaut) : la ligne 0 du canvas se retrouve donc TOUT EN HAUT de la
+      // texture. Le décalage se compte depuis le bas, et sur le bord
+      // INFÉRIEUR de la case pour que l'image reste à l'endroit.
+      v: 1 - (row + 1) / PAR_LIGNE,
       ratio: 1,
     };
   });
@@ -76,8 +90,10 @@ export function preparerAtlas(cles: string[]): Atlas {
       im.crossOrigin = "anonymous";
       im.onload = () => {
         const c = cases[i];
-        const x = (c.u * ATLAS) | 0;
-        const y = (c.v * ATLAS) | 0;
+        // Coordonnées CANVAS : origine en haut à gauche, sans rapport avec
+        // les UV de texture.
+        const x = c.col * CELL;
+        const y = c.row * CELL;
         // L'image est ÉTIRÉE dans sa case carrée, et le quad est ensuite mis
         // au bon format : rien n'est rogné, aucune case n'est gaspillée en
         // bandes transparentes, et la déformation s'annule exactement.
