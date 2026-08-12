@@ -17,14 +17,14 @@ export const PAR_ATLAS = PAR_LIGNE * PAR_LIGNE; // 256
 export interface Atlas {
   /** Canvas VIDES, disponibles immédiatement : la scène se monte sans attendre. */
   canvases: HTMLCanvasElement[];
-  /** Par image : atlas et décalage UV — connus d'avance, sans charger un octet. */
-  cases: { atlas: number; u: number; v: number }[];
+  /** Par image : atlas, décalage UV, et RATIO réel une fois chargée. */
+  cases: { atlas: number; u: number; v: number; ratio: number }[];
   /**
    * Lance le remplissage. `onLot` est appelé après chaque paquet avec les
    * atlas modifiés, pour que l'appelant rafraîchisse SES textures.
    */
   remplir: (
-    onLot: (atlasModifies: number[], charges: number, total: number) => void,
+    onLot: (atlasModifies: number[], indexCharges: number[], charges: number, total: number) => void,
     signal?: AbortSignal,
   ) => Promise<void>;
 }
@@ -66,6 +66,7 @@ export function preparerAtlas(cles: string[]): Atlas {
       atlas,
       u: (dans % PAR_LIGNE) / PAR_LIGNE,
       v: Math.floor(dans / PAR_LIGNE) / PAR_LIGNE,
+      ratio: 1,
     };
   });
 
@@ -77,13 +78,13 @@ export function preparerAtlas(cles: string[]): Atlas {
         const c = cases[i];
         const x = (c.u * ATLAS) | 0;
         const y = (c.v * ATLAS) | 0;
-        const r = im.naturalWidth / im.naturalHeight;
-        // L'image REMPLIT sa case (recadrage centré) : la déformer serait pire,
-        // et laisser des bandes ferait apparaître les bords de case au filtrage.
-        const s = r > 1
-          ? { sx: (im.naturalWidth - im.naturalHeight) / 2, sy: 0, t: im.naturalHeight }
-          : { sx: 0, sy: (im.naturalHeight - im.naturalWidth) / 2, t: im.naturalWidth };
-        try { ctxs[c.atlas].drawImage(im, s.sx, s.sy, s.t, s.t, x, y, CELL, CELL); }
+        // L'image est ÉTIRÉE dans sa case carrée, et le quad est ensuite mis
+        // au bon format : rien n'est rogné, aucune case n'est gaspillée en
+        // bandes transparentes, et la déformation s'annule exactement.
+        // La version précédente recadrait au carré — donc coupait les
+        // panoramiques et les portraits (signalé le 2026-08-06).
+        c.ratio = im.naturalWidth / Math.max(1, im.naturalHeight);
+        try { ctxs[c.atlas].drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight, x, y, CELL, CELL); }
         catch { return resolve(false); }
         resolve(true);
       };
@@ -104,11 +105,12 @@ export function preparerAtlas(cles: string[]): Atlas {
       if (signal?.aborted) return;
       const tranche = cles.slice(i, i + LOT);
       const touches = new Set<number>();
+      const reussis: number[] = [];
       await Promise.all(
         tranche.map(async (_, j) => {
           const idx = i + j;
           for (let e = 0; e <= REPRISES; e++) {
-            if (await charger(idx, e)) { touches.add(cases[idx].atlas); break; }
+            if (await charger(idx, e)) { touches.add(cases[idx].atlas); reussis.push(idx); break; }
             // L'étranglement est transitoire : abandonner laisserait un trou
             // définitif dans le nuage.
             if (e < REPRISES) await new Promise((r) => setTimeout(r, 350 * (e + 1)));
@@ -116,7 +118,7 @@ export function preparerAtlas(cles: string[]): Atlas {
           charges++;
         }),
       );
-      if (!signal?.aborted) onLot([...touches], charges, cles.length);
+      if (!signal?.aborted) onLot([...touches], reussis, charges, cles.length);
     }
   };
 

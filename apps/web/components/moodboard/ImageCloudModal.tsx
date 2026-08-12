@@ -178,30 +178,85 @@ export function ImageCloudModal({ open, precharger, onClose, dejaPosees, onAdd }
 
       {/* Cartes en vol — hors du flux, superposées à tout. */}
       {vols.map((c) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <span
           key={c.id}
-          src={c.url}
-          alt=""
-          className="pointer-events-none fixed z-[210] w-28 h-28 object-cover rounded-xl shadow-2xl carte-vol"
-          style={{ left: c.x - 56, top: c.y - 56 }}
-        />
+          className="pointer-events-none fixed z-[210] w-28 h-36 carte-vol"
+          style={{ left: c.x - 56, top: c.y - 72 }}
+        >
+          <span className="carte-face">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={c.url} alt="" className="w-full h-full object-cover rounded-xl" />
+            <span className="carte-holo" />
+            <span className="carte-eclat" />
+          </span>
+        </span>
       ))}
 
       <style jsx global>{`
-        /* La carte pivote sur elle-même en filant vers le compteur d'ajouts,
-           puis disparaît. Rotation 3D plutôt qu'un simple glissement : elle
-           donne le sentiment d'un objet qu'on retourne et qu'on pose. */
-        @keyframes carteVol {
-          0% { transform: perspective(900px) rotateY(0deg) scale(1); opacity: 1; }
-          55% { transform: perspective(900px) rotateY(360deg) scale(0.78) translate(18vw, -22vh); opacity: 1; }
-          100% { transform: perspective(900px) rotateY(540deg) scale(0.18) translate(34vw, -40vh); opacity: 0; }
+        /* CARTE À COLLECTIONNER.
+           Structure et techniques reprises de pokemon-cards-css (S. Goellner) :
+           un dégradé arc-en-ciel en color-dodge, des barres en hard-light
+           et un halo radial en luminosity. C'est la
+           superposition de ces trois couches, et non un simple reflet, qui
+           donne la matière holographique. */
+        .carte-vol {
+          display: block;
+          transform-style: preserve-3d;
+          animation: carteVol 1s cubic-bezier(0.32, 0, 0.2, 1) forwards;
         }
-        .carte-vol { animation: carteVol 0.9s cubic-bezier(0.32, 0, 0.2, 1) forwards; }
+        .carte-face {
+          position: relative; display: block; width: 100%; height: 100%;
+          border-radius: 0.75rem; overflow: hidden;
+          box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.14);
+        }
+        .carte-face > span { position: absolute; inset: 0; pointer-events: none; }
+
+        .carte-holo {
+          background-image:
+            repeating-linear-gradient(110deg,
+              #a259ff 0%, #4d8bff 6%, #43e0a0 12%, #ffe259 18%, #ff5f6d 24%,
+              #a259ff 30%, #4d8bff 36%, #43e0a0 42%, #ffe259 48%, #ff5f6d 54%,
+              #a259ff 60%, #4d8bff 66%, #43e0a0 72%, #ffe259 78%, #ff5f6d 84%),
+            repeating-linear-gradient(90deg,
+              hsla(0, 0%, 70%, 0.45) 0 3%, hsla(0, 0%, 0%, 0.45) 3% 6%);
+          background-size: 400% 400%, auto;
+          background-blend-mode: overlay;
+          mix-blend-mode: color-dodge;
+          filter: brightness(1.1) contrast(1.1) saturate(1.2);
+          opacity: 0.85;
+          animation: holoDefile 1s linear forwards;
+        }
+        .carte-eclat {
+          background: radial-gradient(farthest-corner circle at 32% 26%,
+            hsla(0, 0%, 96%, 0.85) 0%, hsla(0, 0%, 78%, 0.12) 26%, hsl(0, 0%, 0%) 88%);
+          mix-blend-mode: luminosity;
+          filter: brightness(0.62) contrast(3.4);
+          animation: eclatBalaye 1s ease-out forwards;
+        }
+        @keyframes holoDefile {
+          0% { background-position: 0% 50%, 0 0; }
+          100% { background-position: 220% 50%, 0 0; }
+        }
+        @keyframes eclatBalaye {
+          0% { background-position: 0% 0%; opacity: 0.15; }
+          40% { opacity: 1; }
+          100% { background-position: 100% 100%; opacity: 0; }
+        }
+
+        /* La carte se retourne en filant vers le compteur d'ajouts : elle donne
+           le sentiment d'un objet qu'on retourne et qu'on pose, plutôt que
+           d'une vignette qui glisse. */
+        @keyframes carteVol {
+          0%   { transform: perspective(900px) rotateY(0deg) rotateZ(0deg) scale(1); opacity: 1; }
+          20%  { transform: perspective(900px) rotateY(90deg) rotateZ(-4deg) scale(1.14); opacity: 1; }
+          60%  { transform: perspective(900px) rotateY(360deg) rotateZ(6deg) scale(0.8) translate(19vw, -23vh); opacity: 1; }
+          100% { transform: perspective(900px) rotateY(560deg) rotateZ(10deg) scale(0.16) translate(35vw, -41vh); opacity: 0; }
+        }
         @media (prefers-reduced-motion: reduce) {
           /* Un objet qui tournoie à l'écran est un déclencheur classique de
              gêne vestibulaire : on garde l'information, pas le mouvement. */
           .carte-vol { animation: none; opacity: 0; transition: opacity 0.3s; }
+          .carte-holo, .carte-eclat { animation: none; opacity: 0; }
         }
       `}</style>
     </div>,

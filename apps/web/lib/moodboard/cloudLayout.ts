@@ -104,19 +104,54 @@ function dispositionTags(images: CloudImage[]): CloudLayout {
   return { points: espacer(points), labels };
 }
 
+/**
+ * Teinte REPRÉSENTATIVE d'une image, et non sa dominante.
+ *
+ * La dominante d'un visuel est presque toujours son fond — noir ou blanc sur
+ * la majorité d'une bibliothèque de design. Trier là-dessus tassait tout au
+ * même endroit : pas de teinte (angle nul), pas de saturation (au centre),
+ * luminosité nulle (tout en bas). On choisit donc dans la palette la couleur
+ * la plus CHROMATIQUE — saturée sans être ni noire ni cramée.
+ */
+function teinteRepresentative(palette: string[]): { h: number; s: number; l: number } | null {
+  let meilleure: { h: number; s: number; l: number } | null = null;
+  let meilleurScore = -1;
+  for (const hex of palette) {
+    const c = hexToHsl(hex);
+    // Pénalise les extrêmes de luminosité : un noir « saturé » n'existe pas
+    // visuellement, et un blanc cassé ne dit rien d'une teinte.
+    const utile = 1 - Math.abs(c.l - 0.5) * 1.6;
+    const score = c.s * Math.max(0, utile);
+    if (score > meilleurScore) { meilleurScore = score; meilleure = c; }
+  }
+  // Palette entièrement neutre : l'image est vraiment achromatique.
+  return meilleurScore > 0.04 ? meilleure : (palette.length ? hexToHsl(palette[0]) : null);
+}
+
 // ── Mode couleur : solide des couleurs ──────────────────────────────────────
 // Teinte → angle autour de l'axe vertical, saturation → distance à l'axe,
-// luminosité → hauteur. C'est la représentation habituelle d'un espace TSL,
-// donc immédiatement lisible : les gris au centre, les couleurs vives au bord.
+// luminosité → hauteur. Les gris au centre, les couleurs vives au bord.
 function dispositionCouleur(images: CloudImage[]): CloudLayout {
-  const points = images.map((img) => {
-    const { h, s, l } = hexToHsl(img.col ?? "#808080");
-    const angle = h * 2 * Math.PI;
-    const rayon = RAYON * (0.12 + 0.95 * s);
-    const hauteur = (l - 0.5) * 2 * RAYON;
-    // Léger désordre : sans lui, les images d'une même dominante forment une
+  const teintes = images.map((img) => teinteRepresentative(img.col) ?? { h: 0, s: 0, l: 0.5 });
+
+  // Hauteur par RANG de luminosité, pas par valeur.
+  //
+  // Mesuré sur la bibliothèque : la luminosité moyenne est de 0,14 — une
+  // échelle par valeur empile donc tout dans le tiers inférieur, quelle que
+  // soit la correction appliquée. Le classement, lui, occupe toujours la
+  // hauteur entière. Même raisonnement que pour la frise des années.
+  const ordre = teintes.map((c, i) => ({ i, l: c.l })).sort((a, b) => a.l - b.l);
+  const rangL = new Array<number>(teintes.length);
+  ordre.forEach((o, r) => { rangL[o.i] = teintes.length > 1 ? r / (teintes.length - 1) : 0.5; });
+
+  const points = images.map((img, i) => {
+    const c = teintes[i];
+    const angle = c.h * 2 * Math.PI;
+    const rayon = RAYON * (0.15 + 1.05 * c.s);
+    const hauteur = (rangL[i] - 0.5) * 2.2 * RAYON;
+    // Léger désordre : sans lui, les images d'une même teinte forment une
     // pile parfaitement alignée et invisible de côté.
-    const j = (c: string) => (alea(img.id, c) - 0.5) * RAYON * 0.12;
+    const j = (k: string) => (alea(img.id, k) - 0.5) * RAYON * 0.16;
     return {
       x: Math.cos(angle) * rayon + j("x"),
       y: hauteur + j("y"),
@@ -132,7 +167,7 @@ function dispositionCouleur(images: CloudImage[]): CloudLayout {
     return { texte: texte as string, x: Math.cos(a) * RAYON * 1.3, y: 0, z: Math.sin(a) * RAYON * 1.3 };
   });
 
-  return { points, labels };
+  return { points: espacer(points), labels };
 }
 
 // ── Mode catégorie : amas séparés ───────────────────────────────────────────
@@ -151,45 +186,79 @@ function dispositionCategorie(images: CloudImage[]): CloudLayout {
     const r = RAYON * 1.45;
     return { texte: cat, x: d.x * r, y: d.y * r, z: d.z * r };
   });
-  return { points, labels };
+  return { points: espacer(points), labels };
 }
 
-// ── Mode année : colonnes chronologiques ────────────────────────────────────
-// Une année par tranche de hauteur, les images réparties en anneau autour de
-// l'axe. Les images sans année sont regroupées sous la frise, pas mélangées.
+// ── Mode année : frise par RANG, pas par valeur ─────────────────────────────
+//
+// Une échelle linéaire de 1600 à 2024 est inexploitable ici : la bibliothèque
+// est massivement contemporaine, donc tout s'empilait sur la graduation 2024
+// pendant que quatre siècles restaient vides. On classe donc les années
+// PRÉSENTES par rang — chaque année peuplée reçoit la même tranche de hauteur,
+// quel que soit l'écart chronologique avec la suivante.
 function dispositionAnnee(images: CloudImage[]): CloudLayout {
-  const annees = [...new Set(images.map((i) => i.y).filter((y): y is number => y != null))].sort((a, b) => a - b);
-  const min = annees[0] ?? 0;
-  const max = annees[annees.length - 1] ?? 1;
-  const etendue = Math.max(1, max - min);
-  const hauteurDe = (y: number) => ((y - min) / etendue - 0.5) * 2.2 * RAYON;
+  const annees = [...new Set(images.map((i) => i.y).filter((y): y is number => y != null))]
+    .sort((a, b) => a - b);
+  const rang = new Map(annees.map((y, i) => [y, i]));
+  const der = Math.max(1, annees.length - 1);
+  // Assez haut pour que deux bandes voisines ne se mélangent pas : avec 18
+  // années, 2,4 rayons ne laissaient que 8 unités d'écart pour des vignettes
+  // qui en font 7.
+  const HAUT = 3.8 * RAYON;
+  const hauteurDe = (y: number) => ((rang.get(y)! / der) - 0.5) * HAUT;
 
-  const parAnnee = new Map<number | null, number>();
+  // Combien d'images par année : le rayon de l'anneau doit s'adapter, sinon
+  // une année chargée se recouvre entièrement pendant qu'une année rare flotte.
+  const parAnnee = new Map<number, number>();
+  for (const i of images) if (i.y != null) parAnnee.set(i.y, (parAnnee.get(i.y) ?? 0) + 1);
+
+  const sansDate = images.filter((i) => i.y == null).length;
+  const vus = new Map<number | null, number>();
   const points = images.map((img) => {
-    const n = parAnnee.get(img.y) ?? 0;
-    parAnnee.set(img.y, n + 1);
+    const n = vus.get(img.y) ?? 0;
+    vus.set(img.y, n + 1);
     if (img.y == null) {
+      // Sans date : un disque à part, nettement SOUS la frise, pour ne pas
+      // laisser croire à une position chronologique.
+      // Plus de la moitié de la bibliothèque n'a pas de date : ce disque doit
+      // être dimensionné pour elles, sinon il se recouvre entièrement.
       const d = direction(img.id);
-      return { x: d.x * RAYON * 0.7, y: -1.6 * RAYON, z: d.z * RAYON * 0.7 };
+      const r = 6 + RAYON * 0.2 * Math.sqrt(Math.max(1, sansDate)) * Math.sqrt(alea(img.id, "u"));
+      return { x: d.x * r, y: -HAUT * 0.95, z: d.z * r };
     }
-    // Spirale : l'anneau s'élargit avec le nombre d'images de l'année, sinon
-    // les années chargées se chevauchent et les rares flottent.
-    const angle = n * 2.399963;                    // angle d'or → répartition régulière
-    const r = RAYON * (0.25 + 0.06 * Math.sqrt(n));
-    return { x: Math.cos(angle) * r, y: hauteurDe(img.y), z: Math.sin(angle) * r };
+    const total = parAnnee.get(img.y) ?? 1;
+    // Disque en spirale de Vogel, de rayon PROPORTIONNEL à l'effectif : une
+    // année à 101 images et une année à 1 image ne peuvent pas occuper le même
+    // disque. La racine carrée maintient une densité constante.
+    const angle = n * 2.399963;
+    const rMax = RAYON * 0.22 * Math.sqrt(total);
+    const r = 4 + rMax * Math.sqrt((n + 0.5) / total);
+    return {
+      x: Math.cos(angle) * r,
+      // Désordre vertical limité au tiers de l'écart entre bandes : au-delà,
+      // une image se retrouve visuellement dans l'année voisine.
+      y: hauteurDe(img.y) + (alea(img.id, "h") - 0.5) * (HAUT / Math.max(6, der)) * 0.33,
+      z: Math.sin(angle) * r,
+    };
   });
 
-  const pas = Math.max(1, Math.round(etendue / 8));
+  // Une graduation tous les N rangs, en affichant l'année réelle.
+  const pas = Math.max(1, Math.ceil(annees.length / 8));
   const labels: CloudLabel[] = [];
-  for (let y = min; y <= max; y += pas) {
-    labels.push({ texte: String(y), x: RAYON * 0.9, y: hauteurDe(y), z: 0 });
+  for (let i = 0; i < annees.length; i += pas) {
+    labels.push({ texte: String(annees[i]), x: RAYON * 1.05, y: hauteurDe(annees[i]), z: 0 });
   }
-  return { points, labels };
+  if (images.some((i) => i.y == null)) {
+    labels.push({ texte: "Sans date", x: RAYON * 1.05, y: -HAUT * 0.78, z: 0 });
+  }
+  return { points: espacer(points), labels };
 }
 
 // Écarte les points trop proches — quelques passes suffisent à rendre les
 // vignettes distinctes sans déformer la structure d'ensemble.
-function espacer(points: CloudPoint[], passes = 3, minDist = 4.5): CloudPoint[] {
+// `minDist` doit dépasser la taille d'une vignette (7 unités par défaut),
+// sinon deux images se recouvrent et l'une devient impossible à viser.
+function espacer(points: CloudPoint[], passes = 5, minDist = 9): CloudPoint[] {
   const p = points.map((q) => ({ ...q }));
   const min2 = minDist * minDist;
   // Grille de voisinage : comparer toutes les paires coûterait O(n²) à chaque

@@ -24,23 +24,33 @@ const VS = `
 attribute vec3 aPosA;
 attribute vec3 aPosB;
 attribute vec2 aUv;
+attribute vec2 aFormat;   // proportions du quad, aire constante
 attribute float aDim;
 attribute float aIdx;
+attribute float aT0;      // instant d'apparition, en secondes
 uniform float uCell;
 uniform float uHover;
 uniform float uTaille;
 uniform float uT;
+uniform float uTemps;
 varying vec2 vUv;
 varying float vDim;
 varying float vFond;
+varying float vNe;
 void main() {
   vUv = aUv + uv * uCell;
   vDim = aDim;
   float survol = step(abs(aIdx - uHover), 0.5);
-  float k = uTaille * (1.0 + survol * 0.4);
+  // Fondu d'apparition : l'image grandit légèrement en se révélant, au lieu
+  // de surgir d'un coup au milieu du nuage.
+  float ne = aT0 < 0.0 ? 0.0 : clamp((uTemps - aT0) / 0.55, 0.0, 1.0);
+  vNe = ne;
+  float k = uTaille * (1.0 + survol * 0.4) * (0.82 + 0.18 * ne);
   vec3 pos = mix(aPosA, aPosB, uT);
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-  mv.xy += position.xy * k;
+  // Le format est porté par le QUAD, l'image ayant été étirée dans sa case
+  // carrée : la déformation s'annule exactement, sans rien rogner.
+  mv.xy += position.xy * k * aFormat;
   // Fondu de profondeur (Codrops, Infinite Canvas) : les images lointaines
   // se fondent dans le fond. Donne la profondeur que la seule perspective ne
   // suffit pas à faire lire dans un nuage dense, et adoucit les apparitions.
@@ -56,6 +66,7 @@ uniform vec3 uFond;
 varying vec2 vUv;
 varying float vDim;
 varying float vFond;
+varying float vNe;
 void main() {
   vec4 c = texture2D(uTex, vUv);
   // Case d'atlas pas encore peinte : on ne dessine rien plutôt qu'un carré
@@ -65,7 +76,9 @@ void main() {
   // Fondu vers le FOND, pas vers la transparence : un quad translucide
   // exigerait un tri par profondeur et casserait les occlusions dans un nuage
   // aussi dense.
-  gl_FragColor = vec4(mix(rgb, uFond, vFond), 1.0);
+  // Apparition ET éloignement se fondent vers le fond : même mécanisme, donc
+  // aucune transparence à trier.
+  gl_FragColor = vec4(mix(rgb, uFond, max(vFond, 1.0 - vNe)), 1.0);
 }`;
 
 export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }: Props) {
@@ -121,7 +134,12 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       const aUv = new Float32Array(n * 2);
       const aDim = new Float32Array(n);
       const aIdx = new Float32Array(n);
-      for (let i = 0; i < n; i++) aIdx[i] = i;
+      const aFormat = new Float32Array(n * 2);
+      const aT0 = new Float32Array(n).fill(-1);   // -1 = pas encore chargée
+      for (let i = 0; i < n; i++) { aIdx[i] = i; aFormat[i * 2] = 1; aFormat[i * 2 + 1] = 1; }
+      const uTemps = { value: 0 };
+      const debut = performance.now();
+      let dernierNe = -1;   // instant de la dernière apparition, pour savoir quand cesser d'animer
 
       let sale = true;   // faut-il redessiner ?
       const uT = { value: 1 };   // curseur de transition, lu par le shader
@@ -218,6 +236,8 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         geo.setAttribute("aPosA", attrA);
         geo.setAttribute("aPosB", attrB);
         geo.setAttribute("aUv", new THREE.InstancedBufferAttribute(sub(aUv, 2), 2));
+        geo.setAttribute("aFormat", new THREE.InstancedBufferAttribute(sub(aFormat, 2), 2));
+        geo.setAttribute("aT0", new THREE.InstancedBufferAttribute(sub(aT0, 1), 1));
         geo.setAttribute("aDim", new THREE.InstancedBufferAttribute(sub(aDim, 1), 1));
         geo.setAttribute("aIdx", new THREE.InstancedBufferAttribute(sub(aIdx, 1), 1));
 
@@ -227,7 +247,7 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
         tailleUniforms.push(uTaille);
         const mat = new THREE.ShaderMaterial({
           vertexShader: VS, fragmentShader: FS,
-          uniforms: { uTex: { value: textures[a] }, uCell: { value: 1 / PAR_LIGNE }, uHover, uTaille, uT, uFond },
+          uniforms: { uTex: { value: textures[a] }, uCell: { value: 1 / PAR_LIGNE }, uHover, uTaille, uT, uFond, uTemps },
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.frustumCulled = false;   // les quads sont replacés dans le shader
@@ -255,8 +275,29 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       // Première disposition, une fois les maillages construits.
       appliquer(modeRef.current, false);
 
-      void atlas.remplir((atlasModifies, charges, total) => {
+      // Table index global → (maillage, rang dans le maillage), pour écrire
+      // les attributs d'une image précise sans reparcourir toute la liste.
+      const place = new Map<number, { m: number; j: number }>();
+      indexParMesh.forEach((idx, m) => idx.forEach((i, j) => place.set(i, { m, j })));
+
+      void atlas.remplir((atlasModifies, indexCharges, charges, total) => {
         for (const a of atlasModifies) if (textures[a]) textures[a].needsUpdate = true;
+        const t = (performance.now() - debut) / 1000;
+        dernierNe = t;
+        for (const i of indexCharges) {
+          const p = place.get(i);
+          if (!p) continue;
+          // Aire constante quel que soit le format : une image panoramique ne
+          // doit pas peser visuellement plus qu'un portrait.
+          const r = Math.max(0.2, Math.min(5, atlas.cases[i].ratio || 1));
+          const k = Math.sqrt(r);
+          const fa = geos[p.m].attributes.aFormat as InstanceType<typeof THREE.InstancedBufferAttribute>;
+          const ft = geos[p.m].attributes.aT0 as InstanceType<typeof THREE.InstancedBufferAttribute>;
+          (fa.array as Float32Array)[p.j * 2] = k;
+          (fa.array as Float32Array)[p.j * 2 + 1] = 1 / k;
+          (ft.array as Float32Array)[p.j] = t;
+          fa.needsUpdate = true; ft.needsUpdate = true;
+        }
         onProgresRef.current?.(charges, total);
         sale = true;
       }, abort.signal);
@@ -275,7 +316,10 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
       const GLISSE_VERS_VITESSE = 0.025;
       const MOLETTE_VERS_Z = 0.006;
       const MOLETTE_DECAY = 0.8;
-      const Z_MIN = 45, Z_MAX = 520;
+      // Assez large pour TRAVERSER le nuage (rayon ~90) et s'en éloigner :
+      // les bornes précédentes (45 à 520) donnaient une butée franche en
+      // arrière, ressentie comme un blocage (signalé le 2026-08-06).
+      const Z_MIN = -260, Z_MAX = 1400;
 
       const basePos = { x: 0, y: 0, z: 190 };
       const vitesse = { x: 0, y: 0, z: 0 };
@@ -346,10 +390,15 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
             aPosA[i * 3 + 2] + (aPosB[i * 3 + 2] - aPosA[i * 3 + 2]) * t,
           ).applyMatrix4(monde.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
           if (v.z > -1) continue;
-          const demi = (demiMonde / 2) * (echelle / -v.z);
+          // Demi-largeur et demi-hauteur DISTINCTES : depuis que le quad
+          // respecte le format de l'image, une zone carrée déborderait sur les
+          // portraits et raterait les panoramiques.
+          const k = (demiMonde / 2) * (echelle / -v.z);
+          const demiX = k * aFormat[i * 2];
+          const demiY = k * aFormat[i * 2 + 1];
           const sx = w / 2 + (v.x * echelle) / -v.z;
           const sy = h / 2 - (v.y * echelle) / -v.z;
-          if (Math.abs(souris.x - sx) > demi || Math.abs(souris.y - sy) > demi) continue;
+          if (Math.abs(souris.x - sx) > demiX || Math.abs(souris.y - sy) > demiY) continue;
           // À recouvrement, la plus PROCHE de la caméra l'emporte.
           if (-v.z < plusProche) { plusProche = -v.z; meilleur = i; }
         }
@@ -479,6 +528,12 @@ export function ImageCloudScene({ images, mode, dejaPosees, onPick, onProgres }:
           vRotY *= VELOCITY_DECAY;
           sale = true;
         }
+
+        // Horloge des apparitions. On continue de redessiner tant que le
+        // dernier fondu n'est pas terminé, sinon des images resteraient
+        // figées à mi-apparition sur une scène immobile.
+        uTemps.value = (performance.now() - debut) / 1000;
+        if (dernierNe >= 0 && uTemps.value < dernierNe + 0.6) sale = true;
 
         // Transition de mode : un seul uniforme avance, aucun tampon n'est
         // retouché. Deux secondes, comme PixPlot.

@@ -25,7 +25,7 @@ export interface CloudImage {
   y: number | null;        // année
   c: string | null;        // catégorie (1re)
   g: string[];             // tags (slugs)
-  col: string | null;      // couleur dominante (hex)
+  col: string[];           // palette (jusqu'à 5), pour choisir la plus chromatique
 }
 
 export async function GET() {
@@ -50,7 +50,11 @@ export async function GET() {
       categories: { take: 1, select: { category: { select: { name: true } } } },
       tags: { select: { tag: { select: { slug: true } } } },
       // La dominante suffit à positionner ; le reste de la palette ne sert pas ici.
-      colorPalette: { orderBy: { order: "asc" }, take: 1, select: { hex: true } },
+      // Toute la palette, pas seulement la dominante : sur des visuels sombres
+      // la dominante est presque toujours le noir du fond, ce qui écrasait
+      // TOUTES les images au même endroit du tri par couleur. Le choix de la
+      // teinte représentative se fait donc côté client, sur la palette.
+      colorPalette: { orderBy: { order: "asc" }, take: 5, select: { hex: true } },
     },
     orderBy: { createdAt: "desc" },
     take: PLAFOND,
@@ -68,7 +72,7 @@ export async function GET() {
       y: r.year,
       c: r.categories[0]?.category.name ?? null,
       g: r.tags.map((t) => t.tag.slug),
-      col: r.colorPalette[0]?.hex ?? null,
+      col: r.colorPalette.map((c) => c.hex),
     }));
 
   return NextResponse.json({ images, tronque: rows.length >= PLAFOND });
