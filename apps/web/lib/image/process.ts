@@ -16,6 +16,10 @@ export interface ProcessedImage {
   size: number;
   isAnimated: boolean;
   mimeType: string;
+  // Format du fichier SOURCE tel que détecté par sharp ("webp", "gif"…). Sert
+  // à valider ce qui a réellement été reçu, indépendamment du type MIME
+  // déclaré par le client (souvent vide sous Windows pour .webp / .avif).
+  sourceFormat: string;
 }
 
 // ── Détection animation ────────────────────────────────────────────────────────
@@ -40,15 +44,15 @@ async function detectAnimation(
 
 export async function processImage(inputBuffer: Buffer): Promise<ProcessedImage> {
   const info = await detectAnimation(inputBuffer);
-  if (info.animated) {
-    return processAnimated(inputBuffer, info);
-  }
-  return processStatic(inputBuffer);
+  const processed = info.animated
+    ? await processAnimated(inputBuffer, info)
+    : await processStatic(inputBuffer);
+  return { ...processed, sourceFormat: info.format };
 }
 
 // ── Pipeline image statique (inchangé) ────────────────────────────────────────
 
-async function processStatic(inputBuffer: Buffer): Promise<ProcessedImage> {
+async function processStatic(inputBuffer: Buffer): Promise<Omit<ProcessedImage, "sourceFormat">> {
   const meta = await sharp(inputBuffer).metadata();
   const originalWidth = meta.width ?? MAX_WIDTH;
   const needsResize = originalWidth > MAX_WIDTH;
@@ -97,7 +101,7 @@ async function processStatic(inputBuffer: Buffer): Promise<ProcessedImage> {
 async function processAnimated(
   inputBuffer: Buffer,
   info: { width: number; height: number }
-): Promise<ProcessedImage> {
+): Promise<Omit<ProcessedImage, "sourceFormat">> {
   const needsResize = info.width > MAX_WIDTH_ANIMATED;
 
   // WebP animé principal

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no_file" }, { status: 400 });
   }
 
-  if (!checkMimeType(file.type) && !ACCEPTED_TYPES.includes(file.type)) {
+  if (!checkMimeType(file.type, file.name) && !ACCEPTED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "type" }, { status: 400 });
   }
 

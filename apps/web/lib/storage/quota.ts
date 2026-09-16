@@ -276,8 +276,35 @@ export async function checkUploadAllowed(
 }
 
 // ── Type MIME ──────────────────────────────────────────────
-export function checkMimeType(mimeType: string): boolean {
-  return (QUOTA.ALLOWED_MIME_TYPES as readonly string[]).includes(mimeType);
+// Extensions correspondant à ALLOWED_MIME_TYPES. Utilisées en repli quand le
+// navigateur n'envoie AUCUN type : Windows ne déclare pas toujours de type MIME
+// pour .webp / .avif, `File.type` est alors vide et l'upload était refusé avec
+// « Type non supporté » alors que le fichier est parfaitement valide.
+const ALLOWED_EXTENSIONS = [
+  ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".tif", ".tiff",
+];
+
+// Formats réellement décodés (noms sharp), vérifiés APRÈS décodage : c'est ce
+// contrôle-là qui fait autorité, le type déclaré par le client n'étant qu'un
+// filtre de confort.
+export const ALLOWED_IMAGE_FORMATS = [
+  "jpeg", "png", "webp", "gif", "avif", "heif", "tiff",
+] as const;
+
+export function checkImageFormat(format: string): boolean {
+  return (ALLOWED_IMAGE_FORMATS as readonly string[]).includes(format);
+}
+
+export function checkMimeType(mimeType: string, filename?: string): boolean {
+  const base = mimeType.split(";")[0].trim().toLowerCase();
+  if ((QUOTA.ALLOWED_MIME_TYPES as readonly string[]).includes(base)) return true;
+  // Type absent ou générique : on se rabat sur l'extension. Le format réel est
+  // de toute façon revalidé après décodage (checkImageFormat).
+  if (base === "" || base === "application/octet-stream") {
+    const name = (filename ?? "").toLowerCase();
+    return ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
+  }
+  return false;
 }
 
 export function checkAudioMimeType(mimeType: string): boolean {

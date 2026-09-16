@@ -263,7 +263,9 @@ export function AccountSettings({
         <input
           ref={fileRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/avif"
+          /* Extensions en plus des types MIME : sous Windows, .webp / .avif n'ont
+              pas toujours de type MIME déclaré et le sélecteur les masquait. */
+          accept="image/jpeg,image/png,image/webp,image/avif,.jpg,.jpeg,.png,.webp,.avif"
           className="hidden"
           onChange={onPickAvatar}
         />

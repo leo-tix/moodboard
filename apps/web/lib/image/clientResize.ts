@@ -10,10 +10,26 @@
 const MAX_DIMENSION = 2400; // suffisant pour un DAM perso, pas pour l'impression
 const JPEG_QUALITY = 0.86;
 
+// Formats susceptibles de porter une animation. Un passage par `<canvas>` ne
+// conserve QUE la première frame : ré-encoder un WebP animé (le format vers
+// lequel les GIFs sont aujourd'hui convertis) le transformait en JPEG fixe.
+// On les laisse donc intacts — le serveur les recompresse en WebP animé, en
+// préservant l'animation (cf. `processAnimated` dans lib/image/process.ts).
+const ANIMATABLE_TYPES = ["image/gif", "image/webp", "image/avif"];
+const ANIMATABLE_EXTENSIONS = [".gif", ".webp", ".avif"];
+
+function isAnimatable(file: File): boolean {
+  const type = file.type.split(";")[0].trim().toLowerCase();
+  if (ANIMATABLE_TYPES.includes(type)) return true;
+  // `File.type` est vide quand l'OS ne connaît pas l'extension (cas courant
+  // de .webp sous Windows) : on retombe sur le nom du fichier.
+  if (type !== "") return false;
+  const name = file.name.toLowerCase();
+  return ANIMATABLE_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
 export async function compressImageForUpload(file: File): Promise<File> {
-  // GIF animés : un re-encodage canvas perdrait l'animation — on les laisse
-  // passer tels quels (rares depuis un appareil photo de toute façon).
-  if (file.type === "image/gif") return file;
+  if (isAnimatable(file)) return file;
 
   try {
     const bitmap = await createImageBitmap(file);

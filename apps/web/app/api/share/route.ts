@@ -14,7 +14,7 @@ async function processOneFile(
   title: string,
   userId: string,
 ): Promise<string | null> {
-  if (!checkMimeType(file.type) && !ACCEPTED_TYPES.includes(file.type)) return null;
+  if (!checkMimeType(file.type, file.name) && !ACCEPTED_TYPES.includes(file.type)) return null;
 
   const quotaCheck = await checkUploadAllowed(userId, file.size);
   if (!quotaCheck.allowed) return null;

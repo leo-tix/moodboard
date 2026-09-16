@@ -14,6 +14,7 @@ import Link from "next/link";
 import { X, Check, Pencil, Upload } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { compressImageForUpload } from "@/lib/image/clientResize";
+import { MAX_UPLOAD_SIZE_MB, sortImageFiles } from "@/lib/upload/imageTypes";
 import { cn } from "@/lib/utils";
 import { MetadataPanel } from "@/components/inspiration/MetadataPanel";
 
@@ -32,13 +33,6 @@ interface QueuedFile {
 
 const GlobalUploadContext = createContext<Record<string, never>>({});
 export const useGlobalUpload = () => useContext(GlobalUploadContext);
-
-const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
-const MAX_SIZE_MB = 10;
-
-function isValidImage(file: File) {
-  return ACCEPTED.includes(file.type) && file.size <= MAX_SIZE_MB * 1024 * 1024;
-}
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 
@@ -65,15 +59,25 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
   // ── Enqueue helper ────────────────────────────────────────────────────────
 
   const enqueue = useCallback((rawFiles: File[]) => {
-    const valid = rawFiles.filter(isValidImage);
-    if (!valid.length) return;
+    // Un fichier écarté est affiché en erreur avec son motif plutôt que filtré
+    // en silence : un WebP dont le navigateur ne connaît pas le type MIME
+    // (Windows) disparaissait sans le moindre retour.
+    const { accepted, rejected } = sortImageFiles(rawFiles);
+    if (!accepted.length && !rejected.length) return;
     setFiles((prev) => [
       ...prev,
-      ...valid.map((f) => ({
+      ...accepted.map((f) => ({
         id: crypto.randomUUID(),
         file: f,
         preview: URL.createObjectURL(f),
         status: "pending" as const,
+      })),
+      ...rejected.map(({ file, reason }) => ({
+        id: crypto.randomUUID(),
+        file,
+        preview: "",
+        status: "error" as const,
+        error: reason,
       })),
     ]);
   }, []);
@@ -277,7 +281,7 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                         Déposez pour importer
                       </p>
                       <p className="text-[var(--text-tertiary)] text-sm mt-2">
-                        JPG, PNG, WebP, GIF, AVIF — max {MAX_SIZE_MB} MB
+                        JPG, PNG, WebP, GIF, AVIF — max {MAX_UPLOAD_SIZE_MB} MB
                       </p>
                     </motion.div>
                   </div>
@@ -337,8 +341,12 @@ export function GlobalUploadProvider({ children }: { children: React.ReactNode }
                             }}
                             title={f.status === "done" ? "Cliquer pour éditer les métadonnées" : undefined}
                           >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={f.preview} alt="" className="w-full h-full object-cover" />
+                            {/* Fichier refusé : pas d'object URL, donc pas
+                                d'<img> (un src="" rechargerait la page). */}
+                            {f.preview && (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img src={f.preview} alt="" className="w-full h-full object-cover" />
+                            )}
 
                             {/* Uploading */}
                             {f.status === "uploading" && (

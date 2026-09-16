@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
-import { checkUploadAllowed, checkMimeType, QUOTA } from "@/lib/storage/quota";
+import { checkUploadAllowed, checkMimeType, checkImageFormat, QUOTA } from "@/lib/storage/quota";
 import { randomUUID } from "crypto";
 import path from "path";
 
@@ -19,7 +19,10 @@ export async function POST(req: NextRequest) {
 
   if (!file) return NextResponse.json({ error: "Fichier manquant" }, { status: 400 });
 
-  if (!checkMimeType(file.type)) {
+  // Le nom du fichier sert de repli : Windows ne fournit pas toujours de type
+  // MIME pour .webp / .avif, `file.type` arrive alors vide et l'upload était
+  // refusé à tort. Le format réel est revalidé après décodage, plus bas.
+  if (!checkMimeType(file.type, file.name)) {
     return NextResponse.json(
       { error: "Type non supporté. Acceptés : JPG, PNG, WebP, GIF, AVIF" },
       { status: 400 }
@@ -46,6 +49,16 @@ export async function POST(req: NextRequest) {
     console.error("[UPLOAD ERROR] decode", error);
     return NextResponse.json(
       { error: "Image illisible ou format non pris en charge (HEIC, RAW…). Réessaie en JPG ou PNG." },
+      { status: 400 }
+    );
+  }
+
+  // Contrôle qui fait autorité : le format réellement décodé. Bloque un
+  // fichier dont l'extension mentait, maintenant que le type MIME déclaré
+  // n'est plus la seule barrière.
+  if (!checkImageFormat(processed.sourceFormat)) {
+    return NextResponse.json(
+      { error: "Type non supporté. Acceptés : JPG, PNG, WebP, GIF, AVIF" },
       { status: 400 }
     );
   }

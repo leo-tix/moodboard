@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_INPUT_BYTES) {
     return NextResponse.json({ error: "Image trop lourde (max 8 Mo)" }, { status: 400 });
   }
-  if (!checkMimeType(file.type)) {
+  if (!checkMimeType(file.type, file.name)) {
     return NextResponse.json({ error: "Format non supporté" }, { status: 400 });
   }
 

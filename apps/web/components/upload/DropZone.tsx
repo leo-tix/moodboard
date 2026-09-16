@@ -5,6 +5,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Upload, Check, Pencil, Landmark, X } from "lucide-react";
 import { compressImageForUpload } from "@/lib/image/clientResize";
+import {
+  IMAGE_ACCEPT_ATTR,
+  MAX_UPLOAD_SIZE_MB,
+  sortImageFiles,
+} from "@/lib/upload/imageTypes";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import { Button } from "@/components/ui/Button";
@@ -30,8 +35,6 @@ interface Category {
   subcategories: { id: string; name: string; slug: string }[];
 }
 
-const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
-const MAX_SIZE_MB = 10;
 
 const fieldClass =
   "w-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-[var(--border-default)] transition-colors placeholder:text-[var(--text-tertiary)]";
@@ -80,15 +83,25 @@ export function DropZone() {
   }, [doneFiles.length, categories.length]);
 
   const addFiles = useCallback((rawFiles: File[]) => {
-    const valid = rawFiles.filter(
-      (f) => ACCEPTED.includes(f.type) && f.size <= MAX_SIZE_MB * 1024 * 1024
-    );
-    const newFiles: UploadFile[] = valid.map((f) => ({
-      id: crypto.randomUUID(),
-      file: f,
-      preview: URL.createObjectURL(f),
-      status: "pending",
-    }));
+    // Les fichiers écartés entrent dans la liste en statut "error" avec leur
+    // motif : auparavant ils étaient filtrés en silence, si bien qu'un WebP
+    // refusé (type MIME vide sous Windows) semblait ignoré sans explication.
+    const { accepted, rejected } = sortImageFiles(rawFiles);
+    const newFiles: UploadFile[] = [
+      ...accepted.map((f) => ({
+        id: crypto.randomUUID(),
+        file: f,
+        preview: URL.createObjectURL(f),
+        status: "pending" as const,
+      })),
+      ...rejected.map(({ file, reason }) => ({
+        id: crypto.randomUUID(),
+        file,
+        preview: "",
+        status: "error" as const,
+        error: reason,
+      })),
+    ];
     setFiles((prev) => [...prev, ...newFiles]);
   }, []);
 
@@ -264,7 +277,7 @@ export function DropZone() {
           ref={inputRef}
           type="file"
           multiple
-          accept={ACCEPTED.join(",")}
+          accept={IMAGE_ACCEPT_ATTR}
           className="hidden"
           onChange={onInputChange}
         />
@@ -293,7 +306,7 @@ export function DropZone() {
                   : "Glisse tes images ici ou clique pour sélectionner"}
               </p>
               <p className="text-[var(--text-tertiary)] text-xs">
-                JPG, PNG, WebP, GIF, AVIF — max {MAX_SIZE_MB} MB par fichier
+                JPG, PNG, WebP, GIF, AVIF — max {MAX_UPLOAD_SIZE_MB} MB par fichier
               </p>
             </motion.div>
           )}
@@ -311,8 +324,12 @@ export function DropZone() {
                 animate={{ opacity: 1, scale: 1 }}
                 className="relative aspect-square rounded-md overflow-hidden bg-[var(--bg-elevated)] group"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.preview} alt="" className="w-full h-full object-cover" />
+                {/* Pas d'aperçu pour un fichier refusé (aucun object URL) :
+                    un <img src=""> relancerait une requête sur la page. */}
+                {item.preview && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={item.preview} alt="" className="w-full h-full object-cover" />
+                )}
 
                 {/* Upload en cours */}
                 {item.status === "uploading" && (

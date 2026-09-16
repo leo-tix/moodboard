@@ -19,7 +19,7 @@ export type TilePhotoResult =
   | { ok: false; status: number; error: string };
 
 export async function uploadTilePhoto(userId: string, file: File): Promise<TilePhotoResult> {
-  if (!checkMimeType(file.type)) {
+  if (!checkMimeType(file.type, file.name)) {
     return { ok: false, status: 400, error: "Type non supporté. Acceptés : JPG, PNG, WebP, GIF, AVIF" };
   }
   const pre = await checkUploadAllowed(userId, file.size);
@@ -49,7 +49,7 @@ export type TileThumbResult =
 // illustration de la source (pas de l'original pleine résolution) — une seule
 // clé R2 à stocker/purger, pas d'orphelin.
 export async function uploadTileThumbnailOnly(userId: string, file: File): Promise<TileThumbResult> {
-  if (!checkMimeType(file.type)) {
+  if (!checkMimeType(file.type, file.name)) {
     return { ok: false, status: 400, error: "Type non supporté. Acceptés : JPG, PNG, WebP, GIF, AVIF" };
   }
   const pre = await checkUploadAllowed(userId, file.size);
