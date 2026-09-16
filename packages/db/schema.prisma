@@ -42,10 +42,18 @@ model User {
   image         String?
   // Poids de l'avatar sur R2 — inclus dans getStorageQuota()
   imageSize     Int        @default(0)
+  // ── Double authentification (TOTP, RFC 6238) ──
+  // Secret partagé chiffré au repos (AES-256-GCM, cf. lib/auth/secretBox.ts).
+  // Non nul dès la préparation de l'activation ; `twoFactorEnabled` ne passe à
+  // true qu'après vérification d'un premier code par l'utilisateur.
+  twoFactorSecret    String?
+  twoFactorEnabled   Boolean   @default(false)
+  twoFactorEnabledAt DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
   apiTokens        ApiToken[]
+  recoveryCodes    TwoFactorRecoveryCode[]
   inspirations     Inspiration[]
   collections      Collection[]
   moodboards       Moodboard[]
@@ -68,6 +76,37 @@ model User {
 enum UserRole {
   ADMIN
   USER
+}
+
+// Codes de secours 2FA : usage unique, stockés hachés (SHA-256 — ce sont des
+// secrets aléatoires de 50 bits, pas des mots de passe devinables). Un code
+// consommé est conservé avec `usedAt` pour l'historique, jamais réutilisable.
+model TwoFactorRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("two_factor_recovery_codes")
+}
+
+// Limitation de débit des tentatives de connexion. Une ligne par « clé »
+// (`user:<email>` ou `ip:<adresse>`) : compteur d'échecs + verrou temporaire.
+// En base plutôt qu'en mémoire car l'app tourne en serverless (chaque requête
+// peut atterrir sur une instance différente, un compteur en RAM ne protège rien).
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  failures    Int       @default(0)
+  lockedUntil DateTime?
+  firstFailAt DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+  @@map("login_attempts")
 }
 
 // ============================================================

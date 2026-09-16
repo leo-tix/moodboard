@@ -4,16 +4,17 @@ import { db } from "@/lib/db";
 import { canEditResource } from "@/lib/access/resolve";
 import { z } from "zod";
 import { nextBlockOrder } from "@/lib/visits/blockOrder";
+import { sanitizeRichText } from "@/lib/security/sanitizeHtml";
 
 interface Params { params: Promise<{ id: string }> }
 
 const createSchema = z.object({
   // HTML (sortie de l'éditeur Tiptap) — plafond relevé pour absorber la
-  // verbosité des balises par rapport au texte brut d'origine. Pas de risque
-  // XSS supplémentaire : le rendu passe par le schéma ProseMirror (parser
-  // qui ne reconnaît que les nœuds de StarterKit), jamais par un
-  // dangerouslySetInnerHTML brut.
-  content: z.string().max(20000).default(""),
+  // verbosité des balises par rapport au texte brut d'origine. Assaini à
+  // l'écriture (liste blanche de balises) : ce HTML est réinjecté par
+  // dangerouslySetInnerHTML dans le carnet, page publique /carnet/<token>
+  // comprise, donc on ne fait jamais confiance à ce qui arrive ici.
+  content: z.string().max(20000).default("").transform(sanitizeRichText),
   // Position dans le carnet ; si absent → fin de séquence
   order: z.number().int().optional(),
 });

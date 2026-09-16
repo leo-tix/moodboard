@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { canEditResource } from "@/lib/access/resolve";
 import { z } from "zod";
+import { sanitizeRichText } from "@/lib/security/sanitizeHtml";
 
 interface Params { params: Promise<{ id: string; noteId: string }> }
 
@@ -13,7 +14,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const { id, noteId } = await params;
   const body = await req.json().catch(() => ({}));
-  const parsed = z.object({ content: z.string().max(20000) }).safeParse(body);
+  // Même assainissement qu'à la création : liste blanche de balises Tiptap.
+  const parsed = z
+    .object({ content: z.string().max(20000).transform(sanitizeRichText) })
+    .safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }

@@ -20,8 +20,11 @@ export async function GET(req: NextRequest) {
   const key = req.nextUrl.searchParams.get("key");
   if (!key) return new NextResponse("Missing key", { status: 400 });
 
-  // Allowlist: alphanumeric + _ - . / only — blocks path traversal and injections
-  if (!/^[\w.\-/]+$/.test(key)) {
+  // Liste blanche : alphanumérique + _ - . / uniquement. Le motif seul laissait
+  // passer « ../ » (le point et la barre y sont admis) : `fetch` normalise
+  // ensuite le chemin, et la clé « ../../autre » sortait du préfixe du bucket.
+  // D'où le refus explicite de tout segment de remontée.
+  if (!/^[\w.\-/]+$/.test(key) || key.split("/").includes("..") || key.startsWith("/")) {
     return new NextResponse("Invalid key", { status: 400 });
   }
 

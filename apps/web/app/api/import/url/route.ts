@@ -6,6 +6,7 @@ import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
 import { checkUploadAllowed } from "@/lib/storage/quota";
 import { randomUUID } from "crypto";
+import { safeFetch } from "@/lib/security/safeFetch";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,7 +25,9 @@ function upgradePinterestUrl(url: string): string {
 async function resolvePinterestUrl(url: string): Promise<string> {
   let resolved = url;
   if (url.includes("pin.it")) {
-    const res = await fetch(url, {
+    // safeFetch : ce lien vient du presse-papier de l'utilisateur et est suivi
+    // en redirection — donc contrôlé saut par saut (cf. lib/security/safeFetch.ts).
+    const res = await safeFetch(url, {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_UA },
@@ -49,7 +52,7 @@ async function fetchPinterestPageMeta(
   pinUrl: string,
 ): Promise<{ description: string; year: number | null }> {
   try {
-    const res = await fetch(pinUrl, {
+    const res = await safeFetch(pinUrl, {
       headers: { "User-Agent": BROWSER_UA },
       signal: AbortSignal.timeout(10_000),
     });
@@ -100,8 +103,21 @@ export async function POST(req: NextRequest) {
   let description = "";
   let year: number | null = null;
 
+  // Le routage se fait sur le HÔTE, pas sur une sous-chaîne de l'URL entière :
+  // « https://interne.exemple/?x=pinterest.com » ne doit pas être traité comme
+  // un lien Pinterest et déclencher une requête sortante en son nom.
+  const host = (() => {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })();
+  const isHost = (domain: string) => host === domain || host.endsWith(`.${domain}`);
+
   // ── Pinterest ─────────────────────────────────────────────────────────────
-  if (url.includes("pinterest.") || url.includes("pin.it")) {
+  // Pinterest a un domaine par pays (.com, .fr, .ca, .co.uk…) → motif, pas liste.
+  if (/(^|\.)pinterest\.[a-z.]{2,6}$/.test(host) || isHost("pin.it")) {
     try {
       const canonicalUrl = await resolvePinterestUrl(url);
       const oembedUrl = `https://www.pinterest.com/oembed.json?url=${encodeURIComponent(canonicalUrl)}`;
@@ -136,7 +152,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Instagram (Meta oEmbed API officielle) ───────────────────────────────
-  else if (url.includes("instagram.com")) {
+  else if (isHost("instagram.com")) {
     const appId     = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
 
@@ -191,7 +207,7 @@ export async function POST(req: NextRequest) {
   // ── Download image ────────────────────────────────────────────────────────
   let imageBuffer: Buffer;
   try {
-    const dlRes = await fetch(imageUrl, {
+    const dlRes = await safeFetch(imageUrl, {
       headers: {
         "User-Agent": BROWSER_UA,
         "Referer":    source === "Pinterest" ? "https://www.pinterest.com/" : "https://www.instagram.com/",
@@ -204,7 +220,7 @@ export async function POST(req: NextRequest) {
       // 736x fallback → try original oEmbed URL
       if (source === "Pinterest" && imageUrl !== imageUrl.replace(/\/736x\//, "/564x/")) {
         const fallback = imageUrl.replace(/\/736x\//, "/564x/");
-        const fb = await fetch(fallback, { headers: { "User-Agent": BROWSER_UA, "Referer": "https://www.pinterest.com/" }, signal: AbortSignal.timeout(15_000) });
+        const fb = await safeFetch(fallback, { headers: { "User-Agent": BROWSER_UA, "Referer": "https://www.pinterest.com/" }, signal: AbortSignal.timeout(15_000) });
         if (!fb.ok) throw new Error(`Fallback download ${fb.status}`);
         imageBuffer = Buffer.from(await fb.arrayBuffer());
       } else {

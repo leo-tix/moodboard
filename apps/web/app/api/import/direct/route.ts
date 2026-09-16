@@ -6,6 +6,7 @@ import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
 import { checkUploadAllowed } from "@/lib/storage/quota";
 import { randomUUID } from "crypto";
+import { safeFetch } from "@/lib/security/safeFetch";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -57,7 +58,9 @@ export async function POST(req: NextRequest) {
   let imageBuffer: Buffer;
   let mimeType: string;
   try {
-    const res = await fetch(imageUrl, {
+    // safeFetch : l'URL vient du client (extension Chrome / bookmarklet), elle
+    // ne doit pas pouvoir viser le réseau interne de l'hébergeur.
+    const res = await safeFetch(imageUrl, {
       headers: {
         "User-Agent": BROWSER_UA,
         "Referer": refererFor(imageUrl),
