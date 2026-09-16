@@ -1,5 +1,44 @@
 import type { NextConfig } from "next";
 
+// Content-Security-Policy.
+//
+// Volontairement tolérante sur les SOURCES DE DONNÉES (connect-src/img-src en
+// `https:`) : l'app télécharge ses modèles d'IA embarquée (transformers.js,
+// tesseract.js) et ses tuiles de carte depuis des CDN tiers, et une liste
+// blanche stricte les casserait au premier changement d'hébergement côté
+// éditeur. Ce qu'elle verrouille en revanche, c'est l'EXÉCUTION et la
+// NAVIGATION : `object-src 'none'` (plugins), `base-uri 'self'` (détournement
+// des URL relatives), `form-action 'self'` (exfiltration d'un POST vers un
+// domaine tiers), `frame-ancestors 'self'` (clickjacking, version moderne de
+// X-Frame-Options).
+//
+// `unsafe-inline` reste nécessaire pour le script d'enregistrement du service
+// worker (app/layout.tsx) et les styles en ligne de Tailwind/Framer Motion ;
+// `wasm-unsafe-eval` + `blob:` pour les Web Workers WASM de la transcription
+// audio et de l'OCR. La défense contre le XSS repose donc sur
+// l'assainissement du HTML (lib/security/sanitizeHtml.ts), pas sur cette
+// politique — passer à une CSP à nonce imposerait le rendu dynamique de
+// toutes les pages (cf. docs/securite.md).
+const isDev = process.env.NODE_ENV === "development";
+
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com${isDev ? " 'unsafe-eval'" : ""}`,
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' blob: data: https:",
+  // Lecteur YouTube intégré aux carnets de visite.
+  "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+  "frame-ancestors 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "upgrade-insecure-requests",
+].join("; ");
+
 const securityHeaders = [
   // Prevent MIME type sniffing
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -19,6 +58,15 @@ const securityHeaders = [
   {
     key: "Permissions-Policy",
     value: "camera=(), microphone=(self), geolocation=(self)",
+  },
+  { key: "Content-Security-Policy", value: csp },
+  // HSTS : une fois la page servie en HTTPS, le navigateur refuse tout retour
+  // en clair pendant deux ans (interdit le vol de cookie de session par
+  // rétrogradation sur un réseau hostile). Sans effet en développement local,
+  // les navigateurs ignorant l'en-tête sur http://localhost.
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
   },
 ];
 

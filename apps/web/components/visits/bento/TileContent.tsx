@@ -15,6 +15,7 @@ import { CartelTile } from "@/components/visits/bento/CartelTile";
 import { TicketTile } from "@/components/visits/bento/TicketTile";
 import { PaletteTile } from "@/components/visits/bento/PaletteTile";
 import { SketchTile } from "@/components/visits/bento/SketchTile";
+import { sanitizeRichText } from "@/lib/security/sanitizeHtml";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
 
 export interface ImageNavItem {
@@ -147,11 +148,18 @@ export function TileContent({ tile, editable, onPersistAudioTranscript, onToggle
   if (tile.content.type === "note") {
     // Module texte unique : le HTML peut contenir titre (h1), sous-titre (h2),
     // intertitre (h3), citation (blockquote), listes… tous stylés par .note-prose.
+    // Assaini AUSSI au rendu, pas seulement à l'écriture (routes /api/visits/
+    // [id]/notes) : les notes enregistrées avant l'assainissement restent en
+    // base, et ce composant sert la page publique /carnet/<token>.
     return (
       <div className="px-4 py-3">
         <div
           className="note-prose text-sm leading-relaxed break-words"
-          dangerouslySetInnerHTML={{ __html: tile.content.content || "<p class='text-[var(--text-tertiary)] italic'>Texte vide</p>" }}
+          dangerouslySetInnerHTML={{
+            __html:
+              sanitizeRichText(tile.content.content || "") ||
+              "<p class='text-[var(--text-tertiary)] italic'>Texte vide</p>",
+          }}
         />
       </div>
     );

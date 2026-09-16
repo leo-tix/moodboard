@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { getStorageQuota } from "@/lib/storage/quota";
 import { AccountSettings } from "@/components/settings/AccountSettings";
+import { TwoFactorSettings } from "@/components/settings/TwoFactorSettings";
+import { countUnusedRecoveryCodes } from "@/lib/auth/recoveryCodes";
 
 export default async function AccountSettingsPage() {
   const session = await auth();
@@ -11,7 +13,7 @@ export default async function AccountSettingsPage() {
   const [user, storage] = await Promise.all([
     db.user.findUnique({
       where: { id: session.user.id },
-      select: { name: true, email: true, image: true, username: true, bio: true, createdAt: true, defaultVisibilityMoodboard: true, defaultVisibilityVisit: true, defaultVisibilityCollection: true },
+      select: { name: true, email: true, image: true, username: true, bio: true, createdAt: true, defaultVisibilityMoodboard: true, defaultVisibilityVisit: true, defaultVisibilityCollection: true, twoFactorEnabled: true, twoFactorEnabledAt: true, twoFactorSecret: true },
     }),
     getStorageQuota(session.user.id),
   ]);
@@ -41,6 +43,20 @@ export default async function AccountSettingsPage() {
           formatted: storage.formatted,
         }}
       />
+
+      {/* Sécurité : second facteur, indépendant du reste du formulaire de compte. */}
+      <div className="mt-10 pt-8 border-t border-[var(--border-subtle)]">
+        <TwoFactorSettings
+          initialStatus={{
+            enabled: user.twoFactorEnabled,
+            pending: !user.twoFactorEnabled && Boolean(user.twoFactorSecret),
+            enabledAt: user.twoFactorEnabledAt?.toISOString() ?? null,
+            recoveryCodesLeft: user.twoFactorEnabled
+              ? await countUnusedRecoveryCodes(session.user.id)
+              : 0,
+          }}
+        />
+      </div>
     </div>
   );
 }
