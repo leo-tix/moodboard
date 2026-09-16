@@ -193,10 +193,22 @@ anormal — et la table `login_attempts` en est déjà la moitié.
 
 ## 4. Mise en production
 
-1. **Migration de base** — trois nouveautés : colonnes 2FA sur `users`, tables
-   `two_factor_recovery_codes` et `login_attempts`.
+1. **Migration de base — à jouer AVANT de déployer le code.** Trois
+   nouveautés : colonnes 2FA sur `users`, tables `two_factor_recovery_codes` et
+   `login_attempts`.
+
+   L'ordre compte. Prisma liste les colonnes explicitement dans ses requêtes :
+   tant que la base n'a pas les nouvelles colonnes, **toute lecture d'un
+   utilisateur échoue** — `/settings/account` renvoie une erreur serveur, et la
+   connexion elle-même ne passe plus. À l'inverse, ajouter les colonnes pendant
+   que l'ancien code tourne ne casse rien (il les ignore). Donc : schéma
+   d'abord, code ensuite.
+
+   Le SQL exact est versionné dans `packages/db/sql/2026-09-16-2fa.sql`
+   (généré par `prisma migrate diff`) — à coller dans la console SQL de Neon,
+   ou :
    ```bash
-   pnpm db:migrate        # ou, si le projet suit `db push` : pnpm --filter @moodboard/db push
+   pnpm --filter @moodboard/db push
    ```
 2. **Variable d'environnement** (optionnelle mais recommandée) :
    ```bash
