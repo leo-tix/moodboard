@@ -116,6 +116,12 @@ const nextConfig: NextConfig = {
 
   serverExternalPackages: ["sharp"],
 
+  // Poids des fonctions serveur : voir scripts/alleger-traces.mjs, lancé après
+  // `next build`. L'option prévue pour ça, `outputFileTracingExcludes`, n'est
+  // PAS utilisable ici : Next ne la lit que dans collect-build-traces, appelé
+  // uniquement quand le bundler n'est pas Turbopack. La déclarer ici ne
+  // retirerait pas un octet — mesuré.
+
   experimental: {
     // Cache client du routeur : réutilise le RSC d'une page déjà visitée sans
     // repasser par le serveur. Par défaut `dynamic: 0` → chaque retour/arrière
