@@ -2,19 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { UserPlus, UserCheck, Share2 } from "lucide-react";
+import { UserPlus, UserCheck, Share2, MessageSquare } from "lucide-react";
 import { UserAvatar } from "@/components/social/UserAvatar";
 
 type Actor = { name: string | null; username: string | null; image: string | null };
 type Notif = {
   id: string;
-  type: "connect_request" | "connect_accepted" | "shared";
+  type: "connect_request" | "connect_accepted" | "shared" | "board_comment";
   ts: string;
   actor: Actor;
   href: string;
   resourceLabel?: string;
   resourceKind?: "MOODBOARD" | "VISIT" | "COLLECTION";
   role?: string;
+  body?: string;
 };
 
 export const NOTIFS_SEEN_KEY = "notifsSeenAt";
@@ -36,6 +37,7 @@ function label(n: Notif): string {
   const who = n.actor.name || (n.actor.username ? `@${n.actor.username}` : "Un membre");
   if (n.type === "connect_request") return `${who} veut se connecter`;
   if (n.type === "connect_accepted") return `${who} a accepté ta demande`;
+  if (n.type === "board_comment") return `${who} a commenté ta planche`;
   const kind = n.resourceKind ? KIND_LABEL[n.resourceKind] : "ressource";
   const verb = n.role === "EDITOR" ? "t'a invité à co-éditer" : "a partagé";
   return `${who} ${verb} une ${kind}`;
@@ -67,7 +69,7 @@ export function NotificationsClient() {
   if (items === null) return <p className="text-sm text-[var(--text-tertiary)] py-8 text-center">Chargement…</p>;
   if (items.length === 0) return <p className="text-sm text-[var(--text-tertiary)] py-10 text-center">Aucune notification pour l&apos;instant.</p>;
 
-  const Icon = { connect_request: UserPlus, connect_accepted: UserCheck, shared: Share2 };
+  const Icon = { connect_request: UserPlus, connect_accepted: UserCheck, shared: Share2, board_comment: MessageSquare };
 
   return (
     <ul className="divide-y divide-[var(--border-subtle)]">
@@ -86,6 +88,7 @@ export function NotificationsClient() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-[var(--text-primary)] truncate">{label(n)}</p>
                 {n.resourceLabel && <p className="text-xs text-[var(--text-tertiary)] truncate">{n.resourceLabel}</p>}
+                {n.body && <p className="text-xs text-[var(--text-secondary)] truncate italic">« {n.body} »</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-[11px] text-[var(--text-tertiary)]">{relTime(n.ts)}</span>

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Rnd } from "react-rnd";
 import { useRouter } from "next/navigation";
-import { Images, ArrowLeft, ArrowRight, Ban, Mic, Orbit } from "lucide-react";
+import { Images, ArrowLeft, ArrowRight, Ban, Mic, Orbit, MessageSquare } from "lucide-react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   MoodboardData,
@@ -34,9 +34,14 @@ import { exportMoodboardAsPng } from "@/lib/moodboard/export";
 import { strokeToElement, eraseStroke } from "@/lib/moodboard/pencil";
 import { VoiceMemoRecorder, type CreatedAudioBlock } from "@/components/visits/VoiceMemoRecorder";
 import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
+import { CommentsLayer, type CommentsLayerHandle } from "@/components/moodboard/comments/CommentsLayer";
+import { CommentsPanel } from "@/components/moodboard/comments/CommentsPanel";
+import { useMoodboardComments } from "@/components/moodboard/comments/useComments";
 
 interface Props {
   initialData: MoodboardData;
+  /** Identité du visiteur pour les commentaires (il est toujours membre ici). */
+  commenter: { name: string; isOwner: boolean };
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -77,7 +82,7 @@ const CURSOR_CROSSHAIR_CSS = (() => {
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export function MoodboardEditor({ initialData }: Props) {
+export function MoodboardEditor({ initialData, commenter }: Props) {
   const router = useRouter();
 
   // ── Canvas state ──
@@ -87,6 +92,29 @@ export function MoodboardEditor({ initialData }: Props) {
   // rndScale is for react-rnd's scale prop (updated at zoom settle).
   const [displayZoom, setDisplayZoom] = useState(1);
   const [rndScale, setRndScale] = useState(1);
+
+  // ── Commentaires épinglés ──
+  // Côté édition, le panneau sert surtout à LIRE les retours laissés par les
+  // invités du lien public ; le propriétaire peut aussi y répondre et résoudre
+  // les fils. `shareToken` reste null : ici, c'est la session qui autorise.
+  const commentsCtl = useMoodboardComments({
+    moodboardId: initialData.id,
+    shareToken: null,
+    enabled: true,
+  });
+  const commentsLayerRef = useRef<CommentsLayerHandle>(null);
+  const [showComments, setShowComments] = useState(false);
+  const [placingComment, setPlacingComment] = useState(false);
+  const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  // Les gestionnaires souris/clavier de la planche sont mémoïsés sans
+  // dépendances et lisent leur contexte dans des refs (motif du fichier) : on y
+  // recopie l'état d'épinglage, qu'ils ne consultent que sur un geste ultérieur.
+  const placingCommentRef = useRef(false);
+  const pendingPinRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => { placingCommentRef.current = placingComment; }, [placingComment]);
+  useEffect(() => { pendingPinRef.current = pendingPin; }, [pendingPin]);
+  const openThreadCount = commentsCtl.threads.filter((t) => !t.resolved).length;
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [shiftHeld, setShiftHeld] = useState(false);
@@ -1205,6 +1233,16 @@ export function MoodboardEditor({ initialData }: Props) {
     kickZoomAnimation();
   }, [kickZoomAnimation]);
 
+  /** Recentre la vue sur l'ancre d'un commentaire (bouton « cible » du panneau). */
+  const focusPin = useCallback((x: number, y: number) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const { width, height } = vp.getBoundingClientRect();
+    const z = zoomTargetRef.current;
+    panTargetRef.current = { x: width / 2 - x * z, y: height / 2 - y * z };
+    kickZoomAnimation();
+  }, [kickZoomAnimation]);
+
   // ── Duplicate helper (shared by Ctrl+D and Alt+drag) ──
   const duplicateElements = useCallback(
     (ids: string[], offsetX = 20, offsetY = 20): CanvasElement[] => {
@@ -1364,6 +1402,12 @@ export function MoodboardEditor({ initialData }: Props) {
 
       // ── Escape ──
       if (e.key === "Escape") {
+        // Annule d'abord un épinglage de commentaire en cours
+        if (placingCommentRef.current || pendingPinRef.current) {
+          setPlacingComment(false);
+          setPendingPin(null);
+          return;
+        }
         // Commit any active text editing (safety net for stuck state)
         if (textEditingIdRef.current) {
           commitTextEdit();
@@ -1451,6 +1495,21 @@ export function MoodboardEditor({ initialData }: Props) {
       // would trigger a second onBlur → commitTextEdit call.
       e.preventDefault();
       commitTextEdit();
+      return;
+    }
+
+    // Mode « épingler un commentaire » : le clic pose l'ancre, aucun outil de
+    // dessin ni sélection ne s'applique. Lu dans une ref car ce gestionnaire
+    // est mémoïsé sans dépendances.
+    if (placingCommentRef.current && e.button === 0) {
+      e.preventDefault();
+      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+      setPendingPin({
+        x: (e.clientX - rect.left - panRef.current.x) / zoomRef.current,
+        y: (e.clientY - rect.top - panRef.current.y) / zoomRef.current,
+      });
+      setPlacingComment(false);
+      setSelectedThreadId(null);
       return;
     }
 
@@ -2600,6 +2659,8 @@ export function MoodboardEditor({ initialData }: Props) {
     }
     // 3. PencilLayer canvas transform
     pencilLayerRef.current?.notifyPanZoom({ x: px, y: py }, z);
+    // 3 bis. Pastilles de commentaires (taille d'écran constante, cf. CommentsLayer)
+    commentsLayerRef.current?.notifyPanZoom({ x: px, y: py }, z);
     // 4. Visibility map — only setState when a value actually flips
     if (vp) {
       const vpW = vp.clientWidth;
@@ -2633,7 +2694,7 @@ export function MoodboardEditor({ initialData }: Props) {
     backgroundImage: `radial-gradient(circle, rgba(128,128,148,0.22) 1px, transparent 1px)`,
     // Default canvas cursor: custom crosshair SVG (hides OS cursor on empty canvas).
     // Canvas elements override this with their own cursor (react-rnd sets cursor:move).
-    cursor: cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
+    cursor: placingComment ? "copy" : cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
   };
 
   return (
@@ -2757,6 +2818,27 @@ export function MoodboardEditor({ initialData }: Props) {
           </button>
         </div>
 
+        {/* Commentaires laissés sur la planche — d'abord ceux des invités du
+            lien public, que le propriétaire vient lire ici. */}
+        <button
+          onClick={() => setShowComments((v) => !v)}
+          title="Commentaires de la planche"
+          className={`text-xs transition-colors px-1.5 py-1 rounded flex-shrink-0 ${
+            showComments
+              ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
+              : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+          }`}
+        >
+          <span className="flex items-center gap-1">
+            <MessageSquare size={13} strokeWidth={1.75} /> Retours
+            {openThreadCount > 0 && (
+              <span className="min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--accent,#a78bfa)] text-[#1a1a1a] text-[9px] font-bold flex items-center justify-center tabular-nums">
+                {openThreadCount}
+              </span>
+            )}
+          </span>
+        </button>
+
         {/* Partage unifié (visibilité + membres + lien public) — remplace l'ancien
             SharePanel token-only pour n'avoir qu'UN seul bouton Partager. */}
         <div className="flex-shrink-0">
@@ -2805,7 +2887,12 @@ export function MoodboardEditor({ initialData }: Props) {
         <div
           ref={viewportRef}
           className="flex-1 relative overflow-hidden"
-          style={{ ...gridStyle, touchAction: "none" }}
+          // isolation: le canvas empile ses propres calques très haut (notes
+          // jusqu'à 99999, menu contextuel à 300, pastilles de commentaires à
+          // 160). Sans contexte d'empilement propre, ces valeurs concurrencent
+          // celles de la page et passent par-dessus les fenêtres modales —
+          // les pastilles s'affichaient ainsi au-dessus du panneau Partage.
+          style={{ ...gridStyle, touchAction: "none", isolation: "isolate" }}
           onMouseDown={handleViewportMouseDown}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
@@ -3588,7 +3675,44 @@ export function MoodboardEditor({ initialData }: Props) {
               <span className="text-xs text-[var(--text-secondary)]">Upload en cours…</span>
             </div>
           )}
+
+          {/* Pastilles de commentaires — visibles seulement panneau ouvert, pour
+              ne pas encombrer la planche pendant le travail de composition.
+              Inertes en mode dessin (le stylet doit tracer, pas cliquer). */}
+          {showComments && (
+            <CommentsLayer
+              ref={commentsLayerRef}
+              threads={commentsCtl.threads}
+              selectedId={selectedThreadId}
+              onSelect={setSelectedThreadId}
+              pendingPin={pendingPin}
+              disabled={drawingMode}
+              getView={() => ({ pan: panRef.current, zoom: zoomRef.current })}
+            />
+          )}
+
+          {placingComment && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[80] pointer-events-none text-[11px] text-[#1a1a1a] bg-[var(--accent,#a78bfa)] px-2.5 py-1 rounded shadow">
+              Clique à l&apos;endroit à commenter — Échap pour annuler
+            </div>
+          )}
         </div>
+
+        {showComments && (
+          <CommentsPanel
+            controller={commentsCtl}
+            viewerName={commenter.name}
+            isOwner={commenter.isOwner}
+            selectedId={selectedThreadId}
+            onSelect={setSelectedThreadId}
+            pendingPin={pendingPin}
+            onCancelPending={() => setPendingPin(null)}
+            placing={placingComment}
+            onTogglePlacing={() => { setPendingPin(null); setPlacingComment((v) => !v); }}
+            onFocusThread={focusPin}
+            onClose={() => { setShowComments(false); setPlacingComment(false); setPendingPin(null); }}
+          />
+        )}
 
       </div>
 

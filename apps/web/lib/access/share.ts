@@ -48,6 +48,13 @@ export async function getShareLink(resource: GrantResource, id: string): Promise
   return null;
 }
 
+/** Les commentaires d'invités sont-ils ouverts ? (planches uniquement). */
+export async function getAllowComments(resource: GrantResource, id: string): Promise<boolean | null> {
+  if (resource !== "MOODBOARD") return null;
+  const row = await db.moodboard.findUnique({ where: { id }, select: { allowComments: true } });
+  return row?.allowComments ?? null;
+}
+
 /** Libellé lisible d'une ressource (pour les messages/chips de partage). */
 export async function resourceLabel(resource: GrantResource, id: string): Promise<string> {
   if (resource === "MOODBOARD") return (await db.moodboard.findUnique({ where: { id }, select: { title: true } }))?.title ?? "Planche";

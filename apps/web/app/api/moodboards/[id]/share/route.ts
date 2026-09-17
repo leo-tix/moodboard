@@ -41,3 +41,32 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   return NextResponse.json(moodboard);
 }
+
+// PATCH /api/moodboards/[id]/share — options du lien public.
+// body: { allowComments: boolean } — autorise (ou non) les invités du lien à
+// épingler des commentaires sur la planche. Orthogonal au lien lui-même : le
+// réglage se conserve si le lien est révoqué puis recréé.
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+
+  const { id } = await params;
+  const body = await req.json().catch(() => ({}));
+  if (typeof body.allowComments !== "boolean") {
+    return NextResponse.json({ error: "Données invalides" }, { status: 400 });
+  }
+
+  const owned = await db.moodboard.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
+
+  const moodboard = await db.moodboard.update({
+    where: { id },
+    data: { allowComments: body.allowComments },
+    select: { allowComments: true },
+  });
+
+  return NextResponse.json(moodboard);
+}
