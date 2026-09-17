@@ -133,6 +133,35 @@ const REGLES = [
   },
 ];
 
+// ── Budget de poids ────────────────────────────────────────────────────────
+//
+// Un chiffre affiché à chaque build ne protège de rien si personne ne le lit.
+// Ces deux plafonds arrêtent le build en cas de dérive, pour que le
+// dépassement soit un choix ÉCRIT (on modifie la constante dans le même
+// commit que la dépendance qui l'a causé) et non une surprise sur la facture
+// trois mois plus tard.
+//
+// Ils attrapent deux dérives distinctes :
+//   - TOTAL : une dépendance lourde entre dans le graphe de toutes les
+//     fonctions (le cas Prisma/sharp qui a mené à ce script).
+//   - FONCTION : une seule route devient énorme sans que le total bronche.
+//
+// Ils attrapent aussi le cas sournois : une montée de version majeure de
+// Prisma ou de Next réorganise ses fichiers, les motifs des règles ci-dessus
+// ne correspondent plus à rien, le script n'élague plus — et seul le poids le
+// dirait.
+//
+// Valeurs posées le 2026-09-17, mesuré à 3,27 Go au total et 39,4 Mo pour la
+// plus lourde fonction (une route /api qui embarque sharp). La marge est
+// volontairement large : il s'agit d'attraper une dérive d'un facteur deux,
+// pas de faire échouer un build parce qu'on a ajouté un composant.
+const BUDGET_TOTAL_MO = 4500;
+const BUDGET_FONCTION_MO = 50;
+
+// Échappatoire pour un déploiement urgent : le build passe, l'avertissement
+// reste. À n'utiliser que le temps de corriger.
+const IGNORER_BUDGET = process.env.POIDS_FONCTIONS_IGNORER_BUDGET === "1";
+
 const octets = (n) => `${(n / 1e6).toFixed(1)} Mo`;
 
 /** Taille d'un fichier, 0 s'il a disparu (les traces contiennent des liens
@@ -158,6 +187,8 @@ async function principal() {
   let avant = 0;
   let apres = 0;
   const gainParRegle = new Map(REGLES.map((r) => [r.nom, 0]));
+  /** Poids APRÈS élagage, par fonction — pour le budget par fonction. */
+  const poidsParFonction = [];
 
   for (const trace of fichiers) {
     const dossier = path.dirname(trace);
@@ -172,6 +203,7 @@ async function principal() {
     // relatifs distincts) : on ne compte sa taille qu'une fois.
     const vus = new Set();
     const vusGardes = new Set();
+    let poidsFonction = 0;
 
     for (const rel of contenu.files ?? []) {
       const absolu = path.normalize(path.join(dossier, rel));
@@ -191,8 +223,17 @@ async function principal() {
       if (!vusGardes.has(absolu)) {
         vusGardes.add(absolu);
         apres += t;
+        poidsFonction += t;
       }
     }
+
+    poidsParFonction.push({
+      poids: poidsFonction,
+      nom: path
+        .relative(dossierServeur, trace)
+        .replace(/\.nft\.json$/, "")
+        .replace(/\\/g, "/"),
+    });
 
     if (gardes.length !== (contenu.files ?? []).length) {
       await writeFile(
@@ -210,10 +251,78 @@ async function principal() {
     if (gain > 0) console.log(`    −${octets(gain).padStart(9)}  ${nom}`);
   }
   console.log("");
+
+  verifierBudget(apres, poidsParFonction);
+}
+
+/**
+ * Compare le poids obtenu aux plafonds et arrête le build s'ils sont
+ * dépassés. Le message explique quoi faire — un build rouge sans mode
+ * d'emploi ne sert qu'à faire perdre du temps.
+ */
+function verifierBudget(total, poidsParFonction) {
+  poidsParFonction.sort((a, b) => b.poids - a.poids);
+  const plusLourde = poidsParFonction[0];
+  const depassements = [];
+
+  if (total > BUDGET_TOTAL_MO * 1e6) {
+    depassements.push(
+      `TOTAL : ${octets(total)} pour un plafond de ${BUDGET_TOTAL_MO} Mo ` +
+        `(dépassement de ${octets(total - BUDGET_TOTAL_MO * 1e6)}).`
+    );
+  }
+  if (plusLourde && plusLourde.poids > BUDGET_FONCTION_MO * 1e6) {
+    depassements.push(
+      `FONCTION : ${plusLourde.nom} pèse ${octets(plusLourde.poids)} ` +
+        `pour un plafond de ${BUDGET_FONCTION_MO} Mo.`
+    );
+  }
+  if (depassements.length === 0) {
+    const margeTotal = (100 * total) / (BUDGET_TOTAL_MO * 1e6);
+    console.log(
+      `[alleger-traces] budget : ${margeTotal.toFixed(0)} % du plafond total, ` +
+        `plus lourde fonction ${octets(plusLourde?.poids ?? 0)} / ${BUDGET_FONCTION_MO} Mo.\n`
+    );
+    return;
+  }
+
+  console.error("\n╭─ POIDS DES FONCTIONS SERVEUR : BUDGET DÉPASSÉ ─────────────");
+  for (const d of depassements) console.error(`│  ${d}`);
+  console.error("│");
+  console.error("│  Les cinq fonctions les plus lourdes :");
+  for (const { poids, nom } of poidsParFonction.slice(0, 5)) {
+    console.error(`│    ${octets(poids).padStart(9)}  ${nom}`);
+  }
+  console.error("│");
+  console.error("│  Chez Vercel, ce poids est multiplié par le nombre de");
+  console.error("│  déploiements conservés — c'est ce qui avait bloqué les");
+  console.error("│  déploiements en septembre 2026 (voir l'en-tête de ce script).");
+  console.error("│");
+  console.error("│  Quoi faire :");
+  console.error("│   1. Trouver ce qui est entré : regrouper les fichiers du");
+  console.error("│      .nft.json d'une fonction par paquet npm et trier.");
+  console.error("│   2. Si le paquet n'est jamais chargé à l'exécution, lui");
+  console.error("│      ajouter une règle ci-dessus, avec sa justification.");
+  console.error("│   3. Si le poids est légitime, relever le plafond DANS LE");
+  console.error("│      MÊME COMMIT, pour que l'historique garde la raison.");
+  console.error("│");
+  console.error("│  Urgence : POIDS_FONCTIONS_IGNORER_BUDGET=1 laisse passer.");
+  console.error("╰────────────────────────────────────────────────────────────\n");
+
+  if (IGNORER_BUDGET) {
+    console.error("[alleger-traces] budget ignoré (POIDS_FONCTIONS_IGNORER_BUDGET=1).\n");
+    return;
+  }
+  // L'élagage lui-même a déjà eu lieu : les traces sont correctes, c'est le
+  // RÉSULTAT qui est jugé trop lourd. On sort en échec pour que `next build`
+  // — et donc le déploiement — s'arrête là.
+  process.exitCode = 1;
 }
 
 principal().catch((e) => {
-  // Un échec ici ne doit pas casser le déploiement : au pire les fonctions
-  // restent lourdes, ce qui est le comportement d'avant ce script.
+  // Un échec TECHNIQUE ici ne doit pas casser le déploiement : au pire les
+  // fonctions restent lourdes, ce qui est le comportement d'avant ce script.
+  // À ne pas confondre avec le dépassement de budget ci-dessus, lui
+  // délibérément bloquant.
   console.error("[alleger-traces] échec, traces laissées intactes :", e);
 });
