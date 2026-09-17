@@ -13,7 +13,12 @@ export const config = {
   // vers /login, le worker met cette redirection en cache, et l'application
   // devient inutilisable sans réseau (le contraire du but recherché).
   // Elle ne rend aucune donnée serveur : tout vient du stockage local.
+  // api/moodboards/<id>/comments : commentaires d'un invité venu par le lien
+  // public — il n'a pas de session, le proxy le renverrait vers /login. La
+  // route fait elle-même son contrôle (jeton de partage valide, non expiré, et
+  // commentaires ouverts) et appelle `auth()` de son côté pour reconnaître un
+  // membre connecté.
   matcher: [
-    "/((?!api/auth|api/share|api/import|login|hors-ligne|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon|carnet\\/[^\\/]+|share\\/(?!(?:upload|social|done|instagram)(?:\\/|$))[^\\/]+).*)",
+    "/((?!api/auth|api/share|api/import|api/moodboards/[^/]+/comments|login|hors-ligne|_next/static|_next/image|favicon\\.ico|manifest\\.json|sw\\.js|icon|carnet\\/[^\\/]+|share\\/(?!(?:upload|social|done|instagram)(?:\\/|$))[^\\/]+).*)",
   ],
 };

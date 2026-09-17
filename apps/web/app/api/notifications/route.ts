@@ -7,13 +7,15 @@ const userSummary = { id: true, name: true, username: true, image: true } as con
 type Actor = { name: string | null; username: string | null; image: string | null };
 type Notif = {
   id: string;
-  type: "connect_request" | "connect_accepted" | "shared";
+  type: "connect_request" | "connect_accepted" | "shared" | "board_comment";
   ts: string; // ISO
   actor: Actor;
   href: string;
   resourceLabel?: string;
   resourceKind?: GrantResource;
   role?: string;
+  /** Extrait du commentaire (type board_comment uniquement). */
+  body?: string;
 };
 
 const resourceHref = (r: GrantResource, id: string) => (r === "MOODBOARD" ? `/moodboards/${id}/edit` : r === "VISIT" ? `/visites/${id}` : `/collections/${id}`);
@@ -27,10 +29,29 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   const me = session.user.id;
 
-  const [requests, accepted, grants] = await Promise.all([
+  const [requests, accepted, grants, boardComments] = await Promise.all([
     db.connection.findMany({ where: { addresseeId: me, status: "PENDING" }, select: { id: true, createdAt: true, requester: { select: userSummary } }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.connection.findMany({ where: { requesterId: me, status: "ACCEPTED" }, select: { id: true, respondedAt: true, createdAt: true, addressee: { select: userSummary } }, orderBy: { respondedAt: "desc" }, take: 50 }),
     db.resourceGrant.findMany({ where: { userId: me }, select: { id: true, resource: true, resourceId: true, role: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 50 }),
+    // Commentaires laissés sur MES planches par quelqu'un d'autre — un invité
+    // du lien public (authorId null) ou un autre membre. Les miens sont exclus :
+    // on ne se notifie pas soi-même. Le cas invité s'énumère explicitement :
+    // un simple `NOT: { authorId: me }` se traduit par `NOT (authorId = me)`,
+    // qui vaut NULL — donc faux — sur les lignes sans auteur, et ferait
+    // disparaître précisément les commentaires d'invités.
+    db.moodboardComment.findMany({
+      where: {
+        moodboard: { userId: me },
+        OR: [{ authorId: null }, { authorId: { not: me } }],
+      },
+      select: {
+        id: true, body: true, authorName: true, createdAt: true,
+        author: { select: userSummary },
+        moodboard: { select: { id: true, title: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
   ]);
 
   // Résout titre + propriétaire de chaque ressource grantée (batch par type).
@@ -57,6 +78,21 @@ export async function GET() {
     const info = resolveGrant(g.resource, g.resourceId);
     if (!info) continue; // ressource supprimée
     items.push({ id: `grant:${g.id}`, type: "shared", ts: g.createdAt.toISOString(), actor: info.owner, href: resourceHref(g.resource, g.resourceId), resourceLabel: info.label, resourceKind: g.resource, role: g.role });
+  }
+
+  for (const c of boardComments) {
+    items.push({
+      id: `comment:${c.id}`,
+      type: "board_comment",
+      ts: c.createdAt.toISOString(),
+      // Un invité n'a pas de compte : on affiche le nom qu'il a saisi, sans
+      // avatar ni lien de profil.
+      actor: c.author ?? { name: c.authorName, username: null, image: null },
+      href: `/moodboards/${c.moodboard.id}/edit`,
+      resourceLabel: c.moodboard.title,
+      resourceKind: "MOODBOARD",
+      body: c.body.length > 90 ? `${c.body.slice(0, 90)}…` : c.body,
+    });
   }
 
   items.sort((a, b) => (a.ts < b.ts ? 1 : -1));

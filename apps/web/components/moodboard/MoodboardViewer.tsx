@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
-import { X } from "lucide-react";
+import { X, MessageSquare } from "lucide-react";
 import { getImageUrl, getThumbnailUrl } from "@/lib/storage/urls";
 import type {
   CanvasElement,
@@ -16,6 +16,9 @@ import type {
 } from "@/lib/moodboard/types";
 import { buildCachedStroke, drawCachedStroke } from "@/lib/moodboard/pencil";
 import { AudioBlockCard } from "@/components/audio/AudioBlockCard";
+import { CommentsLayer, type CommentsLayerHandle } from "@/components/moodboard/comments/CommentsLayer";
+import { CommentsPanel } from "@/components/moodboard/comments/CommentsPanel";
+import { useMoodboardComments } from "@/components/moodboard/comments/useComments";
 
 interface Props {
   data: {
@@ -23,6 +26,20 @@ interface Props {
     title: string;
     canvasData: CanvasElement[];
     background: string;
+  };
+  /**
+   * Commentaires épinglés. Absent → visionneuse strictement en lecture (l'état
+   * d'origine). `shareToken` n'est renseigné que pour un invité arrivé par le
+   * lien public : c'est ce qui l'autorise auprès de l'API. Un membre qui voit
+   * la planche via un partage nominatif le laisse à null et s'authentifie par
+   * sa session.
+   */
+  comments?: {
+    shareToken: string | null;
+    allowComments: boolean;
+    /** Nom du membre connecté ; null → invité, il saisira le sien. */
+    viewerName: string | null;
+    isOwner: boolean;
   };
 }
 
@@ -216,10 +233,29 @@ const StrokeCanvas = forwardRef<StrokeCanvasHandle, { strokeElements: StrokeElem
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function MoodboardViewer({ data }: Props) {
+export function MoodboardViewer({ data, comments }: Props) {
   const viewportRef      = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const strokeCanvasRef  = useRef<StrokeCanvasHandle>(null);
+  const commentsLayerRef = useRef<CommentsLayerHandle>(null);
+
+  // ── Commentaires épinglés ──
+  // Le panneau n'existe que si la planche les a ouverts, ou s'il y en a déjà
+  // (un fil reste lisible même après refermeture des retours).
+  const commentsOn = !!comments;
+  const commentsCtl = useMoodboardComments({
+    moodboardId: data.id,
+    shareToken: comments?.shareToken ?? null,
+    enabled: commentsOn,
+  });
+  const [showComments, setShowComments] = useState(false);
+  const [placingComment, setPlacingComment] = useState(false);
+  const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const openThreadCount = commentsCtl.threads.filter((t) => !t.resolved).length;
+  // Les pastilles restent visibles panneau fermé : elles signalent qu'il y a
+  // des retours, et un clic ouvre le fil correspondant.
+  const showPins = commentsOn && (showComments || commentsCtl.threads.length > 0);
 
   // ── Display-only state — updated at interaction "settle", never mid-gesture.
   // Pan/zoom themselves live in refs and are applied straight to the DOM
@@ -281,6 +317,7 @@ export function MoodboardViewer({ data }: Props) {
       vp.style.backgroundPosition = `${px % gridSize}px ${py % gridSize}px`;
     }
     strokeCanvasRef.current?.notifyPanZoom({ x: px, y: py }, z);
+    commentsLayerRef.current?.notifyPanZoom({ x: px, y: py }, z);
 
     if (vp) {
       const vpW = vp.clientWidth;
@@ -555,8 +592,13 @@ export function MoodboardViewer({ data }: Props) {
         return;
       }
 
-      // Escape → close guide
+      // Escape → annule l'épinglage en cours, sinon ferme le guide
       if (e.key === "Escape") {
+        if (placingComment || pendingPin) {
+          setPlacingComment(false);
+          setPendingPin(null);
+          return;
+        }
         setShowGuide(false);
         return;
       }
@@ -593,13 +635,30 @@ export function MoodboardViewer({ data }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [zoomToFit, applyZoom, applyViewTransform]);
+  }, [zoomToFit, applyZoom, applyViewTransform, placingComment, pendingPin]);
 
   // ── Viewport pan (left-click drag = pan, middle-click = pan) ──
   // In read-only view every click-drag pans — there is no selection / rubber-band.
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
     e.preventDefault();
+
+    // Mode « épingler » : le clic pose l'ancre du futur commentaire au lieu de
+    // déplacer la vue. Les coordonnées sont converties en unités canvas, comme
+    // pour un élément — la pastille reste donc collée au contenu.
+    if (placingComment && e.button === 0) {
+      const vp = viewportRef.current;
+      if (vp) {
+        const rect = vp.getBoundingClientRect();
+        setPendingPin({
+          x: (e.clientX - rect.left - panRef.current.x) / zoomRef.current,
+          y: (e.clientY - rect.top - panRef.current.y) / zoomRef.current,
+        });
+        setPlacingComment(false);
+        setSelectedThreadId(null);
+      }
+      return;
+    }
 
     isPanningRef.current = true;
     panStart.current  = { x: e.clientX, y: e.clientY };
@@ -624,7 +683,17 @@ export function MoodboardViewer({ data }: Props) {
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-  }, [applyViewTransform]);
+  }, [applyViewTransform, placingComment]);
+
+  /** Recentre la vue sur une ancre de commentaire (bouton « cible » du panneau). */
+  const focusPin = useCallback((x: number, y: number) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const { width, height } = vp.getBoundingClientRect();
+    const z = zoomTargetRef.current;
+    panTargetRef.current = { x: width / 2 - x * z, y: height / 2 - y * z };
+    kickZoomAnimation();
+  }, [kickZoomAnimation]);
 
   // ── Grid style (initial paint only — pan/zoom-driven updates go through
   // applyViewTransform directly on the DOM, not through this React style) ──
@@ -633,7 +702,7 @@ export function MoodboardViewer({ data }: Props) {
     backgroundImage: `radial-gradient(circle, rgba(128,128,148,0.18) 1px, transparent 1px)`,
     backgroundSize: `${GRID_PX * zoomRef.current}px ${GRID_PX * zoomRef.current}px`,
     backgroundPosition: `${panRef.current.x % (GRID_PX * zoomRef.current)}px ${panRef.current.y % (GRID_PX * zoomRef.current)}px`,
-    cursor: cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
+    cursor: placingComment ? "copy" : cursor === "default" ? CURSOR_CROSSHAIR_CSS : cursor,
   };
 
   return (
@@ -647,6 +716,28 @@ export function MoodboardViewer({ data }: Props) {
         <span className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)] px-2 py-0.5 rounded">
           Lecture seule
         </span>
+        {/* Commentaires — bouton présent dès que la planche en porte, même si
+            les retours ont été refermés depuis (les fils restent lisibles). */}
+        {commentsOn && (commentsCtl.canWrite || commentsCtl.threads.length > 0) && (
+          <button
+            onClick={() => setShowComments((v) => !v)}
+            title="Commentaires"
+            className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] transition-colors ${
+              showComments
+                ? "bg-[var(--accent,#a78bfa)]/15 border-[var(--accent,#a78bfa)]/40 text-[var(--accent,#a78bfa)]"
+                : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]"
+            }`}
+          >
+            <MessageSquare size={12} strokeWidth={2} />
+            Commentaires
+            {openThreadCount > 0 && (
+              <span className="min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--accent,#a78bfa)] text-[#1a1a1a] text-[9px] font-bold flex items-center justify-center tabular-nums">
+                {openThreadCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {/* Guide toggle */}
         <button
           onClick={() => setShowGuide((v) => !v)}
@@ -661,11 +752,16 @@ export function MoodboardViewer({ data }: Props) {
         </button>
       </div>
 
+      {/* ── Corps : canvas + panneau de commentaires ── */}
+      <div className="flex-1 flex overflow-hidden">
+
       {/* ── Canvas viewport ── */}
       <div
         ref={viewportRef}
         className="flex-1 relative overflow-hidden"
-        style={{ ...gridStyle, touchAction: "none" }}
+        // isolation : même raison que dans l'éditeur — les calques du canvas
+        // restent empilés entre eux et jamais au-dessus du reste de la page.
+        style={{ ...gridStyle, touchAction: "none", isolation: "isolate" }}
         onMouseDown={handleViewportMouseDown}
       >
         {/* Canvas world (transformed directly via ref — see applyViewTransform) */}
@@ -766,6 +862,44 @@ export function MoodboardViewer({ data }: Props) {
             Tout afficher
           </button>
         </div>
+
+        {/* Pastilles de commentaires — hors du conteneur transformé pour
+            garder une taille d'écran constante (voir CommentsLayer). */}
+        {showPins && (
+          <CommentsLayer
+            ref={commentsLayerRef}
+            threads={commentsCtl.threads}
+            selectedId={selectedThreadId}
+            onSelect={(id) => { setSelectedThreadId(id); setShowComments(true); }}
+            pendingPin={pendingPin}
+            getView={() => ({ pan: panRef.current, zoom: zoomRef.current })}
+          />
+        )}
+
+        {/* Rappel du mode épinglage */}
+        {placingComment && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[200] pointer-events-none text-[11px] text-[#1a1a1a] bg-[var(--accent,#a78bfa)] px-2.5 py-1 rounded shadow">
+            Clique à l&apos;endroit à commenter — Échap pour annuler
+          </div>
+        )}
+      </div>
+
+      {commentsOn && showComments && (
+        <CommentsPanel
+          controller={commentsCtl}
+          viewerName={comments!.viewerName}
+          isOwner={comments!.isOwner}
+          selectedId={selectedThreadId}
+          onSelect={setSelectedThreadId}
+          pendingPin={pendingPin}
+          onCancelPending={() => setPendingPin(null)}
+          placing={placingComment}
+          onTogglePlacing={() => { setPendingPin(null); setPlacingComment((v) => !v); }}
+          onFocusThread={focusPin}
+          onClose={() => { setShowComments(false); setPlacingComment(false); setPendingPin(null); }}
+        />
+      )}
+
       </div>
     </div>
   );

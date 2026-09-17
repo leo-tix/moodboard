@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Share2, X, Lock, Users, Globe, Search, Check, Link2 } from "lucide-react";
+import { Share2, X, Lock, Users, Globe, Search, Check, Link2, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/social/UserAvatar";
 
@@ -29,6 +29,8 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
   const [results, setResults] = useState<UserLite[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [publicToken, setPublicToken] = useState<string | null>(null);
+  // Commentaires d'invités — planches uniquement (null = sans objet ici).
+  const [allowComments, setAllowComments] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -39,13 +41,20 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
     setLoading(true);
     try {
       const r = await fetch(`/api/share/${resource}/${id}`);
-      if (r.ok) { const d = await r.json(); setVisibility(d.visibility ?? "PRIVATE"); setGrants(d.grants ?? []); setPublicToken(d.publicToken ?? null); }
+      if (r.ok) { const d = await r.json(); setVisibility(d.visibility ?? "PRIVATE"); setGrants(d.grants ?? []); setPublicToken(d.publicToken ?? null); setAllowComments(d.allowComments ?? null); }
     } finally { setLoading(false); }
   }, [resource, id]);
 
   const togglePublicLink = async (create: boolean) => {
     const r = await fetch(`/api/${resource}/${id}/share`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expiry: create ? "never" : null }) });
     if (r.ok) { const d = await r.json(); setPublicToken(d.shareToken ?? null); }
+  };
+  // Le réglage vit sur la planche, pas sur le lien : il survit à une
+  // révocation puis recréation du lien public.
+  const toggleComments = async (next: boolean) => {
+    setAllowComments(next); // optimiste — l'interrupteur doit répondre au doigt
+    const r = await fetch(`/api/${resource}/${id}/share`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ allowComments: next }) });
+    if (!r.ok) setAllowComments(!next);
   };
   const copyLink = () => {
     if (!publicToken || !publicPrefix) return;
@@ -213,6 +222,26 @@ export function ShareButton({ resource, id, allowEditor = false, label = "Partag
                     <button onClick={() => togglePublicLink(true)} className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
                       <Link2 size={13} /> Créer un lien public (sans compte)
                     </button>
+                  )}
+
+                  {/* Commentaires d'invités — planches uniquement */}
+                  {allowComments !== null && (
+                    <label className="flex items-start gap-2.5 pt-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={allowComments}
+                        onChange={(e) => toggleComments(e.target.checked)}
+                        className="mt-0.5 accent-[var(--accent,#a78bfa)] shrink-0"
+                      />
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5 text-xs text-[var(--text-primary)]">
+                          <MessageSquare size={12} /> Autoriser les commentaires
+                        </span>
+                        <span className="block text-[11px] text-[var(--text-tertiary)] mt-0.5">
+                          Toute personne ayant le lien peut épingler un commentaire sur la planche, en indiquant son nom. Tu les retrouves dans l&apos;éditeur.
+                        </span>
+                      </span>
+                    </label>
                   )}
                 </div>
               )}

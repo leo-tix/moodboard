@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { segmentToResource, isOwner, updateVisibility, getVisibility, getShareLink } from "@/lib/access/share";
+import { segmentToResource, isOwner, updateVisibility, getVisibility, getShareLink, getAllowComments } from "@/lib/access/share";
 import { visibilitySchema } from "@/lib/validators/share";
 
 type Params = { params: Promise<{ resource: string; id: string }> };
@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!resource) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   if (!(await isOwner(resource, id, session.user.id))) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  const [visibility, grants, link] = await Promise.all([
+  const [visibility, grants, link, allowComments] = await Promise.all([
     getVisibility(resource, id),
     db.resourceGrant.findMany({
       where: { resource, resourceId: id },
@@ -23,8 +23,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       orderBy: { createdAt: "asc" },
     }),
     getShareLink(resource, id),
+    getAllowComments(resource, id),
   ]);
-  return NextResponse.json({ visibility, grants, publicToken: link?.shareToken ?? null });
+  return NextResponse.json({ visibility, grants, publicToken: link?.shareToken ?? null, allowComments });
 }
 
 // PATCH /api/share/[resource]/[id] — change la visibilité (owner only).

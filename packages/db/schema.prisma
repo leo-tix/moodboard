@@ -56,8 +56,9 @@ model User {
   recoveryCodes    TwoFactorRecoveryCode[]
   inspirations     Inspiration[]
   collections      Collection[]
-  moodboards       Moodboard[]
-  moodboardFolders MoodboardFolder[]
+  moodboards        Moodboard[]
+  moodboardFolders  MoodboardFolder[]
+  moodboardComments MoodboardComment[]
   visits           Visit[]
   tags             Tag[]
 
@@ -915,12 +916,17 @@ model Moodboard {
   previewKey     String?   // vignette précalculée (R2) — aperçu sans lire canvasData
   shareToken     String?   @unique @default(uuid())
   shareExpiry    DateTime?
+  // Commentaires d'invités sur le lien public. Désactivé par défaut : le
+  // partage par lien reste une simple lecture tant que le propriétaire n'a
+  // pas explicitement ouvert les retours (case du panneau Partage).
+  allowComments  Boolean   @default(false)
   // Visibilité entre membres (orthogonale au lien-token public /share).
   visibility     Visibility @default(PRIVATE)
   order          Int       @default(0)
   folderId       String?
   folder         MoodboardFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   audioClips     MoodboardAudio[]
+  comments       MoodboardComment[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -940,4 +946,54 @@ model MoodboardFolder {
 
   @@index([userId])
   @@map("moodboard_folders")
+}
+
+// Commentaire épinglé sur une planche.
+//
+// Deux populations écrivent ici : les MEMBRES (authorId renseigné) et les
+// INVITÉS arrivés par le lien public /share/<token>, qui n'ont pas de compte.
+// Un invité s'identifie par un simple nom libre (authorName) plus un jeton
+// anonyme tiré dans son navigateur ; seul le SHA-256 de ce jeton est stocké
+// (guestKey), jamais le jeton lui-même — il sert uniquement à lui laisser
+// modifier/supprimer SES commentaires depuis le même navigateur, et ne
+// constitue pas un identifiant exploitable côté serveur.
+//
+// Un commentaire racine (parentId = null) porte une ancre (x, y) en
+// coordonnées canvas — les mêmes que CanvasElement.x/y, donc la pastille suit
+// le zoom et le déplacement de la vue. Les réponses héritent de l'ancre de
+// leur racine et laissent x/y à null.
+model MoodboardComment {
+  id          String    @id @default(cuid())
+  moodboardId String
+  moodboard   Moodboard @relation(fields: [moodboardId], references: [id], onDelete: Cascade)
+
+  // Fil de discussion : null = commentaire racine épinglé, sinon réponse.
+  parentId String?
+  parent   MoodboardComment?  @relation("MoodboardCommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  MoodboardComment[] @relation("MoodboardCommentThread")
+
+  // Ancre canvas — racine uniquement (null sur les réponses).
+  x Float?
+  y Float?
+
+  body       String
+  authorName String
+
+  // Identité : membre connecté (authorId) OU invité (guestKey), jamais les deux.
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  guestKey String?
+  // SHA-256 de l'IP de l'invité — sert uniquement à limiter la cadence
+  // d'écriture (anti-spam). Jamais exposé par l'API.
+  ipHash   String?
+
+  resolved   Boolean   @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([moodboardId, parentId])
+  @@index([moodboardId, createdAt])
+  @@index([parentId])
+  @@map("moodboard_comments")
 }

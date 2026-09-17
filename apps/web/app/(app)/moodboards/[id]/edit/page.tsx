@@ -41,11 +41,23 @@ export default async function MoodboardEditPage({ params }: Props) {
     mergedCanvasData = [...canvasData, ...strokeEls];
   }
 
-  // Lecteur → visionneuse (pas d'édition).
+  // Identité affichée sur les commentaires : un membre signe de son compte,
+  // il ne saisit pas de nom libre (réservé aux invités du lien public).
+  const profile = await db.user.findUnique({
+    where: { id: user.id },
+    select: { name: true, username: true },
+  });
+  const commenterName = profile?.name || (profile?.username ? `@${profile.username}` : "Membre");
+
+  // Lecteur → visionneuse (pas d'édition), commentaires compris : un lecteur
+  // autorisé peut laisser un retour comme un invité du lien, sous son identité.
   if (access === "viewer") {
     return (
       <div className="min-h-screen bg-[var(--bg-base)]">
-        <MoodboardViewer data={{ id: moodboard.id, title: moodboard.title, canvasData: mergedCanvasData, background: moodboard.background }} />
+        <MoodboardViewer
+          data={{ id: moodboard.id, title: moodboard.title, canvasData: mergedCanvasData, background: moodboard.background }}
+          comments={{ shareToken: null, allowComments: moodboard.allowComments, viewerName: commenterName, isOwner: false }}
+        />
       </div>
     );
   }
@@ -65,6 +77,7 @@ export default async function MoodboardEditPage({ params }: Props) {
         createdAt: moodboard.createdAt.toISOString(),
         updatedAt: moodboard.updatedAt.toISOString(),
       }}
+      commenter={{ name: commenterName, isOwner: access === "owner" }}
     />
   );
 }
