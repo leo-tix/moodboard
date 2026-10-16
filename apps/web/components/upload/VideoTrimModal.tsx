@@ -187,8 +187,12 @@ export function VideoTrimModal({
             <span>Fin {fmt(end)}</span>
           </div>
           {/* Deux curseurs natifs superposés — fiables au toucher (pas de
-              geste maison à reproduire), contrairement à un cadre custom. */}
-          <div className="relative h-8">
+              geste maison à reproduire), contrairement à un cadre custom.
+              Le `pointer-events: none` sur la piste + `auto` sur la seule
+              poignée (CSS ci-dessous) évite que le curseur du dessus
+              (zIndex supérieur) capte le toucher sur TOUTE sa largeur et
+              rende l'autre poignée inatteignable (bug mobile 2026-10-16). */}
+          <div className="relative h-8 dual-range">
             <input
               type="range"
               min={0}
@@ -197,7 +201,7 @@ export function VideoTrimModal({
               value={start}
               onChange={(e) => onChangeStart(Number(e.target.value))}
               className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full accent-white"
-              style={{ zIndex: 2 }}
+              style={{ zIndex: start > end - (duration * 0.05) ? 4 : 2 }}
             />
             <input
               type="range"
@@ -210,6 +214,17 @@ export function VideoTrimModal({
               style={{ zIndex: 3 }}
             />
           </div>
+          <style jsx>{`
+            .dual-range input[type="range"] {
+              pointer-events: none;
+            }
+            .dual-range input[type="range"]::-webkit-slider-thumb {
+              pointer-events: auto;
+            }
+            .dual-range input[type="range"]::-moz-range-thumb {
+              pointer-events: auto;
+            }
+          `}</style>
         </div>
       )}
 
