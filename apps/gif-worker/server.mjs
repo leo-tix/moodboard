@@ -22,13 +22,19 @@ const TOKEN = process.env.GIF_WORKER_TOKEN;
 // par apps/web après vérification de session utilisateur.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN || "https://moodboard.leotix.fr,http://localhost:3000")
   .split(",").map((s) => s.trim()).filter(Boolean);
-const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 150 * 1024 * 1024); // 150 Mo
+// 1,5 Go — généreux volontairement : la vidéo brute n'est JAMAIS conservée
+// (fichier temporaire supprimé après conversion, voir cleanup()), seul le
+// GIF recadré repart. Le "-ss" avant "-i" (seek d'ENTRÉE, pas de décodage)
+// fait que le poids du fichier source n'allonge pas le temps de conversion
+// du passage recadré — seul le temps de transfert en dépend (retour
+// utilisateur 2026-10-16).
+const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 1.5 * 1024 * 1024 * 1024);
 const MAX_DURATION_S = Number(process.env.MAX_DURATION_S || 15);
 const MAX_WIDTH = Number(process.env.MAX_WIDTH || 480);
 const DEFAULT_FPS = Number(process.env.DEFAULT_FPS || 12);
 const MAX_FPS = Number(process.env.MAX_FPS || 20);
 const MAX_CONCURRENCY = Number(process.env.MAX_CONCURRENCY || 1);
-const FFMPEG_TIMEOUT_MS = Number(process.env.FFMPEG_TIMEOUT_MS || 60_000);
+const FFMPEG_TIMEOUT_MS = Number(process.env.FFMPEG_TIMEOUT_MS || 90_000);
 
 if (!TOKEN) {
   console.error("GIF_WORKER_TOKEN manquant — arrêt (voir .env.example).");

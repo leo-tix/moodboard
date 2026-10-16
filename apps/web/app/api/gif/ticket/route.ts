@@ -40,6 +40,6 @@ export async function GET() {
     // Limites appliquées côté worker — exposées pour une validation client
     // précoce, avant même la tentative d'envoi.
     maxDurationS: Number(process.env.GIF_MAX_DURATION_S || 15),
-    maxUploadBytes: Number(process.env.GIF_MAX_UPLOAD_BYTES || 150 * 1024 * 1024),
+    maxUploadBytes: Number(process.env.GIF_MAX_UPLOAD_BYTES || 1.5 * 1024 * 1024 * 1024),
   });
 }

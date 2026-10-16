@@ -7,6 +7,7 @@ import { Image as ImageIcon, Mic, Camera, X, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { enqueueCapture, OUTBOX_SYNCED_EVENT } from "@/lib/offline/outbox";
+import { VideoTrimModal } from "@/components/upload/VideoTrimModal";
 import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
 import { useBackgroundMemo } from "@/components/visits/BackgroundMemoProvider";
 
@@ -42,6 +43,12 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
   const [error, setError] = useState<string | null>(null);
   // Message neutre (capture mise en file hors ligne) — distinct de `error`.
   const [info, setInfo] = useState<string | null>(null);
+  // Vidéos en attente de recadrage/conversion (galerie uniquement, voir
+  // handlePhotoFiles) — une à la fois dans la modale, converties en GIF
+  // puis réinjectées dans le pipeline photo classique (retour utilisateur
+  // 2026-10-16 : "permettre en visite d'uploader une vidéo aussi").
+  const [videoQueue, setVideoQueue] = useState<File[]>([]);
+  const activeVideo = videoQueue[0] ?? null;
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
@@ -112,7 +119,19 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
     // aucun `change`, et l'appareil resterait bloqué sur le cliché précédent.
     if (galleryInputRef.current) galleryInputRef.current.value = "";
     if (cameraInputRef.current) cameraInputRef.current.value = "";
-    void traiterPhotos(liste);
+
+    const videos = liste.filter((f) => f.type.startsWith("video/"));
+    const photos = liste.filter((f) => !f.type.startsWith("video/"));
+    if (photos.length) void traiterPhotos(photos);
+    if (videos.length) {
+      // La conversion appelle le service VPS en direct : pas de file
+      // hors-ligne possible pour une vidéo (contrairement aux photos).
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        setInfo("Connexion requise pour convertir une vidéo en GIF — réessaie une fois en ligne.");
+      } else {
+        setVideoQueue((prev) => [...prev, ...videos]);
+      }
+    }
   };
 
   const traiterPhotos = async (liste: File[]) => {
@@ -253,12 +272,12 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
 
   return (
     <>
-      {/* Galerie : pas de `capture`, l'utilisateur choisit des photos déjà
-          existantes sur son appareil. */}
+      {/* Galerie : pas de `capture`, l'utilisateur choisit des photos (ou une
+          courte vidéo, convertie en GIF) déjà existantes sur son appareil. */}
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/mp4,video/quicktime,video/webm,video/x-m4v"
         multiple
         className="hidden"
         onChange={(e) => handlePhotoFiles(e.target.files)}
@@ -397,6 +416,17 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
         onCreated={handleMemoCreated}
         onInfo={setInfo}
       />
+
+      {activeVideo && (
+        <VideoTrimModal
+          file={activeVideo}
+          onCancel={() => setVideoQueue((prev) => prev.slice(1))}
+          onConverted={(gifFile) => {
+            setVideoQueue((prev) => prev.slice(1));
+            void traiterPhotos([gifFile]);
+          }}
+        />
+      )}
     </>
   );
 }

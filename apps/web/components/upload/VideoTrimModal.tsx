@@ -20,6 +20,53 @@ interface Ticket {
   maxUploadBytes: number;
 }
 
+type Phase = "idle" | "uploading" | "converting" | "error";
+
+// Upload direct au worker VPS avec suivi de PROGRESSION RÉELLE (XHR, pas
+// fetch — fetch n'expose pas d'événement de progression d'upload). Au-delà
+// de 100% d'envoi, plus aucun octet ne transite : la conversion ffmpeg
+// tourne côté serveur sans retour chiffrable, d'où la phase "converting"
+// (indéterminée) plutôt qu'un pourcentage inventé.
+function uploadWithProgress(
+  ticket: Ticket,
+  file: File,
+  start: number,
+  end: number,
+  onProgress: (pct: number) => void,
+  onUploaded: () => void,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("start", String(start));
+    fd.append("end", String(end));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", ticket.url);
+    xhr.setRequestHeader("Authorization", `Bearer ${ticket.token}`);
+    xhr.responseType = "blob";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.upload.onload = () => { onProgress(100); onUploaded(); };
+    xhr.onload = async () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response as Blob);
+        return;
+      }
+      let message = "Échec de la conversion.";
+      try {
+        const body = JSON.parse(await (xhr.response as Blob).text());
+        if (body.error === "too_long") message = `Intervalle trop long (max ${ticket.maxDurationS}s).`;
+        else if (body.error) message = body.error;
+      } catch { /* corps non-JSON — message générique */ }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error("Erreur réseau."));
+    xhr.send(fd);
+  });
+}
+
 export function VideoTrimModal({
   file,
   onCancel,
@@ -36,9 +83,12 @@ export function VideoTrimModal({
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [uploadPct, setUploadPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [maxDurationS, setMaxDurationS] = useState(15);
+  const [maxUploadBytes, setMaxUploadBytes] = useState(150 * 1024 * 1024);
+  const busy = phase === "uploading" || phase === "converting";
 
   useEffect(() => {
     const u = URL.createObjectURL(file);
@@ -52,7 +102,10 @@ export function VideoTrimModal({
   useEffect(() => {
     fetch("/api/gif/ticket")
       .then((r) => r.json())
-      .then((t: Partial<Ticket>) => { if (t.maxDurationS) setMaxDurationS(t.maxDurationS); })
+      .then((t: Partial<Ticket>) => {
+        if (t.maxDurationS) setMaxDurationS(t.maxDurationS);
+        if (t.maxUploadBytes) setMaxUploadBytes(t.maxUploadBytes);
+      })
       .catch(() => {});
   }, []);
 
@@ -83,17 +136,34 @@ export function VideoTrimModal({
     setPlaying(true);
   };
 
+  // En déplaçant une poignée, on affiche la frame correspondante — sans ça
+  // la vidéo reste figée sur une frame quelconque pendant le réglage, sans
+  // indice visuel de "où" on se trouve (retour utilisateur 2026-10-16).
+  const seekPreview = (t: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) { v.pause(); setPlaying(false); }
+    v.currentTime = t;
+  };
+
   const onChangeStart = useCallback((val: number) => {
-    setStart(Math.min(val, end - 0.2));
+    const next = Math.min(val, end - 0.2);
+    setStart(next);
+    seekPreview(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [end]);
 
   const onChangeEnd = useCallback((val: number) => {
     const maxEnd = Math.min(duration, start + maxDurationS);
-    setEnd(Math.max(val, start + 0.2) > maxEnd ? maxEnd : Math.max(val, start + 0.2));
+    const next = Math.max(val, start + 0.2) > maxEnd ? maxEnd : Math.max(val, start + 0.2);
+    setEnd(next);
+    seekPreview(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, duration, maxDurationS]);
 
   const confirm = async () => {
-    setBusy(true);
+    setPhase("uploading");
+    setUploadPct(0);
     setError(null);
     try {
       const ticketRes = await fetch("/api/gif/ticket");
@@ -105,30 +175,26 @@ export function VideoTrimModal({
         throw new Error(`Vidéo trop lourde (max ${Math.round(ticket.maxUploadBytes / 1024 / 1024)} Mo).`);
       }
 
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("start", String(start));
-      fd.append("end", String(end));
-
-      const res = await fetch(ticket.url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${ticket.token}` },
-        body: fd,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error === "too_long" ? `Intervalle trop long (max ${maxDurationS}s).` : "Échec de la conversion.");
-      }
-      const blob = await res.blob();
+      const blob = await uploadWithProgress(
+        ticket, file, start, end,
+        setUploadPct,
+        () => setPhase("converting"),
+      );
       const gifFile = new File([blob], file.name.replace(/\.[^.]+$/, "") + ".gif", { type: "image/gif" });
       onConverted(gifFile);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur réseau.");
-      setBusy(false);
+      setPhase("error");
     }
   };
 
   const fmt = (s: number) => `${s.toFixed(1)}s`;
+  const fmtSize = (bytes: number) =>
+    bytes >= 1024 * 1024 * 1024
+      ? `${Math.round((bytes / 1024 / 1024 / 1024) * 10) / 10} Go`
+      : `${Math.round(bytes / 1024 / 1024)} Mo`;
+  const startPct = duration > 0 ? (start / duration) * 100 : 0;
+  const endPct = duration > 0 ? (end / duration) * 100 : 0;
 
   if (typeof document === "undefined") return null;
 
@@ -141,10 +207,24 @@ export function VideoTrimModal({
         <p className="text-sm font-medium text-white/90 truncate flex items-center gap-1.5"><Film size={14} strokeWidth={2} /> Vidéo → GIF</p>
         <button onClick={confirm} disabled={busy || duration === 0} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-black text-sm font-medium disabled:opacity-40 transition-opacity flex-shrink-0">
           {busy ? <Loader2 size={15} className="animate-spin" /> : null}
-          {busy ? "Conversion…" : "Convertir"}
+          {phase === "uploading" ? `Envoi… ${uploadPct}%` : phase === "converting" ? "Conversion…" : "Convertir"}
         </button>
       </div>
 
+      {/* Barre de progression — envoi chiffré (octets réellement transmis),
+          puis indéterminée pendant la conversion ffmpeg côté serveur (aucun
+          octet ne transite à ce moment, pas de pourcentage honnête
+          possible) — retour utilisateur 2026-10-16, "on ne sait pas où ça
+          en est". */}
+      {busy && (
+        <div className="flex-shrink-0 h-1 bg-white/10 overflow-hidden">
+          {phase === "uploading" ? (
+            <div className="h-full bg-white transition-[width] duration-150" style={{ width: `${uploadPct}%` }} />
+          ) : (
+            <div className="h-full w-1/3 bg-white animate-[indeterminate_1.2s_ease-in-out_infinite]" />
+          )}
+        </div>
+      )}
       <div className="flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden">
         <div className="relative inline-block max-w-full max-h-[60vh]">
           {url && (
@@ -181,18 +261,32 @@ export function VideoTrimModal({
 
       {duration > 0 && (
         <div className="flex-shrink-0 px-5 pb-2">
-          <div className="flex justify-between text-[11px] text-white/60 mb-1.5 tabular-nums">
+          <div className="flex justify-between text-[11px] text-white/60 mb-2.5 tabular-nums">
             <span>Début {fmt(start)}</span>
             <span>{(end - start).toFixed(1)}s / {maxDurationS}s max</span>
             <span>Fin {fmt(end)}</span>
           </div>
-          {/* Deux curseurs natifs superposés — fiables au toucher (pas de
-              geste maison à reproduire), contrairement à un cadre custom.
-              Le `pointer-events: none` sur la piste + `auto` sur la seule
-              poignée (CSS ci-dessous) évite que le curseur du dessus
-              (zIndex supérieur) capte le toucher sur TOUTE sa largeur et
-              rende l'autre poignée inatteignable (bug mobile 2026-10-16). */}
+          {/* Piste/poignées entièrement custom (divs décoratives) — les deux
+              <input type=range> réels restent superposés par-dessus mais
+              INVISIBLES (opacity:0), avec le toucher limité à leur seule
+              poignée native (CSS plus bas). Rendre fiable ET lisible : avant
+              ce changement, les pistes natives des deux curseurs se
+              chevauchaient visuellement (rendu confus — retour utilisateur
+              2026-10-16). */}
           <div className="relative h-8 dual-range">
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15 pointer-events-none" />
+            <div
+              className="absolute top-1/2 -translate-y-1/2 h-1 rounded-full bg-white pointer-events-none"
+              style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
+            />
+            <div
+              className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
+              style={{ left: `${startPct}%`, transform: "translate(-50%, -50%)" }}
+            />
+            <div
+              className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
+              style={{ left: `${endPct}%`, transform: "translate(-50%, -50%)" }}
+            />
             <input
               type="range"
               min={0}
@@ -200,8 +294,9 @@ export function VideoTrimModal({
               step={0.1}
               value={start}
               onChange={(e) => onChangeStart(Number(e.target.value))}
-              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full accent-white"
+              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0"
               style={{ zIndex: start > end - (duration * 0.05) ? 4 : 2 }}
+              aria-label="Début du passage"
             />
             <input
               type="range"
@@ -210,29 +305,46 @@ export function VideoTrimModal({
               step={0.1}
               value={end}
               onChange={(e) => onChangeEnd(Number(e.target.value))}
-              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full accent-white"
+              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0"
               style={{ zIndex: 3 }}
+              aria-label="Fin du passage"
             />
           </div>
-          <style jsx>{`
-            .dual-range input[type="range"] {
-              pointer-events: none;
-            }
-            .dual-range input[type="range"]::-webkit-slider-thumb {
-              pointer-events: auto;
-            }
-            .dual-range input[type="range"]::-moz-range-thumb {
-              pointer-events: auto;
-            }
-          `}</style>
         </div>
       )}
+      {/* Balise <style> ordinaire (pas styled-jsx — deux <style jsx> dans le
+          même composant, l'un global pour @keyframes et l'autre scopé pour
+          .dual-range, déclenchaient "nested styled-jsx tag" au build). Les
+          sélecteurs sont assez spécifiques (.dual-range, @keyframes
+          indeterminate) pour ne rien heurter ailleurs dans l'app. */}
+      <style>{`
+        @keyframes indeterminate {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(300%); }
+        }
+        .dual-range input[type="range"] {
+          pointer-events: none;
+        }
+        .dual-range input[type="range"]::-webkit-slider-thumb {
+          pointer-events: auto;
+          width: 28px;
+          height: 28px;
+        }
+        .dual-range input[type="range"]::-moz-range-thumb {
+          pointer-events: auto;
+          width: 28px;
+          height: 28px;
+          border: none;
+        }
+      `}</style>
 
       {error && (
         <p className="flex-shrink-0 text-center text-[11px] text-red-400 pb-2 px-4">{error}</p>
       )}
       <p className="flex-shrink-0 text-center text-[11px] text-white/60 pb-[calc(1rem+env(safe-area-inset-bottom))] px-4">
-        Ajuste le début et la fin, puis « Convertir » — {maxDurationS}s maximum.
+        {phase === "converting"
+          ? "Conversion en cours sur le serveur — ça peut prendre quelques secondes…"
+          : `Ajuste le début et la fin, puis « Convertir » — ${maxDurationS}s maximum, vidéo jusqu'à ${fmtSize(maxUploadBytes)}.`}
       </p>
     </div>,
     document.body,
