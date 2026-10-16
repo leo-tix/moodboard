@@ -20,7 +20,97 @@ interface Ticket {
   maxUploadBytes: number;
 }
 
-type Phase = "idle" | "uploading" | "converting" | "error";
+type Phase = "idle" | "trimming" | "uploading" | "converting" | "error";
+
+// Au-delà de ce poids, ça vaut le coup de recadrer EN LOCAL avant d'envoyer
+// (retour utilisateur 2026-10-16 : "n'envoyer sur le serveur que le segment
+// à convertir", pour que ce soit plus rapide). En dessous, l'aller-retour
+// réseau est déjà rapide et l'attente d'enregistrement (temps réel, borné
+// à la durée du passage) coûterait plus qu'elle ne ferait gagner.
+const CLIENT_TRIM_MIN_SIZE = 20 * 1024 * 1024;
+
+// Recadre la vidéo DANS LE NAVIGATEUR : on relit le passage [start, end] en
+// capturant le flux vidéo de l'élément (captureStream) dans un
+// MediaRecorder, qui produit un petit fichier WebM ne contenant QUE le
+// segment voulu — c'est lui qui part ensuite au serveur, pas la vidéo
+// entière. Coûte un temps réel égal à la durée du passage (ça "joue" la
+// vidéo pour la capturer), mais ce temps est borné (15s max) et largement
+// compensé par un envoi réseau bien plus léger sur une grosse vidéo source.
+// `null` = API indisponible ou échec → l'appelant retombe sur l'envoi du
+// fichier original (le serveur fait alors le recadrage lui-même, comme
+// avant).
+// `captureStream` est un standard récent, pas encore dans lib.dom.d.ts de
+// TypeScript sur toutes les versions — présent à l'exécution sur les
+// navigateurs qui le supportent, absent sinon (d'où le typeof plus bas).
+interface VideoElementWithCapture extends HTMLVideoElement {
+  captureStream?: () => MediaStream;
+}
+
+async function recordSegmentClientSide(
+  video: HTMLVideoElement,
+  start: number,
+  end: number,
+  onProgress: (pct: number) => void,
+): Promise<Blob | null> {
+  const captureEl = video as VideoElementWithCapture;
+  if (typeof MediaRecorder === "undefined" || typeof captureEl.captureStream !== "function") return null;
+  let stream: MediaStream;
+  try {
+    stream = captureEl.captureStream();
+  } catch {
+    return null;
+  }
+  const videoTrack = stream.getVideoTracks()[0];
+  if (!videoTrack) return null;
+
+  const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+    .find((t) => MediaRecorder.isTypeSupported?.(t));
+  if (!mimeType) return null;
+
+  let recorder: MediaRecorder;
+  try {
+    recorder = new MediaRecorder(new MediaStream([videoTrack]), { mimeType });
+  } catch {
+    return null;
+  }
+
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const stopped = new Promise<Blob>((resolve, reject) => {
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+    recorder.onerror = (e) => reject(e);
+  });
+
+  video.pause();
+  if (Math.abs(video.currentTime - start) > 0.05) {
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => { video.removeEventListener("seeked", onSeeked); resolve(); };
+      video.addEventListener("seeked", onSeeked);
+      video.currentTime = start;
+    });
+  }
+
+  recorder.start();
+  try {
+    await video.play();
+  } catch {
+    recorder.stop();
+    return null;
+  }
+
+  await new Promise<void>((resolve) => {
+    const tick = () => {
+      if (video.currentTime >= end || video.ended) { resolve(); return; }
+      onProgress(Math.max(0, Math.min(100, Math.round(((video.currentTime - start) / (end - start)) * 100))));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  video.pause();
+  recorder.stop();
+  return stopped;
+}
 
 // Upload direct au worker VPS avec suivi de PROGRESSION RÉELLE (XHR, pas
 // fetch — fetch n'expose pas d'événement de progression d'upload). Au-delà
@@ -88,7 +178,7 @@ export function VideoTrimModal({
   const [error, setError] = useState<string | null>(null);
   const [maxDurationS, setMaxDurationS] = useState(15);
   const [maxUploadBytes, setMaxUploadBytes] = useState(150 * 1024 * 1024);
-  const busy = phase === "uploading" || phase === "converting";
+  const busy = phase === "trimming" || phase === "uploading" || phase === "converting";
 
   useEffect(() => {
     const u = URL.createObjectURL(file);
@@ -162,8 +252,6 @@ export function VideoTrimModal({
   }, [start, duration, maxDurationS]);
 
   const confirm = async () => {
-    setPhase("uploading");
-    setUploadPct(0);
     setError(null);
     try {
       const ticketRes = await fetch("/api/gif/ticket");
@@ -171,12 +259,35 @@ export function VideoTrimModal({
       if (!ticketRes.ok || !ticket.url || !ticket.token) {
         throw new Error(ticket.error || "Service de conversion indisponible.");
       }
-      if (file.size > ticket.maxUploadBytes) {
-        throw new Error(`Vidéo trop lourde (max ${Math.round(ticket.maxUploadBytes / 1024 / 1024)} Mo).`);
+
+      let uploadFile: File = file;
+      let uploadStart = start;
+      let uploadEnd = end;
+
+      if (file.size > CLIENT_TRIM_MIN_SIZE && videoRef.current) {
+        setPhase("trimming");
+        setUploadPct(0);
+        const segment = await recordSegmentClientSide(videoRef.current, start, end, setUploadPct).catch(() => null);
+        if (segment && segment.size > 0) {
+          uploadFile = new File([segment], "segment.webm", { type: segment.type || "video/webm" });
+          // Petite marge : le minutage de l'enregistrement n'est pas à la
+          // milliseconde près, et le serveur retaille de toute façon.
+          uploadStart = 0;
+          uploadEnd = end - start + 0.5;
+        }
+        // Si l'enregistrement a échoué (API indisponible, navigateur trop
+        // ancien…), uploadFile reste le fichier original — repli silencieux
+        // sur le comportement précédent (le serveur recadre lui-même).
       }
 
+      if (uploadFile.size > ticket.maxUploadBytes) {
+        throw new Error(`Vidéo trop lourde (max ${fmtSize(ticket.maxUploadBytes)}).`);
+      }
+
+      setPhase("uploading");
+      setUploadPct(0);
       const blob = await uploadWithProgress(
-        ticket, file, start, end,
+        ticket, uploadFile, uploadStart, uploadEnd,
         setUploadPct,
         () => setPhase("converting"),
       );
@@ -207,7 +318,13 @@ export function VideoTrimModal({
         <p className="text-sm font-medium text-white/90 truncate flex items-center gap-1.5"><Film size={14} strokeWidth={2} /> Vidéo → GIF</p>
         <button onClick={confirm} disabled={busy || duration === 0} className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-black text-sm font-medium disabled:opacity-40 transition-opacity flex-shrink-0">
           {busy ? <Loader2 size={15} className="animate-spin" /> : null}
-          {phase === "uploading" ? `Envoi… ${uploadPct}%` : phase === "converting" ? "Conversion…" : "Convertir"}
+          {phase === "trimming"
+            ? `Préparation… ${uploadPct}%`
+            : phase === "uploading"
+              ? `Envoi… ${uploadPct}%`
+              : phase === "converting"
+                ? "Conversion…"
+                : "Convertir"}
         </button>
       </div>
 
@@ -218,7 +335,7 @@ export function VideoTrimModal({
           en est". */}
       {busy && (
         <div className="flex-shrink-0 h-1 bg-white/10 overflow-hidden">
-          {phase === "uploading" ? (
+          {phase === "trimming" || phase === "uploading" ? (
             <div className="h-full bg-white transition-[width] duration-150" style={{ width: `${uploadPct}%` }} />
           ) : (
             <div className="h-full w-1/3 bg-white animate-[indeterminate_1.2s_ease-in-out_infinite]" />
@@ -241,7 +358,8 @@ export function VideoTrimModal({
           {duration > 0 && (
             <button
               onClick={togglePlay}
-              className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors"
+              disabled={busy}
+              className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors disabled:pointer-events-none"
               aria-label={playing ? "Pause" : "Lecture"}
             >
               {!playing && (
@@ -294,6 +412,7 @@ export function VideoTrimModal({
               step={0.1}
               value={start}
               onChange={(e) => onChangeStart(Number(e.target.value))}
+              disabled={busy}
               className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0"
               style={{ zIndex: start > end - (duration * 0.05) ? 4 : 2 }}
               aria-label="Début du passage"
@@ -305,6 +424,7 @@ export function VideoTrimModal({
               step={0.1}
               value={end}
               onChange={(e) => onChangeEnd(Number(e.target.value))}
+              disabled={busy}
               className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0"
               style={{ zIndex: 3 }}
               aria-label="Fin du passage"
@@ -342,9 +462,11 @@ export function VideoTrimModal({
         <p className="flex-shrink-0 text-center text-[11px] text-red-400 pb-2 px-4">{error}</p>
       )}
       <p className="flex-shrink-0 text-center text-[11px] text-white/60 pb-[calc(1rem+env(safe-area-inset-bottom))] px-4">
-        {phase === "converting"
-          ? "Conversion en cours sur le serveur — ça peut prendre quelques secondes…"
-          : `Ajuste le début et la fin, puis « Convertir » — ${maxDurationS}s maximum, vidéo jusqu'à ${fmtSize(maxUploadBytes)}.`}
+        {phase === "trimming"
+          ? "Préparation du passage sur l'appareil — pour n'envoyer que le segment, pas toute la vidéo…"
+          : phase === "converting"
+            ? "Conversion en cours sur le serveur — ça peut prendre quelques secondes…"
+            : `Ajuste le début et la fin, puis « Convertir » — ${maxDurationS}s maximum, vidéo jusqu'à ${fmtSize(maxUploadBytes)}.`}
       </p>
     </div>,
     document.body,
