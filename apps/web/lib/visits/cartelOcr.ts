@@ -86,6 +86,29 @@ function dropBilingualDuplicate(lines: string[]): string[] {
   return lines;
 }
 
+// Recolle les sauts de ligne d'HABILLAGE de l'OCR (Tesseract coupe le texte à
+// la largeur du cartel photographié, pas aux phrases) en paragraphes fluides :
+// un saut de ligne n'est conservé que si la ligne précédente se termine par
+// une ponctuation de fin de phrase — sinon c'est une coupure de mise en page,
+// pas une vraie coupure de sens (retour utilisateur 2026-10-16 : "le texte
+// analysé contient des retours à la ligne qui n'ont pas lieu d'être").
+function joinWrappedLines(lines: string[]): string {
+  const SENTENCE_END = /[.!?:;»"”)]\s*$/;
+  const out: string[] = [];
+  for (const line of lines) {
+    const prevIdx = out.length - 1;
+    const prev = prevIdx >= 0 ? out[prevIdx] : null;
+    if (prev !== null && !SENTENCE_END.test(prev)) {
+      // Mot coupé en fin de ligne par la mise en page (ex. "céra-" / "mique")
+      // → recoller sans espace plutôt qu'avec.
+      out[prevIdx] = /\p{L}-$/u.test(prev) ? prev.slice(0, -1) + line : prev + " " + line;
+    } else {
+      out.push(line);
+    }
+  }
+  return out.join("\n");
+}
+
 export function parseCartel(raw: string): CartelFields {
   let lines = raw.split("\n").map((l) => l.trim()).filter((l) => l.length > 1);
   lines = dropBilingualDuplicate(lines);
@@ -184,7 +207,7 @@ export function parseCartel(raw: string): CartelFields {
   const notes = lines
     .filter((l, i) => !used.has(i) && !isNoise(l) && !isLifeLine(l) && !standaloneYear.test(l) && i !== dimsIdx)
     .map((l) => l.trim());
-  if (notes.length) fields.notes = notes.join("\n");
+  if (notes.length) fields.notes = joinWrappedLines(notes);
 
   return fields;
 }
