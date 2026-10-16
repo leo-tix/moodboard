@@ -1,3 +1,8 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  # Déployé indépendamment (Docker, VPS) — jamais buildé par Vercel/pnpm,
+  # et utilise son propre lockfile npm (apps/gif-worker/package-lock.json).
+  # L'inclure ici désynchronisait pnpm-lock.yaml et faisait échouer le
+  # build Vercel (ERR_PNPM_OUTDATED_LOCKFILE, 2026-10-16).
+  - '!apps/gif-worker'
