@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Upload, Check, Pencil, Landmark, X } from "lucide-react";
 import { compressImageForUpload } from "@/lib/image/clientResize";
+import { VideoTrimModal } from "@/components/upload/VideoTrimModal";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import { Button } from "@/components/ui/Button";
@@ -34,6 +35,11 @@ const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/a
 // 50 Mo, pas 10 : voir GlobalUploadProvider.tsx (bug 2026-10-16, photos
 // "en mouvement" rejetées silencieusement avant compression).
 const MAX_SIZE_MB = 50;
+// Vidéos courtes → GIF (retour utilisateur 2026-10-16) : détectées à part,
+// elles passent par VideoTrimModal (trim + conversion) avant de rejoindre
+// la file d'import comme un GIF classique — pas de limite de taille ici,
+// /api/gif/ticket la communique (poids max du service de conversion).
+const VIDEO_ACCEPTED = ["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"];
 
 const fieldClass =
   "w-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-[var(--border-default)] transition-colors placeholder:text-[var(--text-tertiary)]";
@@ -46,6 +52,9 @@ export function DropZone() {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  // Vidéos en attente de recadrage/conversion — une à la fois dans la modale.
+  const [videoQueue, setVideoQueue] = useState<File[]>([]);
+  const activeVideo = videoQueue[0] ?? null;
 
   useEffect(() => {
     setIsTouchDevice(navigator.maxTouchPoints > 1);
@@ -92,6 +101,9 @@ export function DropZone() {
       status: "pending",
     }));
     setFiles((prev) => [...prev, ...newFiles]);
+
+    const videos = rawFiles.filter((f) => VIDEO_ACCEPTED.includes(f.type));
+    if (videos.length) setVideoQueue((prev) => [...prev, ...videos]);
   }, []);
 
   const onDrop = useCallback(
@@ -266,7 +278,7 @@ export function DropZone() {
           ref={inputRef}
           type="file"
           multiple
-          accept={ACCEPTED.join(",")}
+          accept={[...ACCEPTED, ...VIDEO_ACCEPTED].join(",")}
           className="hidden"
           onChange={onInputChange}
         />
@@ -296,6 +308,9 @@ export function DropZone() {
               </p>
               <p className="text-[var(--text-tertiary)] text-xs">
                 JPG, PNG, WebP, GIF, AVIF — max {MAX_SIZE_MB} MB par fichier
+              </p>
+              <p className="text-[var(--text-tertiary)] text-xs mt-0.5">
+                Vidéo courte (MP4, MOV) → convertie en GIF après recadrage
               </p>
             </motion.div>
           )}
@@ -615,6 +630,17 @@ export function DropZone() {
           </>
         )}
       </AnimatePresence>
+
+      {activeVideo && (
+        <VideoTrimModal
+          file={activeVideo}
+          onCancel={() => setVideoQueue((prev) => prev.slice(1))}
+          onConverted={(gifFile) => {
+            addFiles([gifFile]);
+            setVideoQueue((prev) => prev.slice(1));
+          }}
+        />
+      )}
     </div>
   );
 }

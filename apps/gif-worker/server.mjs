@@ -14,6 +14,14 @@ import crypto from "node:crypto";
 
 const PORT = process.env.PORT || 8091;
 const TOKEN = process.env.GIF_WORKER_TOKEN;
+// Origine autorisée à appeler ce service directement depuis le navigateur
+// (le navigateur envoie la vidéo ICI, pas via une fonction Vercel — une
+// vidéo dépasse facilement la limite de payload des fonctions serverless
+// Vercel, ~4.5 Mo). Le ticket (voir plus bas) limite ce qu'un appel
+// cross-origin peut faire : un jeton signé, à courte durée de vie, émis
+// par apps/web après vérification de session utilisateur.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN || "https://moodboard.leotix.fr,http://localhost:3000")
+  .split(",").map((s) => s.trim()).filter(Boolean);
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || 150 * 1024 * 1024); // 150 Mo
 const MAX_DURATION_S = Number(process.env.MAX_DURATION_S || 15);
 const MAX_WIDTH = Number(process.env.MAX_WIDTH || 480);
@@ -53,13 +61,28 @@ function timingSafeTokenEqual(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+// Deux formes de jeton acceptées :
+//  · le jeton statique (GIF_WORKER_TOKEN tel quel) — usage server-to-server
+//    (tests, ou un futur appel direct depuis apps/web).
+//  · un TICKET signé « <expirationUnix>.<hmacHex> », où hmacHex =
+//    HMAC-SHA256(GIF_WORKER_TOKEN, expirationUnix) — émis par apps/web
+//    après vérification de session, à courte durée de vie. C'est la forme
+//    utilisée par le navigateur : le secret statique n'est JAMAIS envoyé
+//    au client, seul ce ticket éphémère l'est.
+function verifyTicket(ticket) {
+  const [expStr, mac] = String(ticket || "").split(".");
+  const exp = Number(expStr);
+  if (!exp || !mac || !Number.isFinite(exp)) return false;
+  if (Date.now() / 1000 > exp) return false;
+  const expected = crypto.createHmac("sha256", TOKEN).update(expStr).digest("hex");
+  return timingSafeTokenEqual(mac, expected);
+}
+
 function requireAuth(req, res, next) {
   const header = req.get("authorization") || "";
   const provided = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!timingSafeTokenEqual(provided, TOKEN)) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-  next();
+  if (timingSafeTokenEqual(provided, TOKEN) || verifyTicket(provided)) return next();
+  return res.status(401).json({ error: "unauthorized" });
 }
 
 function runFfmpeg(args, { timeoutMs = FFMPEG_TIMEOUT_MS } = {}) {
@@ -86,6 +109,21 @@ const upload = multer({
 });
 
 const app = express();
+
+// CORS restreint à l'origine de l'app — le navigateur appelle ce service
+// directement (voir ALLOWED_ORIGIN plus haut).
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (origin && ALLOWED_ORIGINS.includes(origin)) res.set("Access-Control-Allow-Origin", origin);
+  res.set("Vary", "Origin");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    res.set("Access-Control-Max-Age", "600");
+    return res.status(204).end();
+  }
+  next();
+});
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
