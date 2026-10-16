@@ -1,0 +1,30 @@
+services:
+  gif-worker:
+    build: .
+    container_name: moodboard-gif-worker
+    restart: unless-stopped
+    env_file: .env
+    # Lié à localhost uniquement — jamais exposé directement à internet ;
+    # seul le Caddy du VPS (autre projet) y accède, en reverse proxy sur
+    # gif.leotix.fr. Port choisi pour ne pas entrer en conflit avec les
+    # autres projets du VPS (content-creator, serveur-pdf).
+    ports:
+      - "127.0.0.1:8091:8091"
+    # Rejoint le réseau Docker du projet serveur-pdf (réseau existant,
+    # pré-créé par son propre compose.yaml) uniquement pour que SON Caddy
+    # (reverse proxy déjà propriétaire des ports 80/443 du VPS, partagés
+    # avec d'autres projets) puisse nous atteindre par nom de conteneur —
+    # on ne touche à rien côté serveur-pdf lui-même.
+    networks:
+      - default
+      - serveur-pdf_default
+    # Plafonds pour ne pas affamer les autres projets du VPS (2 vCPU/3.7 Go
+    # au total, partagés) — demande explicite 2026-10-16.
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 100
+
+networks:
+  default: {}
+  serveur-pdf_default:
+    external: true
