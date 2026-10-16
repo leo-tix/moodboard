@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { X, Loader2 } from 'lucide-react';
+import { compressImageForUpload } from '@/lib/image/clientResize';
 
 const SHARE_DB = 'moodboard-share';
 
@@ -64,8 +65,14 @@ export default function ShareUploadPage() {
       for (const file of batch.files) {
         if (cancelled) return;
         try {
+          // Recompression côté client avant envoi — sans elle, une photo "Motion
+          // Photo"/"Live Photo" (vidéo embarquée) arrive ici brute : elle dépasse
+          // le quota ET la limite de taille de requête côté serveur, et est
+          // rejetée silencieusement (bug 2026-10-16). Même traitement que le
+          // reste de l'app (DropZone, FAB de capture).
+          const compressed = await compressImageForUpload(file);
           const fd = new FormData();
-          fd.set('image', file);
+          fd.set('image', compressed);
           if (batch.title) fd.set('title', batch.title);
           const res = await fetch('/api/share/upload-one', { method: 'POST', body: fd });
           const json = await res.json().catch(() => ({}));

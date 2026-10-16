@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
-import { checkUploadAllowed, checkMimeType } from "@/lib/storage/quota";
+import { checkUploadAllowed, checkMimeType, QUOTA } from "@/lib/storage/quota";
 import { randomUUID } from "crypto";
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
@@ -16,7 +16,11 @@ async function processOneFile(
 ): Promise<string | null> {
   if (!checkMimeType(file.type) && !ACCEPTED_TYPES.includes(file.type)) return null;
 
-  const quotaCheck = await checkUploadAllowed(userId, file.size);
+  // Limite "fichier reçu" (50 Mo), pas la limite "fichier stocké" (10 Mo) : un
+  // Motion Photo/Live Photo (JPEG+vidéo embarquée) dépasse largement 10 Mo en
+  // brut mais finit à ~1 Mo en WebP — même raison que /api/upload/image
+  // (bug 2026-10-16 : photos "avec un mouvement" rejetées au partage depuis le téléphone).
+  const quotaCheck = await checkUploadAllowed(userId, file.size, QUOTA.MAX_UPLOAD_SIZE_BYTES);
   if (!quotaCheck.allowed) return null;
 
   const buffer = Buffer.from(await file.arrayBuffer());

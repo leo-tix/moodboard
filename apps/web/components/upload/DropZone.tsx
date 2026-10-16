@@ -31,7 +31,9 @@ interface Category {
 }
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
-const MAX_SIZE_MB = 10;
+// 50 Mo, pas 10 : voir GlobalUploadProvider.tsx (bug 2026-10-16, photos
+// "en mouvement" rejetées silencieusement avant compression).
+const MAX_SIZE_MB = 50;
 
 const fieldClass =
   "w-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs rounded px-2.5 py-1.5 focus:outline-none focus:border-[var(--border-default)] transition-colors placeholder:text-[var(--text-tertiary)]";

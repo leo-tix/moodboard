@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { processImage } from "@/lib/image/process";
 import { extractColors } from "@/lib/image/colors";
-import { checkUploadAllowed, checkMimeType } from "@/lib/storage/quota";
+import { checkUploadAllowed, checkMimeType, QUOTA } from "@/lib/storage/quota";
 import { randomUUID } from "crypto";
 
 export const maxDuration = 30;
@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "type" }, { status: 400 });
   }
 
-  const quotaCheck = await checkUploadAllowed(userId, file.size);
+  // Limite "fichier reçu" (50 Mo), pas "fichier stocké" (10 Mo) — voir
+  // /api/upload/image. Le client recompresse déjà avant l'envoi (page
+  // share/upload), mais on garde la même marge ici en filet de sécurité.
+  const quotaCheck = await checkUploadAllowed(userId, file.size, QUOTA.MAX_UPLOAD_SIZE_BYTES);
   if (!quotaCheck.allowed) {
     return NextResponse.json({ error: "quota" }, { status: 400 });
   }

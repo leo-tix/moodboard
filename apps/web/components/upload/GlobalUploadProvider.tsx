@@ -34,7 +34,11 @@ const GlobalUploadContext = createContext<Record<string, never>>({});
 export const useGlobalUpload = () => useContext(GlobalUploadContext);
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
-const MAX_SIZE_MB = 10;
+// 50 Mo, pas 10 : un Motion Photo/Live Photo (vidéo embarquée) dépasse
+// largement 10 Mo en brut mais finit à ~1 Mo une fois compressé plus bas
+// (compressImageForUpload) — même plafond que QUOTA.MAX_UPLOAD_SIZE_BYTES
+// côté serveur (bug 2026-10-16 : rejet silencieux des photos "en mouvement").
+const MAX_SIZE_MB = 50;
 
 function isValidImage(file: File) {
   return ACCEPTED.includes(file.type) && file.size <= MAX_SIZE_MB * 1024 * 1024;
