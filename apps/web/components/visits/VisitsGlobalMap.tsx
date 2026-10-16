@@ -8,6 +8,7 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+import { CARTO_DARK_TILE_URL, CARTO_ATTRIBUTION } from "@/lib/map/cartoTiles";
 import { VisitDetailSheet } from "./VisitDetailSheet";
 
 export interface GlobalMapVisit {
@@ -80,10 +81,8 @@ export function VisitsGlobalMap({ visits }: { visits: GlobalMapVisit[] }) {
       });
       mapRef.current = map;
 
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
+      L.tileLayer(CARTO_DARK_TILE_URL, {
+        attribution: CARTO_ATTRIBUTION,
         maxZoom: 19,
       }).addTo(map);
       L.control.zoom({ position: "bottomright" }).addTo(map);

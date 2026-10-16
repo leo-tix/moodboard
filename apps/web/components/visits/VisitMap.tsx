@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 import { getThumbnailUrl } from "@/lib/storage/urls";
+import { CARTO_DARK_TILE_URL, CARTO_ATTRIBUTION } from "@/lib/map/cartoTiles";
 
 interface VisitMapProps {
   latitude: number;
@@ -93,14 +94,10 @@ export function VisitMap({ latitude, longitude, label, thumbnailKey, zoom = 15, 
       });
       mapRef.current = map;
 
-      L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        {
-          attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
-          subdomains: "abcd",
-          maxZoom: 19,
-        },
-      ).addTo(map);
+      L.tileLayer(CARTO_DARK_TILE_URL, {
+        attribution: CARTO_ATTRIBUTION,
+        maxZoom: 19,
+      }).addTo(map);
 
       // Pin-photo (même style que VisitsGlobalMap) si une vignette est
       // disponible, sinon simple point — "carte premium" plutôt qu'un point uni.
