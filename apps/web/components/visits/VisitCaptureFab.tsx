@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { compressImageForUpload } from "@/lib/image/clientResize";
 import { enqueueCapture, OUTBOX_SYNCED_EVENT } from "@/lib/offline/outbox";
 import { VideoTrimModal } from "@/components/upload/VideoTrimModal";
+import { notifyVisitTilesDirty } from "@/lib/visits/events";
 import { VoiceMemoRecorder } from "@/components/visits/VoiceMemoRecorder";
 import { useBackgroundMemo } from "@/components/visits/BackgroundMemoProvider";
 
@@ -78,10 +79,15 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
 
   // Une capture rejouée depuis la file hors ligne vient d'atterrir côté serveur
   // → rafraîchir le carnet pour la faire apparaître (offline-first Phase 4).
+  // Même repli que plus bas (notifyVisitTilesDirty) : router.refresh() seul
+  // peut rejouer un payload RSC mis en cache jusqu'à 30s.
   useEffect(() => {
     const onSynced = (e: Event) => {
       const detail = (e as CustomEvent<{ visitId: string }>).detail;
-      if (!detail || detail.visitId === visitId) router.refresh();
+      if (!detail || detail.visitId === visitId) {
+        router.refresh();
+        notifyVisitTilesDirty(visitId);
+      }
     };
     window.addEventListener(OUTBOX_SYNCED_EVENT, onSynced);
     return () => window.removeEventListener(OUTBOX_SYNCED_EVENT, onSynced);
@@ -227,7 +233,13 @@ export function VisitCaptureFab({ visitId, visitTitle }: { visitId: string; visi
             `${ids.length > 1 ? "Photos envoyées" : "Photo envoyée"} mais pas rattachée à la visite (réseau instable ?) — elle${ids.length > 1 ? "s restent" : " reste"} disponible${ids.length > 1 ? "s" : ""} en triage.`
           );
         } else {
+          // `router.refresh()` peut rejouer un payload RSC mis en cache
+          // jusqu'à 30s (staleTimes.dynamic) — la nouvelle tuile restait
+          // invisible malgré un upload réussi (retour utilisateur
+          // 2026-10-16). L'événement déclenche en plus une resynchronisation
+          // par `fetch` direct côté VisitJournal, jamais soumis à ce cache.
           router.refresh();
+          notifyVisitTilesDirty(visitId);
         }
       }
     } finally {

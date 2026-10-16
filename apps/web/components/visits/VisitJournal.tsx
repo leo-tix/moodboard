@@ -13,6 +13,7 @@ import { useBackgroundMemo } from "@/components/visits/BackgroundMemoProvider";
 import { JournalAuthorProvider } from "@/components/visits/JournalAuthorContext";
 import { DEFAULT_SPAN, isAutoHeight, isFicheContent, isNoteType, tileKey, type TileWidth } from "@/lib/visits/bentoSpans";
 import type { BentoTile } from "@/lib/visits/bentoTypes";
+import { VISIT_TILES_DIRTY_EVENT } from "@/lib/visits/events";
 
 // ── Carnet de visite — grille modulaire façon Bento.me ──────────────────────
 // Blocs texte : largeur choisie, hauteur automatique (paliers de grille),
@@ -78,13 +79,12 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
   //  • les tuiles nouvelles côté serveur (photo ajoutée) sont ajoutées à la fin ;
   //  • les tuiles supprimées côté serveur disparaissent.
   // Et surtout : cet effet ne persiste PLUS JAMAIS un état venu du serveur.
-  const isFirstSync = useRef(true);
-  useEffect(() => {
-    if (isFirstSync.current) {
-      isFirstSync.current = false; // l'état initial vient déjà de useState(initialTiles)
-      return;
-    }
-    const serverByKey = new Map(initialTiles.map((t) => [tileKey(t), t] as const));
+  // Fusion additive réutilisable (voir commentaire ci-dessus) — factorisée pour
+  // être appelée aussi bien par l'effet de synchro `initialTiles` que par un
+  // refetch direct (voir `refetchTiles`), qui lui N'EST PAS soumis au cache du
+  // routeur Next.js.
+  const mergeServerTiles = (serverTiles: BentoTile[]) => {
+    const serverByKey = new Map(serverTiles.map((t) => [tileKey(t), t] as const));
     const localKeys = new Set(tilesRef.current.map(tileKey));
 
     const kept = tilesRef.current
@@ -96,7 +96,7 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
         // Contenu serveur adopté, mais on garde la disposition locale (w/h/flags).
         return { ...t, content: srv.content } as BentoTile;
       });
-    const added = initialTiles.filter((t) => !localKeys.has(tileKey(t)));
+    const added = serverTiles.filter((t) => !localKeys.has(tileKey(t)));
     const merged = [...kept, ...added];
 
     // Rien de neuf (cas le plus fréquent) → on ne touche à rien, ce qui évite
@@ -108,8 +108,35 @@ export function VisitJournal({ visitId, initialTiles, authorName, authorImage, v
 
     tilesRef.current = merged;
     setTiles(merged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  };
+
+  const isFirstSync = useRef(true);
+  useEffect(() => {
+    if (isFirstSync.current) {
+      isFirstSync.current = false; // l'état initial vient déjà de useState(initialTiles)
+      return;
+    }
+    mergeServerTiles(initialTiles);
   }, [initialTiles]);
+
+  // Un ajout depuis le FAB de capture (photo ou vidéo→GIF) appelle déjà
+  // router.refresh(), mais celui-ci peut rejouer un payload RSC mis en cache
+  // jusqu'à 30s (staleTimes.dynamic, voir next.config.ts) — la tuile restait
+  // alors invisible malgré un upload réussi (retour utilisateur 2026-10-16).
+  // Un `fetch` client ordinaire, lui, n'est JAMAIS soumis à ce cache : on
+  // l'utilise ici pour une resynchronisation immédiate et fiable.
+  useEffect(() => {
+    const onDirty = (e: Event) => {
+      const detail = (e as CustomEvent<{ visitId: string }>).detail;
+      if (detail?.visitId !== visitId) return;
+      fetch(`/api/visits/${visitId}/tiles`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { tiles?: BentoTile[] } | null) => { if (data?.tiles) mergeServerTiles(data.tiles); })
+        .catch(() => {});
+    };
+    window.addEventListener(VISIT_TILES_DIRTY_EVENT, onDirty);
+    return () => window.removeEventListener(VISIT_TILES_DIRTY_EVENT, onDirty);
+  }, [visitId]);
 
   const persistLayout = (list: BentoTile[]) => {
     fetch(`/api/visits/${visitId}/layout`, {

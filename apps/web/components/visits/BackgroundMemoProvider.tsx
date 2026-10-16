@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useRef, useState } from "react"
 import { useRouter } from "next/navigation";
 import { transcribeBlobLocally } from "@/lib/audio/transcribe";
 import { enqueueCapture } from "@/lib/offline/outbox";
+import { notifyVisitTilesDirty } from "@/lib/visits/events";
 
 // Traitement de fond des mémos vocaux (2026-07-19). À la fin de l'enregistrement,
 // le mémo est traité SANS bloquer l'utilisateur : upload → la tuile apparaît
@@ -36,8 +37,15 @@ export function BackgroundMemoProvider({ visitId, children }: { visitId: string;
   const refreshTimer = useRef<number | null>(null);
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
-    refreshTimer.current = window.setTimeout(() => router.refresh(), 120);
-  }, [router]);
+    // router.refresh() seul peut rejouer un payload RSC mis en cache jusqu'à
+    // 30s (staleTimes.dynamic) — notifyVisitTilesDirty déclenche en plus une
+    // resynchronisation par `fetch` direct côté VisitJournal, jamais soumis
+    // à ce cache (même bug que les photos/vidéos du FAB, 2026-10-16).
+    refreshTimer.current = window.setTimeout(() => {
+      router.refresh();
+      notifyVisitTilesDirty(visitId);
+    }, 120);
+  }, [router, visitId]);
 
   const processMemo = useCallback(
     (blob: Blob, durationSec: number) => {
