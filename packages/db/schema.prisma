@@ -4,13 +4,15 @@
 // ============================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
 }
 
 // ============================================================
@@ -345,6 +347,23 @@ model Inspiration {
   // Statut traitement
   status         InspirationStatus @default(PROCESSING)
 
+  // ── IA continue (VPS self-hosted, voir apps/ai-worker) ──
+  // File d'attente : PENDING à la création (couvre nouveaux uploads ET
+  // backfill par la même requête de claim côté worker), PROCESSING pendant
+  // l'inférence, DONE/ERROR à la fin. aiError ne porte un message que sur ERROR.
+  aiStatus       AiAnalysisStatus @default(PENDING)
+  aiAnalyzedAt   DateTime?
+  aiError        String?
+  // Embedding image (pooler SigLIP-large, dim 1024) — invisible au Prisma
+  // Client (type Unsupported), toute lecture/écriture passe par $queryRaw/
+  // $executeRaw avec l'opérateur pgvector `<=>`. Sert à la fois au scoring
+  // zero-shot tags/catégories et à la similarité/détection de doublons.
+  embedding      Unsupported("vector(1024)")?
+  // Suggestions en attente de validation manuelle (badges "à accepter"),
+  // écrasées en bloc à chaque (ré)analyse, jamais appliquées automatiquement.
+  aiSuggestedTags       Json?
+  aiSuggestedCategories Json?
+
   // Timestamps
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -356,13 +375,51 @@ model Inspiration {
   collections    CollectionItem[]
   colorPalette   InspirationColor[]
   videoImport    VideoImport?
+  duplicateAs    DuplicateCandidate[] @relation("DuplicateA")
+  duplicateBs    DuplicateCandidate[] @relation("DuplicateB")
 
   @@index([year])
   @@index([status])
   @@index([createdAt])
   @@index([visitId])
   @@index([userId])
+  @@index([aiStatus])
   @@map("inspirations")
+}
+
+enum AiAnalysisStatus {
+  PENDING
+  PROCESSING
+  DONE
+  ERROR
+}
+
+// Paire de quasi-doublons détectée par similarité d'embedding. Toujours
+// stockée avec inspirationAId < inspirationBId (ordre lexicographique) côté
+// applicatif, pour que la contrainte unique empêche vraiment un doublon de
+// paire quel que soit l'ordre de traitement par le worker.
+// DISMISSED = faux positif ignoré par l'utilisateur (le badge ne doit pas
+// revenir en boucle) — c'est un signal, jamais un blocage.
+model DuplicateCandidate {
+  id             String   @id @default(cuid())
+  inspirationAId String
+  inspirationBId String
+  similarity     Float
+  status         DuplicateCandidateStatus @default(PENDING)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  inspirationA   Inspiration @relation("DuplicateA", fields: [inspirationAId], references: [id], onDelete: Cascade)
+  inspirationB   Inspiration @relation("DuplicateB", fields: [inspirationBId], references: [id], onDelete: Cascade)
+
+  @@unique([inspirationAId, inspirationBId])
+  @@index([inspirationBId])
+  @@map("duplicate_candidates")
+}
+
+enum DuplicateCandidateStatus {
+  PENDING
+  DISMISSED
 }
 
 // ============================================================
