@@ -550,40 +550,51 @@ function scheduleHide(delay = 280) {
 
 function onWrapLeave() { scheduleHide(); }
 
-// ── Event listeners ───────────────────────────────────────────────────────────
-document.addEventListener('mouseover', (e) => {
-  if (e.target.closest('[data-mb]')) return;
+// ── Activation ────────────────────────────────────────────────────────────────
+// Le site peut être désactivé depuis le popup (liste `disabledSites`) : dans ce
+// cas on n'attache aucun écouteur, plutôt que de les attacher puis les ignorer.
+function initListeners() {
+  document.addEventListener('mouseover', (e) => {
+    if (e.target.closest('[data-mb]')) return;
 
-  // Direct hit on an <img>
-  let img = e.target.closest('img');
+    // Direct hit on an <img>
+    let img = e.target.closest('img');
 
-  // Fallback: overlay div covering the image (Instagram carousel, Pinterest, etc.)
-  if (!img) {
-    const els = document.elementsFromPoint(e.clientX, e.clientY);
-    img = els.find((el) => el.tagName === 'IMG') || null;
-  }
+    // Fallback: overlay div covering the image (Instagram carousel, Pinterest, etc.)
+    if (!img) {
+      const els = document.elementsFromPoint(e.clientX, e.clientY);
+      img = els.find((el) => el.tagName === 'IMG') || null;
+    }
 
-  if (!img) return;
-  const r = img.getBoundingClientRect();
-  if (r.width < 80 || r.height < 80) return;
-  clearTimeout(hideTimer);
-  currentImg = img;
-  position(img);
-}, { passive: true });
+    if (!img) return;
+    const r = img.getBoundingClientRect();
+    if (r.width < 80 || r.height < 80) return;
+    clearTimeout(hideTimer);
+    currentImg = img;
+    position(img);
+  }, { passive: true });
 
-document.addEventListener('mouseout', (e) => {
-  if (e.target.closest('[data-mb]')) return;
-  const img = e.target.closest('img');
-  if (!img || img !== currentImg) return;
-  const rel = e.relatedTarget;
-  if (rel && rel.closest('[data-mb]')) return;
-  scheduleHide();
-}, { passive: true });
+  document.addEventListener('mouseout', (e) => {
+    if (e.target.closest('[data-mb]')) return;
+    const img = e.target.closest('img');
+    if (!img || img !== currentImg) return;
+    const rel = e.relatedTarget;
+    if (rel && rel.closest('[data-mb]')) return;
+    scheduleHide();
+  }, { passive: true });
 
-document.addEventListener('scroll', (e) => {
-  // Ignore scroll events originating inside our own dropdown
-  if (e.target instanceof Element && e.target.closest('[data-mb]')) return;
-  if (wrap) wrap.style.display = 'none';
-  if (dropdown) dropdown.style.display = 'none';
-  currentImg = null;
-}, { passive: true, capture: true });
+  document.addEventListener('scroll', (e) => {
+    // Ignore scroll events originating inside our own dropdown
+    if (e.target instanceof Element && e.target.closest('[data-mb]')) return;
+    if (wrap) wrap.style.display = 'none';
+    if (dropdown) dropdown.style.display = 'none';
+    currentImg = null;
+  }, { passive: true, capture: true });
+}
+
+chrome.storage.local.get(['disabledSites'], (r) => {
+  const disabled = r.disabledSites || [];
+  const host = location.hostname.replace(/^www\./, '');
+  if (disabled.includes(host)) return;
+  initListeners();
+});

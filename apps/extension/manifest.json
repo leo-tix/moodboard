@@ -3,7 +3,7 @@
   "name": "Moodboard Clipper",
   "version": "1.0.0",
   "description": "Sauvegardez n'importe quelle image dans votre Moodboard",
-  "permissions": ["storage", "windows"],
+  "permissions": ["storage", "windows", "activeTab"],
   "host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background.js"

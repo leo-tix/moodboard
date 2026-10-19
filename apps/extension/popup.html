@@ -111,6 +111,45 @@
       flex-shrink: 0;
     }
     .token-toggle:hover { color: #888; }
+
+    .site-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .site-row .site-label { min-width: 0; }
+    .site-row .site-host {
+      color: #888;
+      font-size: 11px;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .switch { position: relative; display: inline-block; width: 34px; height: 19px; flex-shrink: 0; }
+    .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .switch-slider {
+      position: absolute; inset: 0; cursor: pointer;
+      background: rgba(255,255,255,0.15);
+      border-radius: 999px;
+      transition: background 0.15s;
+    }
+    .switch-slider::before {
+      content: '';
+      position: absolute;
+      height: 15px; width: 15px;
+      left: 2px; top: 2px;
+      background: #f0f0f0;
+      border-radius: 50%;
+      transition: transform 0.15s;
+    }
+    .switch input:checked + .switch-slider { background: #4ade80; }
+    .switch input:checked + .switch-slider::before { transform: translateX(15px); }
   </style>
 </head>
 <body>
@@ -123,6 +162,17 @@
   </header>
 
   <div>
+    <div class="site-row" id="siteRow" style="display:none">
+      <div class="site-label">
+        <label style="margin-bottom:2px;">Actif sur ce site</label>
+        <div class="site-host" id="siteHost"></div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="siteToggle" />
+        <span class="switch-slider"></span>
+      </label>
+    </div>
+
     <div class="field">
       <label for="appUrl">URL de votre Moodboard</label>
       <input
