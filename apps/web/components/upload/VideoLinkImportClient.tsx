@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, X } from "lucide-react";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { VideoTrimModal } from "@/components/upload/VideoTrimModal";
+import { YouTubeSectionPicker, type YouTubeSectionResult } from "@/components/upload/YouTubeSectionPicker";
+import { parseYouTubeId } from "@/lib/visits/linkPreview";
 
 // Transforme un lien TikTok / Instagram / générique en GIF : la vidéo est
 // téléchargée côté serveur (apps/gif-worker, via yt-dlp) puis passée à
@@ -54,11 +56,29 @@ export function VideoLinkImportClient() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const busy = step !== "idle";
-  const isValid = /^https?:\/\//i.test(url.trim());
+  const trimmedUrl = url.trim();
+  const isValid = /^https?:\/\//i.test(trimmedUrl);
+  // YouTube a son propre sous-flux (#7) : sélection d'une section AVANT
+  // tout téléchargement, au lieu du téléchargement complet ci-dessous (une
+  // vidéo YouTube peut être longue — voir YouTubeSectionPicker).
+  const youtubeVideoId = useMemo(
+    () => (isValid ? parseYouTubeId(trimmedUrl) : null),
+    [isValid, trimmedUrl],
+  );
+
+  const handleSectionDownloaded = (section: YouTubeSectionResult) => {
+    setPending({ file: section.file, sourceLabel: section.sourceLabel, sourceUrl: section.sourceUrl });
+    setUrl("");
+  };
+
+  const handleSectionError = (message: string, detailMessage: string | null) => {
+    setError(message);
+    setDetail(detailMessage);
+  };
 
   const handleImport = async () => {
     const trimmed = url.trim();
-    if (!trimmed || !isValid) return;
+    if (!trimmed || !isValid || youtubeVideoId) return;
     setError(null);
     setDetail(null);
     setResult(null);
@@ -172,24 +192,35 @@ export function VideoLinkImportClient() {
           disabled={busy}
           autoFocus
         />
-        <button
-          onClick={handleImport}
-          disabled={busy || !isValid}
-          className="px-4 py-2.5 bg-[var(--text-primary)] text-[var(--bg-base)] text-sm rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity flex items-center gap-2 flex-shrink-0"
-        >
-          {busy ? (
-            <>
-              <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--bg-base)] border-t-transparent animate-spin" />
-              {stepLabel}
-            </>
-          ) : (
-            "Importer"
-          )}
-        </button>
+        {!youtubeVideoId && (
+          <button
+            onClick={handleImport}
+            disabled={busy || !isValid}
+            className="px-4 py-2.5 bg-[var(--text-primary)] text-[var(--bg-base)] text-sm rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity flex items-center gap-2 flex-shrink-0"
+          >
+            {busy ? (
+              <>
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--bg-base)] border-t-transparent animate-spin" />
+                {stepLabel}
+              </>
+            ) : (
+              "Importer"
+            )}
+          </button>
+        )}
       </div>
 
       {url && !isValid && (
         <p className="text-[10px] text-red-400 -mt-3">Colle un lien complet, commençant par http(s)://</p>
+      )}
+
+      {youtubeVideoId && (
+        <YouTubeSectionPicker
+          url={trimmedUrl}
+          videoId={youtubeVideoId}
+          onDownloaded={handleSectionDownloaded}
+          onError={handleSectionError}
+        />
       )}
 
       {error && (

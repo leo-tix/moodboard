@@ -55,6 +55,12 @@ const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 180_000);
 // tout premier appel peut dépasser largement (cache d'extracteur à froid) —
 // marge pour ne pas rejeter une vidéo légitime sur un simple cold start.
 const META_TIMEOUT_MS = Number(process.env.META_TIMEOUT_MS || 30_000);
+// Section YouTube (#7) : borne DUPLIQUÉE ici par sécurité (même esprit que
+// MAX_FETCH_BYTES/MAX_FETCH_DURATION_S pour /fetch-url) — le ticket émis
+// par apps/web n'est pas lié à une plage précise, ce service doit
+// revalider par lui-même. Volontairement bien plus bas que
+// MAX_FETCH_DURATION_S : on ne télécharge jamais plus qu'un passage.
+const MAX_FETCH_SECTION_DURATION_S = Number(process.env.MAX_FETCH_SECTION_DURATION_S || 120);
 
 if (!TOKEN) {
   console.error("GIF_WORKER_TOKEN manquant — arrêt (voir .env.example).");
@@ -407,6 +413,70 @@ app.post("/fetch-url", requireAuth, async (req, res) => {
   }
 });
 
+// Téléchargement d'une SECTION seulement d'une vidéo YouTube (#7) — jamais
+// la vidéo entière (potentiellement longue, contrairement à TikTok/
+// Instagram) : yt-dlp --download-sections ne récupère que la plage
+// [start, end] choisie par l'utilisateur dans le lecteur embarqué, avant
+// même de télécharger quoi que ce soit. Mêmes garde-fous que /fetch-url
+// (ticket, nettoyage systématique, limiteur de concurrence dédié à yt-dlp).
+app.post("/fetch-url-section", requireAuth, async (req, res) => {
+  const workDir = await mkdtemp(path.join(tmpdir(), "ytdlp-section-"));
+  const cleanup = () => rm(workDir, { recursive: true, force: true }).catch(() => {});
+  try {
+    const rawUrl = String(req.body?.url || "");
+    const url = await assertPublicVideoUrl(rawUrl);
+    const start = Number(req.body?.start);
+    const end = Number(req.body?.end);
+    if (!Number.isFinite(start) || start < 0 || !Number.isFinite(end) || end <= start) {
+      return res.status(400).json({ error: "bad_range" });
+    }
+    if (end - start > MAX_FETCH_SECTION_DURATION_S) {
+      return res.status(400).json({ error: "section_too_long", maxSeconds: MAX_FETCH_SECTION_DURATION_S });
+    }
+
+    const outputTemplate = path.join(workDir, "video.%(ext)s");
+    await runYtDlpExclusive(() =>
+      runYtDlp(
+        [
+          "--no-warnings", "--no-playlist",
+          "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+          "--download-sections", `*${start}-${end}`,
+          "--max-filesize", String(MAX_FETCH_BYTES),
+          "--socket-timeout", "20",
+          "-o", outputTemplate,
+          url.toString(),
+        ],
+        { timeoutMs: FETCH_TIMEOUT_MS },
+      ),
+    );
+
+    const files = await readdir(workDir);
+    const videoFile = files.find((f) => f.startsWith("video."));
+    if (!videoFile) throw new Error("Téléchargement vide — section introuvable ou vidéo refusée.");
+
+    const fullPath = path.join(workDir, videoFile);
+    const { size } = await stat(fullPath);
+    if (size > MAX_FETCH_BYTES) {
+      await cleanup();
+      return res.status(413).json({ error: "too_large", maxBytes: MAX_FETCH_BYTES });
+    }
+
+    const ext = path.extname(videoFile).slice(1).toLowerCase();
+    const mime = { mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mkv: "video/x-matroska" }[ext] || "video/mp4";
+    res.set("Content-Type", mime);
+    res.set("Content-Length", String(size));
+    const { createReadStream } = await import("node:fs");
+    const stream = createReadStream(fullPath);
+    stream.pipe(res);
+    stream.on("close", cleanup);
+    stream.on("error", cleanup);
+  } catch (err) {
+    console.error("[fetch-url-section]", err);
+    res.status(502).json({ error: "fetch_failed", message: String(err.message || err) });
+    cleanup();
+  }
+});
+
 // Erreurs non interceptées plus haut (ex. mkdtemp).
 app.use((err, _req, res, _next) => {
   console.error(err);
@@ -414,5 +484,5 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`gif-worker à l'écoute sur :${PORT} (ffmpeg max ${MAX_CONCURRENCY}, durée max ${MAX_DURATION_S}s ; yt-dlp max ${YTDLP_MAX_CONCURRENCY}, ${MAX_FETCH_DURATION_S}s/${Math.round(MAX_FETCH_BYTES / 1024 / 1024)}Mo)`);
+  console.log(`gif-worker à l'écoute sur :${PORT} (ffmpeg max ${MAX_CONCURRENCY}, durée max ${MAX_DURATION_S}s ; yt-dlp max ${YTDLP_MAX_CONCURRENCY}, ${MAX_FETCH_DURATION_S}s/${Math.round(MAX_FETCH_BYTES / 1024 / 1024)}Mo ; section YouTube max ${MAX_FETCH_SECTION_DURATION_S}s)`);
 });
