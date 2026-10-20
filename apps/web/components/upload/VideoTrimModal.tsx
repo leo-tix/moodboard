@@ -157,6 +157,24 @@ function uploadWithProgress(
   });
 }
 
+// Format mm:ss.s <-> secondes, pour les champs de saisie précise (retour
+// utilisateur 2026-10-16 : poignées peu précises sur vidéo longue).
+function formatMmSs(totalSeconds: number): string {
+  const t = Math.max(0, totalSeconds);
+  const mins = Math.floor(t / 60);
+  const secs = t - mins * 60;
+  return `${mins}:${secs.toFixed(1).padStart(4, "0")}`;
+}
+
+function parseMmSs(text: string): number | null {
+  const m = text.trim().match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (!m) return null;
+  const mins = Number(m[1]);
+  const secs = Number(m[2]);
+  if (!Number.isFinite(mins) || !Number.isFinite(secs)) return null;
+  return mins * 60 + secs;
+}
+
 export function VideoTrimModal({
   file,
   onCancel,
@@ -173,6 +191,12 @@ export function VideoTrimModal({
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [startText, setStartText] = useState("0:00.0");
+  const [endText, setEndText] = useState("0:00.0");
+  const startFocused = useRef(false);
+  const endFocused = useRef(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [uploadPct, setUploadPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -206,34 +230,88 @@ export function VideoTrimModal({
     setDuration(d);
     setStart(0);
     setEnd(Math.min(d, maxDurationS));
+    setCurrentTime(0);
   };
 
-  // Boucle de prévisualisation : lecture confinée à [start, end].
+  // Boucle de prévisualisation : lecture confinée à [start, end], pilotée en
+  // requestAnimationFrame plutôt que `timeupdate` — cet évènement est
+  // throttlé par le navigateur (parfois 250ms+ entre deux déclenchements),
+  // ce qui laissait la lecture dépasser visiblement le point de fin avant
+  // le rebouclage (retour utilisateur 2026-10-16). rAF tourne à la cadence
+  // d'affichage, donc le dépassement est borné à une frame.
+  // Suspendue pendant un "Revoir le passage" (cf. plus bas), qui gère sa
+  // propre boucle déterministe non répétée.
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || !playing) return;
-    const onTime = () => { if (v.currentTime >= end) v.currentTime = start; };
-    v.addEventListener("timeupdate", onTime);
-    return () => v.removeEventListener("timeupdate", onTime);
-  }, [playing, start, end]);
+    if (!v || !playing || reviewing) return;
+    let raf = 0;
+    const tick = () => {
+      if (v.currentTime >= end) v.currentTime = start;
+      setCurrentTime(v.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, start, end, reviewing]);
 
   const togglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
+    if (reviewing) setReviewing(false);
     if (playing) { v.pause(); setPlaying(false); return; }
     if (v.currentTime < start || v.currentTime >= end) v.currentTime = start;
     v.play();
     setPlaying(true);
   };
 
-  // En déplaçant une poignée, on affiche la frame correspondante — sans ça
-  // la vidéo reste figée sur une frame quelconque pendant le réglage, sans
-  // indice visuel de "où" on se trouve (retour utilisateur 2026-10-16).
+  // Rejoue une fois, de façon déterministe, exactement [start, end] —
+  // indépendant de la boucle automatique ci-dessus (retour utilisateur
+  // 2026-10-16 : aucun moyen de revoir le passage sans relancer la lecture
+  // manuellement).
+  const reviewSegment = () => {
+    const v = videoRef.current;
+    if (!v || busy) return;
+    setPlaying(false);
+    v.pause();
+    setReviewing(true);
+    const onSeeked = () => {
+      v.removeEventListener("seeked", onSeeked);
+      v.play().catch(() => setReviewing(false));
+    };
+    v.addEventListener("seeked", onSeeked);
+    v.currentTime = start;
+  };
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !reviewing) return;
+    let raf = 0;
+    const tick = () => {
+      if (v.currentTime >= end || v.ended) {
+        v.pause();
+        v.currentTime = end;
+        setCurrentTime(end);
+        setReviewing(false);
+        return;
+      }
+      setCurrentTime(v.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [reviewing, end]);
+
+  // En déplaçant une poignée (ou la tête de lecture), on affiche la frame
+  // correspondante — sans ça la vidéo reste figée sur une frame quelconque
+  // pendant le réglage, sans indice visuel de "où" on se trouve (retour
+  // utilisateur 2026-10-16).
   const seekPreview = (t: number) => {
     const v = videoRef.current;
     if (!v) return;
     if (playing) { v.pause(); setPlaying(false); }
+    if (reviewing) setReviewing(false);
     v.currentTime = t;
+    setCurrentTime(t);
   };
 
   const onChangeStart = useCallback((val: number) => {
@@ -250,6 +328,23 @@ export function VideoTrimModal({
     seekPreview(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, duration, maxDurationS]);
+
+  // Champs numériques mm:ss.s — synchronisés bidirectionnellement avec les
+  // poignées : ils reflètent start/end tant que l'utilisateur n'est pas en
+  // train d'y taper (sinon on écraserait sa saisie en cours).
+  useEffect(() => { if (!startFocused.current) setStartText(formatMmSs(start)); }, [start]);
+  useEffect(() => { if (!endFocused.current) setEndText(formatMmSs(end)); }, [end]);
+
+  const commitStartText = () => {
+    const parsed = parseMmSs(startText);
+    if (parsed !== null) onChangeStart(parsed);
+    else setStartText(formatMmSs(start));
+  };
+  const commitEndText = () => {
+    const parsed = parseMmSs(endText);
+    if (parsed !== null) onChangeEnd(parsed);
+    else setEndText(formatMmSs(end));
+  };
 
   const confirm = async () => {
     setError(null);
@@ -306,6 +401,7 @@ export function VideoTrimModal({
       : `${Math.round(bytes / 1024 / 1024)} Mo`;
   const startPct = duration > 0 ? (start / duration) * 100 : 0;
   const endPct = duration > 0 ? (end / duration) * 100 : 0;
+  const headPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   if (typeof document === "undefined") return null;
 
@@ -384,13 +480,16 @@ export function VideoTrimModal({
             <span>{(end - start).toFixed(1)}s / {maxDurationS}s max</span>
             <span>Fin {fmt(end)}</span>
           </div>
-          {/* Piste/poignées entièrement custom (divs décoratives) — les deux
-              <input type=range> réels restent superposés par-dessus mais
-              INVISIBLES (opacity:0), avec le toucher limité à leur seule
-              poignée native (CSS plus bas). Rendre fiable ET lisible : avant
-              ce changement, les pistes natives des deux curseurs se
-              chevauchaient visuellement (rendu confus — retour utilisateur
-              2026-10-16). */}
+          {/* Piste/poignées entièrement custom (divs décoratives) — les trois
+              <input type=range> réels (début, fin, tête de lecture) restent
+              superposés par-dessus mais INVISIBLES (opacity:0), avec le
+              toucher limité à leur seule poignée native (CSS plus bas).
+              Rendre fiable ET lisible : avant ce changement, les pistes
+              natives des deux curseurs se chevauchaient visuellement (rendu
+              confus — retour utilisateur 2026-10-16). La tête de lecture
+              (losange ambre) a un z-index inférieur aux poignées de trim :
+              en cas de chevauchement pixel-exact, le trim reste prioritaire
+              au toucher. */}
           <div className="relative h-8 dual-range">
             <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15 pointer-events-none" />
             <div
@@ -404,6 +503,22 @@ export function VideoTrimModal({
             <div
               className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
               style={{ left: `${endPct}%`, transform: "translate(-50%, -50%)" }}
+            />
+            <div
+              className="absolute top-1/2 w-2.5 h-2.5 bg-amber-400 shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
+              style={{ left: `${headPct}%`, transform: "translate(-50%, -50%) rotate(45deg)" }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={duration}
+              step={0.1}
+              value={currentTime}
+              onChange={(e) => seekPreview(Number(e.target.value))}
+              disabled={busy}
+              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0 playhead-range"
+              style={{ zIndex: 1 }}
+              aria-label="Tête de lecture (navigation libre)"
             />
             <input
               type="range"
@@ -430,6 +545,58 @@ export function VideoTrimModal({
               aria-label="Fin du passage"
             />
           </div>
+
+          {/* Saisie précise mm:ss.s + ajustement fin — synchronisés avec les
+              poignées ci-dessus (retour utilisateur 2026-10-16 : poignées
+              peu précises sur vidéo longue). */}
+          <div className="flex items-center justify-between gap-2 mt-3">
+            <div className="flex items-center gap-1">
+              <button type="button" disabled={busy} onClick={() => onChangeStart(start - 1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">-1</button>
+              <button type="button" disabled={busy} onClick={() => onChangeStart(start - 0.1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">-.1</button>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={startText}
+                onChange={(e) => setStartText(e.target.value)}
+                onFocus={() => { startFocused.current = true; }}
+                onBlur={() => { startFocused.current = false; commitStartText(); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { commitStartText(); (e.target as HTMLInputElement).blur(); } }}
+                disabled={busy}
+                className="w-16 text-center text-[11px] tabular-nums bg-white/10 rounded-md py-1 text-white outline-none focus:bg-white/20 disabled:opacity-40"
+                aria-label="Début précis (mm:ss.s)"
+              />
+              <button type="button" disabled={busy} onClick={() => onChangeStart(start + 0.1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">+.1</button>
+              <button type="button" disabled={busy} onClick={() => onChangeStart(start + 1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">+1</button>
+            </div>
+
+            <button
+              type="button"
+              onClick={reviewSegment}
+              disabled={busy || reviewing}
+              className="flex-shrink-0 px-2.5 py-1 rounded-full bg-white/10 text-white/80 text-[11px] disabled:opacity-40 hover:bg-white/20 transition-colors"
+            >
+              Revoir le passage
+            </button>
+
+            <div className="flex items-center gap-1">
+              <button type="button" disabled={busy} onClick={() => onChangeEnd(end - 1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">-1</button>
+              <button type="button" disabled={busy} onClick={() => onChangeEnd(end - 0.1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">-.1</button>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={endText}
+                onChange={(e) => setEndText(e.target.value)}
+                onFocus={() => { endFocused.current = true; }}
+                onBlur={() => { endFocused.current = false; commitEndText(); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { commitEndText(); (e.target as HTMLInputElement).blur(); } }}
+                disabled={busy}
+                className="w-16 text-center text-[11px] tabular-nums bg-white/10 rounded-md py-1 text-white outline-none focus:bg-white/20 disabled:opacity-40"
+                aria-label="Fin précise (mm:ss.s)"
+              />
+              <button type="button" disabled={busy} onClick={() => onChangeEnd(end + 0.1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">+.1</button>
+              <button type="button" disabled={busy} onClick={() => onChangeEnd(end + 1)} className="w-6 h-6 rounded-full bg-white/10 text-white/80 text-[10px] disabled:opacity-40">+1</button>
+            </div>
+          </div>
         </div>
       )}
       {/* Balise <style> ordinaire (pas styled-jsx — deux <style jsx> dans le
@@ -455,6 +622,14 @@ export function VideoTrimModal({
           width: 28px;
           height: 28px;
           border: none;
+        }
+        .dual-range input.playhead-range::-webkit-slider-thumb {
+          width: 16px;
+          height: 28px;
+        }
+        .dual-range input.playhead-range::-moz-range-thumb {
+          width: 16px;
+          height: 28px;
         }
       `}</style>
 
