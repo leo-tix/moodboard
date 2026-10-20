@@ -6,3 +6,6 @@ packages:
   # L'inclure ici désynchronisait pnpm-lock.yaml et faisait échouer le
   # build Vercel (ERR_PNPM_OUTDATED_LOCKFILE, 2026-10-16).
   - '!apps/gif-worker'
+  # Service Python (pas de package.json) — hors du glob pnpm de toute façon,
+  # exclusion ajoutée pour la cohérence documentaire avec gif-worker ci-dessus.
+  - '!apps/ai-worker'

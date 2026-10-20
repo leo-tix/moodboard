@@ -1,0 +1,34 @@
+services:
+  ai-worker:
+    build: .
+    container_name: moodboard-ai-worker
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Lié à localhost uniquement — endpoint de santé pour les checks ops,
+      # jamais exposé à internet, jamais proxyfié par Caddy (rien n'appelle
+      # ce service depuis l'extérieur, c'est un poller sortant pur).
+      - "127.0.0.1:8092:8092"
+    volumes:
+      # Cache des poids du modèle (HF_HOME) — persiste entre redéploiements,
+      # évite de retélécharger ~1.9 Go à chaque `docker compose up --build`.
+      - ai_worker_hf_cache:/home/appuser/.cache/huggingface
+      # Cache des embeddings texte de la banque de tags — la tour texte de
+      # SigLIP-large est très lente en CPU single-thread (~27s/batch de 32,
+      # mesuré sur ce VPS) : sans ce cache, ~15-20 min seraient recalculés à
+      # CHAQUE redémarrage du conteneur. Invalidé automatiquement si
+      # tag_vocab.py change (clé = hash du contenu).
+      - ai_worker_vocab_cache:/home/appuser/.cache/ai-worker
+    # Budget mesuré : SigLIP-large seul atteint ~1,9 Go de pic RAM en
+    # inférence CPU (benchmark réel sur ce VPS, 2026-10-19). Cap posé à
+    # 2560m pour laisser de la marge d'exécution sans jamais pouvoir
+    # affamer gif-worker/content-creator/serveur-pdf (2 vCPU/3.7 Go au
+    # total sur la machine). cpus:1.0 laisse l'autre cœur aux autres
+    # projets, même logique que apps/gif-worker/compose.yaml.
+    mem_limit: 2560m
+    cpus: 1.0
+    pids_limit: 100
+
+volumes:
+  ai_worker_hf_cache:
+  ai_worker_vocab_cache:
