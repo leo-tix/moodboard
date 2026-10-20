@@ -16,6 +16,12 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   const title = (formData.get("title") as string | null) ?? "";
+  // Posés par l'import vidéo par lien (TikTok/Instagram/générique → GIF,
+  // voir VideoLinkImportClient) : lien source + plateforme détectée,
+  // conservés en métadonnée sur l'inspiration — pas affichés par défaut.
+  // Absents pour un upload de fichier local classique (undefined ci-dessous).
+  const source = (formData.get("source") as string | null) ?? "";
+  const sourceUrl = (formData.get("sourceUrl") as string | null) ?? "";
 
   if (!file) return NextResponse.json({ error: "Fichier manquant" }, { status: 400 });
 
@@ -74,6 +80,8 @@ export async function POST(req: NextRequest) {
           title: defaultTitle,
           status: "PROCESSING",
           mediaType: "IMAGE",
+          source: source.trim() || undefined,
+          sourceUrl: sourceUrl.trim() || undefined,
         },
       }),
       uploadToR2(storageKey, processed.original, "image/webp"),

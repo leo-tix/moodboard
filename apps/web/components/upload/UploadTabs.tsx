@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Video, Share2, type LucideIcon } from "lucide-react";
+import { Upload, Video, Share2, Link2, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DropZone } from "@/components/upload/DropZone";
 import { YouTubeImportClient } from "@/components/youtube/YouTubeImportClient";
 import { SocialImportClient } from "@/components/upload/SocialImportClient";
+import { VideoLinkImportClient } from "@/components/upload/VideoLinkImportClient";
 
-const TABS: { id: "files" | "youtube" | "social"; label: string; icon: LucideIcon }[] = [
-  { id: "files",   label: "Fichiers",              icon: Upload },
-  { id: "youtube", label: "YouTube",               icon: Video },
-  { id: "social",  label: "Pinterest / Instagram", icon: Share2 },
+const TABS: { id: "files" | "youtube" | "social" | "videoLink"; label: string; icon: LucideIcon }[] = [
+  { id: "files",     label: "Fichiers",              icon: Upload },
+  { id: "youtube",   label: "YouTube",               icon: Video },
+  { id: "social",    label: "Pinterest / Instagram", icon: Share2 },
+  { id: "videoLink", label: "Depuis un lien vidéo",  icon: Link2 },
 ];
 
 type Tab = (typeof TABS)[number]["id"];
@@ -44,8 +46,9 @@ export function UploadTabs() {
           <DropZone />
         </div>
       )}
-      {tab === "youtube" && <YouTubeImportClient />}
-      {tab === "social"  && <SocialImportClient />}
+      {tab === "youtube"   && <YouTubeImportClient />}
+      {tab === "social"    && <SocialImportClient />}
+      {tab === "videoLink" && <VideoLinkImportClient />}
     </div>
   );
 }
