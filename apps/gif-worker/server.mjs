@@ -37,6 +37,24 @@ const DEFAULT_FPS = Number(process.env.DEFAULT_FPS || 12);
 const MAX_FPS = Number(process.env.MAX_FPS || 20);
 const MAX_CONCURRENCY = Number(process.env.MAX_CONCURRENCY || 1);
 const FFMPEG_TIMEOUT_MS = Number(process.env.FFMPEG_TIMEOUT_MS || 90_000);
+// Le GIF produit repart vers /api/upload/image, une fonction Vercel dont le
+// corps de requête est plafonné à ~4,5 Mo (même limite qui, côté vidéo
+// d'entrée, justifie déjà l'upload direct navigateur→worker plus haut). Un
+// passage long/chargé en mouvement peut facilement dépasser ça même à
+// 480px/12fps — plutôt que de produire un GIF que l'étape suivante
+// rejettera avec un 413 sans message utile, on retente ICI à qualité
+// réduite jusqu'à passer sous ce plafond (marge sous 4,5 Mo), avant de
+// renvoyer un message clair si même la qualité la plus basse ne suffit pas
+// (constaté en prod 2026-10-21 sur un passage de 11s haute résolution).
+const MAX_OUTPUT_BYTES = Number(process.env.MAX_OUTPUT_BYTES || 4 * 1024 * 1024);
+// Paliers de repli (fps, largeur) essayés dans l'ordre tant que le GIF
+// dépasse MAX_OUTPUT_BYTES — le premier palier est toujours les réglages
+// demandés tels quels.
+const OUTPUT_SIZE_FALLBACKS = [
+  { fps: 10, width: 360 },
+  { fps: 8, width: 320 },
+  { fps: 6, width: 240 },
+];
 
 // ── Import vidéo par lien (TikTok / Instagram / générique → GIF) ─────────
 // Téléchargement complet via yt-dlp, en sous-processus — même esprit que
@@ -296,24 +314,51 @@ app.post(
       const input = req.file.path;
       const palette = path.join(req.workDir, "palette.png");
       const output = path.join(req.workDir, "output.gif");
-      const vf = `fps=${fps},scale=${width}:-1:flags=lanczos`;
 
-      await runExclusive(async () => {
-        // Deux passes (palette dédiée) : bien meilleure qualité/poids qu'une
-        // conversion directe — c'est la méthode standard ffmpeg pour les GIF.
-        await runFfmpeg([
-          "-y", "-ss", String(start), "-to", String(end), "-i", input,
-          "-vf", `${vf},palettegen=stats_mode=diff`,
-          palette,
-        ]);
-        await runFfmpeg([
-          "-y", "-ss", String(start), "-to", String(end), "-i", input, "-i", palette,
-          "-lavfi", `${vf}[x];[x][1:v]paletteuse=dither=bayer`,
-          output,
-        ]);
-      });
+      // Deux passes (palette dédiée) : bien meilleure qualité/poids qu'une
+      // conversion directe — c'est la méthode standard ffmpeg pour les GIF.
+      const encodeAt = (attemptFps, attemptWidth) => {
+        const vf = `fps=${attemptFps},scale=${attemptWidth}:-1:flags=lanczos`;
+        return runExclusive(async () => {
+          await runFfmpeg([
+            "-y", "-ss", String(start), "-to", String(end), "-i", input,
+            "-vf", `${vf},palettegen=stats_mode=diff`,
+            palette,
+          ]);
+          await runFfmpeg([
+            "-y", "-ss", String(start), "-to", String(end), "-i", input, "-i", palette,
+            "-lavfi", `${vf}[x];[x][1:v]paletteuse=dither=bayer`,
+            output,
+          ]);
+        });
+      };
 
-      const { size } = await stat(output);
+      // Palier demandé d'abord, puis repli progressif tant que le résultat
+      // dépasse MAX_OUTPUT_BYTES — seuls les paliers plus stricts que ce qui
+      // vient d'échouer sont tentés (inutile de refaire un réglage identique
+      // ou moins strict).
+      const attempts = [{ fps, width }];
+      for (const step of OUTPUT_SIZE_FALLBACKS) {
+        const prev = attempts[attempts.length - 1];
+        if (step.fps < prev.fps || step.width < prev.width) {
+          attempts.push({ fps: Math.min(step.fps, prev.fps), width: Math.min(step.width, prev.width) });
+        }
+      }
+
+      let size = Infinity;
+      for (let i = 0; i < attempts.length; i++) {
+        await encodeAt(attempts[i].fps, attempts[i].width);
+        ({ size } = await stat(output));
+        if (size <= MAX_OUTPUT_BYTES || i === attempts.length - 1) break;
+      }
+
+      if (size > MAX_OUTPUT_BYTES) {
+        await cleanup();
+        return res.status(422).json({
+          error: "Le GIF produit est trop volumineux même en qualité réduite — essaie un passage plus court ou moins chargé en mouvement.",
+        });
+      }
+
       res.set("Content-Type", "image/gif");
       res.set("Content-Length", String(size));
       const { createReadStream } = await import("node:fs");
