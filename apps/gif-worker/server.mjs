@@ -375,7 +375,13 @@ app.post("/fetch-url", requireAuth, async (req, res) => {
       runYtDlp(
         [
           "--no-warnings", "--no-playlist",
-          "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+          // Flux combiné déjà muxé plutôt que piste vidéo+audio séparées à
+          // fusionner : certains itags mp4 haute résolution renvoient un 403
+          // de googlevideo.com depuis une IP de datacenter (PO token exigé),
+          // alors que le flux combiné "best" passe — testé en prod 2026-10-20,
+          // voir la section Déploiement du README. Qualité suffisante de
+          // toute façon : tout repart en GIF basse résolution derrière.
+          "-f", "b[ext=mp4]/b",
           "--max-filesize", String(MAX_FETCH_BYTES),
           "--match-filter", `duration <= ${MAX_FETCH_DURATION_S}`,
           "--socket-timeout", "20",
@@ -439,7 +445,9 @@ app.post("/fetch-url-section", requireAuth, async (req, res) => {
       runYtDlp(
         [
           "--no-warnings", "--no-playlist",
-          "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+          // Voir le commentaire identique dans /fetch-url ci-dessus (403
+          // googlevideo.com sur les itags mp4 séparés depuis cette IP VPS).
+          "-f", "b[ext=mp4]/b",
           "--download-sections", `*${start}-${end}`,
           "--max-filesize", String(MAX_FETCH_BYTES),
           "--socket-timeout", "20",
