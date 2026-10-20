@@ -1,6 +1,8 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache ffmpeg
+# ffmpeg (trim + GIF) et yt-dlp (téléchargement vidéo par lien, paquet
+# Alpine community — tire python3 automatiquement, pas besoin de pip).
+RUN apk add --no-cache ffmpeg yt-dlp
 
 WORKDIR /app
 COPY package.json package-lock.json ./
