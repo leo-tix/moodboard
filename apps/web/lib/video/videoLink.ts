@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 // plafond ci-dessous inclurait des imports qui n'ont rien à voir.
 // ============================================================
 
-export type VideoLinkPlatform = "tiktok" | "instagram" | "generic";
+export type VideoLinkPlatform = "tiktok" | "instagram" | "youtube" | "generic";
 
 export const VIDEO_LINK = {
   // Plafond quotidien par profil — illimité pour ADMIN (voir checkDailyVideoLinkQuota).
@@ -26,9 +26,23 @@ export const VIDEO_LINK = {
   MAX_SOURCE_DURATION_S: parseInt(process.env.VIDEO_LINK_MAX_DURATION_S ?? "600"), // 10 min
   MAX_SOURCE_BYTES: parseInt(process.env.VIDEO_LINK_MAX_BYTES ?? String(500 * 1024 * 1024)), // 500 Mo
 
+  // Sous-flux YouTube (#7) : on ne télécharge JAMAIS la vidéo entière, juste
+  // la plage choisie par l'utilisateur AVANT tout téléchargement — plafond
+  // bien plus bas que MAX_SOURCE_DURATION_S, qui ne s'applique pas ici.
+  MAX_SECTION_DURATION_S: parseInt(process.env.VIDEO_LINK_MAX_SECTION_DURATION_S ?? "90"),
+  // Marge ajoutée de part et d'autre de la plage choisie avant l'appel
+  // yt-dlp --download-sections, pour laisser de quoi affiner dans
+  // VideoTrimModal ensuite (sinon la section téléchargée est pile la plage
+  // déjà choisie, sans rien à ajuster).
+  SECTION_PADDING_S: parseInt(process.env.VIDEO_LINK_SECTION_PADDING_S ?? "3"),
+
   SOURCE_LABELS: {
     tiktok: "TikTok (vidéo)",
     instagram: "Instagram (vidéo)",
+    // Libellé délibérément distinct de "YouTube" (posé par l'import de
+    // stills existant, /api/youtube) : sinon le comptage du plafond
+    // quotidien mélangerait deux fonctionnalités différentes.
+    youtube: "YouTube (section)",
     generic: "Vidéo (lien)",
   } satisfies Record<VideoLinkPlatform, string>,
 } as const;
@@ -42,6 +56,14 @@ export function detectPlatform(rawUrl: string): VideoLinkPlatform {
   }
   if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
   if (host === "instagram.com" || host.endsWith(".instagram.com")) return "instagram";
+  if (
+    host === "youtube.com" ||
+    host.endsWith(".youtube.com") ||
+    host === "youtube-nocookie.com" ||
+    host === "youtu.be"
+  ) {
+    return "youtube";
+  }
   return "generic";
 }
 

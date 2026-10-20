@@ -23,7 +23,10 @@ const isDev = process.env.NODE_ENV === "development";
 
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com${isDev ? " 'unsafe-eval'" : ""}`,
+  // https://www.youtube.com : API IFrame Player officielle (sélection de
+  // section YouTube avant téléchargement, #7) — charge son propre script
+  // pour piloter le lecteur embarqué (seekTo, getDuration…).
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.youtube.com${isDev ? " 'unsafe-eval'" : ""}`,
   "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",

@@ -57,6 +57,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // YouTube a son propre sous-flux (#7, /api/video-link/section-ticket) :
+  // sélection d'une plage AVANT tout téléchargement — jamais le
+  // téléchargement complet géré ici (une vidéo YouTube peut être longue).
+  const platform = detectPlatform(rawUrl);
+  if (platform === "youtube") {
+    return NextResponse.json(
+      { error: "Les liens YouTube utilisent le sous-flux dédié (sélection de section avant téléchargement)." },
+      { status: 400 },
+    );
+  }
+
   const quota = await checkDailyVideoLinkQuota(userId, role);
   if (!quota.allowed) {
     return NextResponse.json({ error: quota.reason }, { status: 429 });
@@ -122,7 +133,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const platform = detectPlatform(rawUrl);
   const exp = Math.floor(Date.now() / 1000) + TICKET_TTL_S;
   const mac = crypto.createHmac("sha256", secret).update(String(exp)).digest("hex");
 
