@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { getDuplicateIdSet } from "@/lib/ai/duplicates";
 
 // GET /api/triage — images en attente de triage (pas encore acceptées ni archivées)
 export async function GET() {
@@ -35,5 +36,10 @@ export async function GET() {
     orderBy: { createdAt: "asc" }, // plus vieilles en premier
   });
 
-  return NextResponse.json({ items });
+  // Badge "quasi-doublon" dès le triage — signal non bloquant, visible avant
+  // même d'accepter l'image (voir plan Phase 5).
+  const duplicateIds = await getDuplicateIdSet(items.map((i) => i.id));
+  const itemsWithDuplicate = items.map((i) => ({ ...i, possibleDuplicate: duplicateIds.has(i.id) }));
+
+  return NextResponse.json({ items: itemsWithDuplicate });
 }

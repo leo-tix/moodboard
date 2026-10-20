@@ -21,6 +21,8 @@ export interface InspirationGridItem {
   tags: { tag: { name: string } }[];
   /** Nombre de planches moodboard contenant cette image (affiché en badge) */
   moodboardCount?: number;
+  /** Quasi-doublon détecté par l'IA — badge non bloquant */
+  possibleDuplicate?: boolean;
   /** Visite à laquelle l'image est rattachée (carnet), s'il y en a une — une
    *  image archivée rattachée à une visite est "utilisée" au même titre
    *  qu'une image présente sur une planche (voir LibraryClient.unusedIds). */
@@ -41,6 +43,8 @@ interface InspirationGridProps {
   onCardDragStart?: (id: string) => void;
   onCardDrag?: (x: number, y: number) => void;
   onCardDragEnd?: (x: number, y: number) => void;
+  /** Rend le badge doublon cliquable (ouvre la comparaison — Archives uniquement) */
+  onDuplicateBadgeClick?: (id: string) => void;
 }
 
 // Responsive column count — mobile-first.
@@ -95,6 +99,7 @@ export function InspirationGrid({
   onCardDragStart,
   onCardDrag,
   onCardDragEnd,
+  onDuplicateBadgeClick,
 }: InspirationGridProps) {
   const handleBeforeNavigate = saveNavContext
     ? () => {
@@ -169,6 +174,8 @@ export function InspirationGrid({
                   tags={item.tags.map((t) => t.tag.name)}
                   year={item.year}
                   moodboardCount={item.moodboardCount}
+                  possibleDuplicate={item.possibleDuplicate}
+                  onDuplicateBadgeClick={onDuplicateBadgeClick}
                   selectable={selectable}
                   selected={selectedIds?.has(item.id)}
                   onSelect={onSelect}

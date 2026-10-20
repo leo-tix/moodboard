@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { motion, type PanInfo } from "framer-motion";
-import { LayoutDashboard, Check } from "lucide-react";
+import { LayoutDashboard, Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getThumbnailUrl } from "@/lib/storage/urls";
 import { useDragHandle } from "@/hooks/useDragHandle";
@@ -23,6 +23,12 @@ interface InspirationCardProps {
   className?: string;
   /** Nombre de planches moodboard où cette image est présente */
   moodboardCount?: number;
+  /** Quasi-doublon détecté par l'IA (DuplicateCandidate, statut PENDING) —
+   * signal non bloquant, visible partout où l'image apparaît. */
+  possibleDuplicate?: boolean;
+  /** Si fourni, le badge doublon devient cliquable (ouvre la comparaison —
+   * Archives uniquement) au lieu d'être purement informatif. */
+  onDuplicateBadgeClick?: (id: string) => void;
   // Selection
   selectable?: boolean;
   selected?: boolean;
@@ -47,6 +53,8 @@ export function InspirationCard({
   year,
   className,
   moodboardCount,
+  possibleDuplicate,
+  onDuplicateBadgeClick,
   selectable,
   selected,
   onSelect,
@@ -114,13 +122,32 @@ export function InspirationCard({
         </div>
       )}
 
-      {/* Badge moodboards */}
-      {moodboardCount != null && moodboardCount > 0 && (
-        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[9px] font-medium px-1.5 py-0.5 rounded-full pointer-events-none">
-          <LayoutDashboard size={9} strokeWidth={1.5} />
-          {moodboardCount}
-        </div>
-      )}
+      {/* Badges moodboards / doublon possible — empilés en haut à droite */}
+      <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1 pointer-events-none">
+        {possibleDuplicate && onDuplicateBadgeClick ? (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDuplicateBadgeClick(id); }}
+            className="pointer-events-auto flex items-center gap-1 bg-amber-500/80 backdrop-blur-sm text-black text-[9px] font-medium px-1.5 py-0.5 rounded-full hover:bg-amber-500 transition-colors"
+            title="Comparer ce quasi-doublon"
+          >
+            <Copy size={9} strokeWidth={2} />
+          </button>
+        ) : possibleDuplicate ? (
+          <div
+            className="flex items-center gap-1 bg-amber-500/80 backdrop-blur-sm text-black text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+            title="Quasi-doublon détecté"
+          >
+            <Copy size={9} strokeWidth={2} />
+          </div>
+        ) : null}
+        {moodboardCount != null && moodboardCount > 0 && (
+          <div className="flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[9px] font-medium px-1.5 py-0.5 rounded-full">
+            <LayoutDashboard size={9} strokeWidth={1.5} />
+            {moodboardCount}
+          </div>
+        )}
+      </div>
 
       {/* Checkbox de sélection */}
       {selectable && (

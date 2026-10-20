@@ -10,6 +10,7 @@ import { FilterPanel } from "@/components/search/FilterPanel";
 import { FilterDrawer } from "@/components/search/FilterDrawer";
 import type { Prisma } from "@prisma/client";
 import { Prisma as PrismaClient } from "@prisma/client";
+import { getDuplicateIdSet } from "@/lib/ai/duplicates";
 
 export const metadata: Metadata = { title: "Recherche" };
 export const dynamic = "force-dynamic";
@@ -153,6 +154,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     }
   }
 
+  const duplicateIds = await getDuplicateIdSet(inspirations.map((i) => i.id));
+
   const tagsForPanel = popularTags
     .filter((t) => t._count.inspirations > 0)
     .map((t) => ({ name: t.name, slug: t.slug, count: t._count.inspirations }));
@@ -207,6 +210,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             // Rattachée à une visite (carnet) = "utilisée", au même titre
             // qu'une présence sur une planche (voir LibraryClient.unusedIds).
             visitId: i.visitId ?? null,
+            possibleDuplicate: duplicateIds.has(i.id),
           }))}
         />
         )
@@ -261,7 +265,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                 )}
               </div>
             ) : (
-              <InspirationGrid inspirations={inspirations as InspirationGridItem[]} columns={3} saveNavContext />
+              <InspirationGrid
+                inspirations={(inspirations as InspirationGridItem[]).map((i) => ({ ...i, possibleDuplicate: duplicateIds.has(i.id) }))}
+                columns={3}
+                saveNavContext
+              />
             )}
           </div>
         </div>

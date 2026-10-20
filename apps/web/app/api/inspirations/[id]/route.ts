@@ -58,7 +58,8 @@ export async function PATCH(
   });
   if (!owned) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  const { tags, categories, ...data } = parsed.data;
+  const { tags, categories, aiTagNames, ...data } = parsed.data;
+  const aiTagNameSet = new Set(aiTagNames ?? []);
 
   const inspiration = await db.inspiration.update({
     where: { id },
@@ -71,7 +72,15 @@ export async function PATCH(
             tag: {
               connectOrCreate: {
                 where: { userId_slug: { userId, slug: name.toLowerCase().replace(/\s+/g, "-") } },
-                create: { userId, name, slug: name.toLowerCase().replace(/\s+/g, "-") },
+                // `source` ne se pose qu'à la CRÉATION du Tag (connectOrCreate
+                // se contente de connecter si le slug existe déjà, sans
+                // toucher à sa source d'origine).
+                create: {
+                  userId,
+                  name,
+                  slug: name.toLowerCase().replace(/\s+/g, "-"),
+                  source: aiTagNameSet.has(name) ? "AI" : "MANUAL",
+                },
               },
             },
           })),

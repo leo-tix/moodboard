@@ -23,6 +23,11 @@ export const createInspirationSchema = z.object({
 export const updateInspirationSchema = createInspirationSchema.partial().extend({
   isArchived: z.boolean().optional(),
   isAccepted: z.boolean().optional(),
+  // Sous-ensemble de `tags` accepté depuis une suggestion IA (AiSuggestPanel)
+  // dans CETTE sauvegarde — sert uniquement à poser Tag.source=AI à la
+  // création du tag (voir PATCH /api/inspirations/[id]). Un tag déjà
+  // existant garde sa source d'origine, `source` ne se pose qu'une fois.
+  aiTagNames: z.array(z.string()).optional(),
 });
 
 export type CreateInspirationInput = z.infer<typeof createInspirationSchema>;

@@ -7,7 +7,8 @@ import { TagInput } from "./TagInput";
 import { AutocompleteInput } from "./AutocompleteInput";
 import type { Category } from "./CategorySelect";
 import { AiSuggestPanel } from "./AiSuggestPanel";
-import { getImageUrl } from "@/lib/storage/urls";
+import { SimilarImagesPanel } from "./SimilarImagesPanel";
+import { DuplicateBadge } from "./DuplicateBadge";
 import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
 import { VisitPicker, type VisitRef } from "@/components/visits/VisitPicker";
 import { SendImageButton } from "@/components/social/SendImageButton";
@@ -64,6 +65,9 @@ export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, 
   const tagsRef       = useRef(tags);        tagsRef.current       = tags;
   const categoriesRef = useRef(categories);  categoriesRef.current = categories;
   const saveTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tags ajoutés via une chip IA depuis le dernier save — sert à poser
+  // Tag.source=AI côté serveur (voir aiTagNames, PATCH /api/inspirations/[id]).
+  const aiTagNamesRef = useRef<Set<string>>(new Set());
 
   // ── Collections ──
   const [myCollections, setMyCollections] = useState<{ id: string; name: string }[]>(
@@ -92,6 +96,7 @@ export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, 
             year: dataRef.current.year || undefined,
             categories: categoriesRef.current,
             tags: tagsRef.current,
+            aiTagNames: Array.from(aiTagNamesRef.current),
           }),
         });
         setSaved(true);
@@ -130,6 +135,7 @@ export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, 
   // ── Form fields ──
   const formFields = (
     <>
+      <DuplicateBadge id={id} />
       <div>
         <p className={lbl}>Titre</p>
         <AutocompleteInput
@@ -160,25 +166,25 @@ export function MetadataPanel({ id, initialData, colorPalette, imageStorageKey, 
         </div>
       )}
 
-      {/* Suggestions IA locales (CLIP) — titre / catégories / tags, validées. */}
-      {imageStorageKey && (
-        <AiSuggestPanel
-          imageUrl={getImageUrl(imageStorageKey)}
-          allCategories={allCategories}
-          currentTitle={data.title}
-          currentCategories={categories}
-          currentTags={tags}
-          onSetTitle={(t) => update("title", t)}
-          onAddCategory={(sel) =>
-            handleCategoriesChange(
-              categories.some((c) => c.categoryId === sel.categoryId && (c.subcategoryId ?? null) === (sel.subcategoryId ?? null))
-                ? categories
-                : [...categories, sel],
-            )
-          }
-          onAddTag={(name) => handleTagsChange(tags.includes(name) ? tags : [...tags, name])}
-        />
-      )}
+      {/* Suggestions IA — tags/catégories calculés en continu côté VPS. */}
+      <AiSuggestPanel
+        id={id}
+        allCategories={allCategories}
+        currentCategories={categories}
+        currentTags={tags}
+        onAddCategory={(sel) =>
+          handleCategoriesChange(
+            categories.some((c) => c.categoryId === sel.categoryId && (c.subcategoryId ?? null) === (sel.subcategoryId ?? null))
+              ? categories
+              : [...categories, sel],
+          )
+        }
+        onAddTag={(name, fromAi) => {
+          if (fromAi) aiTagNamesRef.current.add(name);
+          handleTagsChange(tags.includes(name) ? tags : [...tags, name]);
+        }}
+      />
+      <SimilarImagesPanel id={id} />
 
       <div>
         <div className="flex items-center justify-between mb-1">

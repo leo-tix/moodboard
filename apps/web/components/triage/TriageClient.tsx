@@ -3,6 +3,8 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { X, Check, ArrowUp, CircleSlash, RotateCcw, Copy, Maximize2, PartyPopper } from "lucide-react";
+// NOTE: `Copy` était déjà importé (bouton copier métadonnées) — réutilisé
+// aussi pour le badge "quasi-doublon".
 import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
 import { CategoryMultiSelect, type CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
 import { TagInput } from "@/components/inspiration/TagInput";
@@ -22,6 +24,7 @@ interface TriageItem {
   categories:  { categoryId: string; subcategoryId: string | null }[];
   tags:        { tag: { name: string } }[];
   images:      { storageKey: string; thumbnailKey: string | null; width: number | null; height: number | null }[];
+  possibleDuplicate?: boolean;
 }
 
 interface LocalFields {
@@ -232,6 +235,9 @@ export function TriageClient() {
 
   const fieldsRef   = useRef<LocalFields | null>(null);
   fieldsRef.current = fields;
+  // Tags ajoutés via une chip IA depuis le dernier save (voir aiTagNames,
+  // PATCH /api/inspirations/[id]) — réinitialisé à chaque nouvelle carte.
+  const aiTagNamesRef = useRef<Set<string>>(new Set());
 
   const cardRef   = useRef<HTMLDivElement>(null);
   const behindRef = useRef<HTMLDivElement>(null);
@@ -265,6 +271,7 @@ export function TriageClient() {
 
   useEffect(() => {
     if (current) setFields(itemToLocal(current));
+    aiTagNamesRef.current = new Set();
     if (cardRef.current) {
       cardRef.current.style.transition = "none";
       cardRef.current.style.transform  = "translateX(0) translateY(0) rotate(0deg) scale(1)";
@@ -314,6 +321,7 @@ export function TriageClient() {
         body: JSON.stringify({
           title: f.title, author: f.author || undefined,
           year: parseInt(f.year) || undefined, categories: f.categories, tags: f.tags,
+          aiTagNames: Array.from(aiTagNamesRef.current),
         }),
       });
       setSaveStatus("saved");
@@ -559,16 +567,13 @@ export function TriageClient() {
         <p className={lbl}>Tags</p>
         <TagInput value={fields.tags} onChange={(v) => updateField("tags", v)} placeholder="Entrée pour valider…" withSuggestions />
       </div>
-      {/* Suggestions IA locales (CLIP zero-shot) — catégories + tags, validées par
-          l'utilisateur. Toggle « auto » persisté partagé avec les espaces d'upload. */}
-      {current?.images?.[0]?.storageKey && (
+      {/* Suggestions IA — tags/catégories calculés en continu côté VPS. */}
+      {current && (
         <AiSuggestPanel
-          imageUrl={getImageUrl(current.images[0].storageKey)}
+          id={current.id}
           allCategories={allCategories}
-          currentTitle={fields.title}
           currentCategories={fields.categories}
           currentTags={fields.tags}
-          onSetTitle={(t) => updateField("title", t)}
           onAddCategory={(sel) =>
             updateField(
               "categories",
@@ -577,7 +582,10 @@ export function TriageClient() {
                 : [...fields.categories, sel],
             )
           }
-          onAddTag={(name) => updateField("tags", fields.tags.includes(name) ? fields.tags : [...fields.tags, name])}
+          onAddTag={(name, fromAi) => {
+            if (fromAi) aiTagNamesRef.current.add(name);
+            updateField("tags", fields.tags.includes(name) ? fields.tags : [...fields.tags, name]);
+          }}
         />
       )}
       <div>
@@ -790,6 +798,13 @@ export function TriageClient() {
                 {hint === "up" && (
                   <div className="absolute inset-0 bg-gradient-to-b from-blue-500/30 to-transparent flex items-start justify-center pt-4 pointer-events-none">
                     <span className="text-blue-400 drop-shadow-lg border-4 border-blue-400 rounded-2xl p-2"><ArrowUp size={40} strokeWidth={3} /></span>
+                  </div>
+                )}
+
+                {current?.possibleDuplicate && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1 bg-amber-500/90 text-black text-[10px] font-medium px-2 py-1 rounded-full pointer-events-none">
+                    <Copy size={10} strokeWidth={2} />
+                    Quasi-doublon détecté
                   </div>
                 )}
               </div>

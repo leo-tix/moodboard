@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth/current";
 import { LibraryClient } from "@/components/inspiration/LibraryClient";
 import { PwaInstallButton } from "@/components/pwa/PwaInstallButton";
+import { getDuplicateIdSet } from "@/lib/ai/duplicates";
 
 export const metadata: Metadata = { title: "Bibliothèque" };
 // Données par profil → rendu dynamique (pas de cache partagé entre profils)
@@ -36,6 +37,8 @@ export default async function LibraryPage() {
     // tableau complet (PAGE_SIZE=48) — usage personnel, volumétrie modeste.
   });
 
+  const duplicateIds = await getDuplicateIdSet(inspirations.map((i) => i.id));
+
   return (
     <div className="p-4 md:p-6">
       <header className="mb-4 flex items-center justify-between gap-3">
@@ -55,7 +58,9 @@ export default async function LibraryPage() {
           </a>
         </div>
       </header>
-      <LibraryClient inspirations={inspirations} />
+      <LibraryClient
+        inspirations={inspirations.map((i) => ({ ...i, possibleDuplicate: duplicateIds.has(i.id) }))}
+      />
     </div>
   );
 }

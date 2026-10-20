@@ -8,6 +8,8 @@ import { BatchEditBar } from "./BatchEditBar";
 import { LibraryDropZone, type DropTarget, type LibraryDropZoneHandle } from "./LibraryDropZone";
 import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
 import { CreateVisitModal } from "@/components/visits/CreateVisitModal";
+import { CompareDuplicateModal } from "./CompareDuplicateModal";
+import { getThumbnailUrl } from "@/lib/storage/urls";
 
 const PAGE_SIZE = 48;
 
@@ -182,6 +184,7 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
   const [draggingIds, setDraggingIds] = useState<string[] | null>(null);
   const [pendingNewCollectionIds, setPendingNewCollectionIds] = useState<string[] | null>(null);
   const [pendingNewVisitIds, setPendingNewVisitIds] = useState<string[] | null>(null);
+  const [compareId, setCompareId] = useState<string | null>(null);
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
   const draggingIdsRef = useRef<string[] | null>(null);
@@ -547,6 +550,7 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
         onCardDragStart={!isArchivedMode ? handleCardDragStart : undefined}
         onCardDrag={!isArchivedMode ? handleCardDrag : undefined}
         onCardDragEnd={!isArchivedMode ? handleCardDragEnd : undefined}
+        onDuplicateBadgeClick={isArchivedMode ? setCompareId : undefined}
         emptyMessage={
           hasActiveFilter
             ? "Aucune image ne correspond à ces filtres."
@@ -580,6 +584,24 @@ export function LibraryClient({ inspirations, isArchivedMode = false }: LibraryC
           />
         )}
       </AnimatePresence>
+
+      {/* ── Comparer un quasi-doublon (Archives) ── */}
+      {compareId && (() => {
+        const item = inspirations.find((i) => i.id === compareId);
+        const mainImage = item?.images.find((img) => img.isMain) ?? item?.images[0];
+        return (
+          <CompareDuplicateModal
+            id={compareId}
+            title={item?.title ?? ""}
+            thumbnailUrl={mainImage?.thumbnailKey ? getThumbnailUrl(mainImage.thumbnailKey) : null}
+            onClose={() => setCompareId(null)}
+            onMerged={() => {
+              setCompareId(null);
+              window.location.reload();
+            }}
+          />
+        );
+      })()}
 
       {/* ── Drop sur "+ Nouvelle collection" / "+ Nouvelle visite" ── */}
       {pendingNewCollectionIds && (

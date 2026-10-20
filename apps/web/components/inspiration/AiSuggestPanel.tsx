@@ -1,68 +1,76 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, Check, Loader2, Plus, ShieldCheck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Sparkles, Check, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Category } from "@/components/inspiration/CategorySelect";
 import type { CategorySelection } from "@/components/inspiration/CategoryMultiSelect";
-import { analyzeImage, type AnalysisProgress, type ImageAnalysis } from "@/lib/ai/imageAnalysis";
+
+type AiStatus = "PENDING" | "PROCESSING" | "DONE" | "ERROR";
+interface SuggestedTag { label: string; score: number; z: number; group: string }
+interface SuggestedCategory { categoryId: string; subcategoryId: string | null; score: number; z: number }
 
 interface Props {
-  imageUrl: string | null;
+  /** Id de l'inspiration — sert à interroger ses suggestions IA (poll tant
+   * que l'analyse n'est pas DONE, voir le worker `apps/ai-worker`). */
+  id: string;
   allCategories: Category[];
-  currentTitle: string;
   currentCategories: CategorySelection[];
   currentTags: string[];
-  onSetTitle: (title: string) => void;
   onAddCategory: (sel: CategorySelection) => void;
-  onAddTag: (name: string) => void;
+  /** `fromAi` indique au parent qu'il doit tracer ce tag comme
+   * `aiTagNames` dans le prochain PATCH, pour poser `Tag.source = AI`. */
+  onAddTag: (name: string, fromAi: boolean) => void;
 }
 
-// Panneau de suggestions IA (locale) — analyse l'image via CLIP (zero-shot, en
-// Web Worker) et propose titre, catégories et tags. L'utilisateur clique ce
-// qu'il garde, rien n'est appliqué d'office. Toggle « auto » partagé avec les
-// espaces d'upload.
-export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentCategories, currentTags, onSetTitle, onAddCategory, onAddTag }: Props) {
-  const [progress, setProgress] = useState<AnalysisProgress | null>(null);
-  const [result, setResult] = useState<ImageAnalysis | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const runningFor = useRef<string | null>(null);
+const POLL_MS = 4000;
 
-  const run = useCallback(async (url: string) => {
-    if (runningFor.current === url) return;
-    runningFor.current = url;
-    setError(null);
-    setResult(null);
-    setProgress({ phase: "classifying" });
-    try {
-      setResult(await analyzeImage(url, setProgress));
-    } catch (e) {
-      console.error("[AI SUGGEST]", e);
-      setError("Analyse impossible sur cet appareil.");
-    } finally {
-      setProgress(null);
-      runningFor.current = null;
-    }
-  }, []);
+// Panneau de suggestions IA — tags/catégories calculés en continu côté VPS
+// (apps/ai-worker, voir le plan), jamais côté navigateur. Purement passif :
+// affiche ce que le worker a déjà produit, l'utilisateur clique ce qu'il
+// garde, rien n'est appliqué d'office.
+export function AiSuggestPanel({ id, allCategories, currentCategories, currentTags, onAddCategory, onAddTag }: Props) {
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const [tags, setTags] = useState<SuggestedTag[]>([]);
+  const [categories, setCategories] = useState<SuggestedCategory[]>([]);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Réinitialise les suggestions quand l'image change. L'analyse ne se lance
-  // JAMAIS d'elle-même : uniquement quand l'utilisateur clique le bouton.
   useEffect(() => {
-    setResult(null);
-    setError(null);
-  }, [imageUrl]);
+    let stopped = false;
 
-  const resolve = (category: string, subcategory: string): CategorySelection | null => {
-    const cat = allCategories.find((c) => c.name === category);
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/inspirations/${id}/ai-suggestions`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (stopped) return;
+        setStatus(data.aiStatus);
+        setTags(Array.isArray(data.aiSuggestedTags) ? data.aiSuggestedTags : []);
+        setCategories(Array.isArray(data.aiSuggestedCategories) ? data.aiSuggestedCategories : []);
+        if (data.aiStatus === "PENDING" || data.aiStatus === "PROCESSING") {
+          pollTimer.current = setTimeout(poll, POLL_MS);
+        }
+      } catch {
+        // silencieux — on retentera au prochain montage, pas de bruit pour l'utilisateur
+      }
+    };
+    poll();
+
+    return () => {
+      stopped = true;
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    };
+  }, [id]);
+
+  const resolveCategory = (categoryId: string, subcategoryId: string | null) => {
+    const cat = allCategories.find((c) => c.id === categoryId);
     if (!cat) return null;
-    const sub = cat.subcategories.find((s) => s.name === subcategory);
-    return { categoryId: cat.id, subcategoryId: sub?.id ?? null };
+    const sub = subcategoryId ? cat.subcategories.find((s) => s.id === subcategoryId) : undefined;
+    return { cat, sub };
   };
   const catAdded = (sel: CategorySelection) =>
     currentCategories.some((c) => c.categoryId === sel.categoryId && (c.subcategoryId ?? null) === (sel.subcategoryId ?? null));
   const tagAdded = (name: string) => currentTags.some((t) => t.toLowerCase() === name.toLowerCase());
-
-  const busy = progress !== null;
 
   const chip = (added: boolean, onClick: () => void, key: string, children: React.ReactNode) => (
     <button
@@ -82,6 +90,9 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentC
     </button>
   );
 
+  const waiting = status === "PENDING" || status === "PROCESSING";
+  const hasSuggestions = tags.length > 0 || categories.length > 0;
+
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 space-y-2.5">
       <div className="flex items-center gap-2">
@@ -89,82 +100,47 @@ export function AiSuggestPanel({ imageUrl, allCategories, currentTitle, currentC
         <span className="text-xs font-medium text-[var(--text-primary)] flex-1">Suggestions IA</span>
       </div>
 
-      {!result && !busy && (
-        <button
-          type="button"
-          onClick={() => imageUrl && run(imageUrl)}
-          disabled={!imageUrl}
-          className="w-full py-2 rounded-lg text-xs font-medium bg-[var(--text-primary)] text-[var(--bg-base)] disabled:opacity-50 flex items-center justify-center gap-1.5"
-        >
-          <Sparkles size={13} strokeWidth={2} /> Suggérer titre, catégories &amp; tags
-        </button>
+      {waiting && (
+        <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+          <Loader2 size={12} className="animate-spin" strokeWidth={2.2} />
+          En attente d&apos;analyse…
+        </span>
       )}
 
-      {busy && (
-        <div className="space-y-1.5">
-          <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-            <Loader2 size={12} className="animate-spin" strokeWidth={2.2} />
-            {progress?.phase === "downloading"
-              ? `Téléchargement du modèle… ${progress.loadedMB ?? 0}/${progress.totalMB ?? "?"} Mo`
-              : "Analyse de l'image…"}
-          </span>
-          <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-base)]">
-            {progress?.phase === "downloading" && progress.totalMB ? (
-              <div
-                className="h-full rounded-full bg-[var(--text-primary)] transition-[width] duration-300"
-                style={{ width: `${Math.min(100, Math.round(((progress.loadedMB ?? 0) / progress.totalMB) * 100))}%` }}
-              />
-            ) : (
-              <div className="mb-progress-sweep absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--text-primary)]" />
-            )}
-          </div>
-        </div>
+      {status === "ERROR" && (
+        <p className="text-[11px] text-[var(--text-tertiary)]">Analyse impossible pour cette image.</p>
       )}
 
-      {error && <p className="text-[11px] text-red-400">{error}</p>}
-
-      {result && !busy && (
+      {status === "DONE" && (
         <div className="space-y-2.5">
-          {result.titles.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Titre</p>
-              <div className="flex flex-wrap gap-1.5">
-                {result.titles.map((t) => chip(currentTitle.trim() === t, () => onSetTitle(t), t, t))}
-              </div>
-            </div>
-          )}
-          {result.categories.length > 0 && (
+          {categories.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Catégories</p>
               <div className="flex flex-wrap gap-1.5">
-                {result.categories.map((c, i) => {
-                  const sel = resolve(c.category, c.subcategory);
-                  if (!sel) return null;
+                {categories.map((c, i) => {
+                  const resolved = resolveCategory(c.categoryId, c.subcategoryId);
+                  if (!resolved) return null;
+                  const sel: CategorySelection = { categoryId: c.categoryId, subcategoryId: c.subcategoryId };
                   return chip(catAdded(sel), () => onAddCategory(sel), `cat-${i}`, (
-                    <>{c.subcategory} · <span className="text-[var(--text-tertiary)]">{c.category}</span></>
+                    <>{resolved.sub?.name ?? resolved.cat.name} <span className="text-[var(--text-tertiary)]">· {resolved.cat.name}</span></>
                   ));
                 })}
               </div>
             </div>
           )}
-          {result.tags.length > 0 && (
+          {tags.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Tags</p>
               <div className="flex flex-wrap gap-1.5">
-                {result.tags.map((t) => chip(tagAdded(t.label), () => onAddTag(t.label), t.label, t.label))}
+                {tags.map((t) => chip(tagAdded(t.label), () => onAddTag(t.label, true), t.label, t.label))}
               </div>
             </div>
           )}
-          {result.categories.length === 0 && result.tags.length === 0 && (
+          {!hasSuggestions && (
             <p className="text-[11px] text-[var(--text-tertiary)]">Pas de suggestion nette pour cette image.</p>
           )}
         </div>
       )}
-
-      <p className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] pt-0.5">
-        <ShieldCheck size={11} strokeWidth={2} className="text-emerald-500/80 shrink-0" />
-        Analyse 100 % locale — aucune image n&apos;est envoyée.
-      </p>
     </div>
   );
 }
