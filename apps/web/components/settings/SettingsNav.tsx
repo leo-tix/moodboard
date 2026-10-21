@@ -13,9 +13,13 @@ const BASE_NAV = [
 export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
 
-  // "Profils" réservé à l'admin (création/quota des autres comptes)
+  // "Profils" et "Import vidéo" réservés à l'admin (comptes/quota, cookies yt-dlp)
   const nav = isAdmin
-    ? [...BASE_NAV, { href: "/settings/profiles", label: "Profils" }]
+    ? [
+        ...BASE_NAV,
+        { href: "/settings/profiles", label: "Profils" },
+        { href: "/settings/video-import", label: "Import vidéo" },
+      ]
     : BASE_NAV;
 
   return (

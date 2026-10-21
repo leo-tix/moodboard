@@ -4,6 +4,13 @@ services:
     container_name: moodboard-gif-worker
     restart: unless-stopped
     env_file: .env
+    # ./secrets/ (hors git) : cookies.txt yt-dlp pour contourner les murs de
+    # connexion Instagram/YouTube — déposés via l'écran admin de apps/web
+    # (POST /admin/cookies, voir server.mjs) ou manuellement par scp. Lecture-
+    # écriture : c'est CE service qui écrit le fichier reçu de l'admin. Voir
+    # README.md § Authentification yt-dlp.
+    volumes:
+      - ./secrets:/secrets
     # Lié à localhost uniquement — jamais exposé directement à internet ;
     # seul le Caddy du VPS (autre projet) y accède, en reverse proxy sur
     # gif.leotix.fr. Port choisi pour ne pas entrer en conflit avec les

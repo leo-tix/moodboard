@@ -7,7 +7,8 @@
 import express from "express";
 import multer from "multer";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, stat, readdir } from "node:fs/promises";
+import { mkdtemp, rm, stat, readdir, writeFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -80,6 +81,33 @@ const META_TIMEOUT_MS = Number(process.env.META_TIMEOUT_MS || 30_000);
 // MAX_FETCH_DURATION_S : on ne télécharge jamais plus qu'un passage.
 const MAX_FETCH_SECTION_DURATION_S = Number(process.env.MAX_FETCH_SECTION_DURATION_S || 120);
 
+// Fichiers cookies.txt (format Netscape) optionnels pour yt-dlp — contournent
+// le mur de connexion Instagram/YouTube rencontré depuis l'IP datacenter du
+// VPS. Chemin fixe dans un volume dédié (./secrets sur le VPS, voir
+// compose.yaml) : déposés soit manuellement (scp), soit via l'écran admin
+// de apps/web (POST /admin/cookies ci-dessous) — jamais dans le repo/git,
+// jamais transmis en chat. Absent = comportement actuel (anonyme), inchangé.
+// Voir README.md § Authentification yt-dlp.
+const SECRETS_DIR = process.env.YTDLP_SECRETS_DIR || "/secrets";
+const COOKIES_PATHS = {
+  youtube: path.join(SECRETS_DIR, "cookies-youtube.txt"),
+  instagram: path.join(SECRETS_DIR, "cookies-instagram.txt"),
+};
+const COOKIES_MAX_BYTES = 1_000_000; // 1 Mo — un cookies.txt tient très largement dedans
+
+function platformFor(url) {
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  if (host.endsWith("youtube.com") || host === "youtu.be") return "youtube";
+  if (host.endsWith("instagram.com")) return "instagram";
+  return null;
+}
+
+function cookiesArgsFor(url) {
+  const platform = platformFor(url);
+  const file = platform && COOKIES_PATHS[platform];
+  return file && existsSync(file) ? ["--cookies", file] : [];
+}
+
 if (!TOKEN) {
   console.error("GIF_WORKER_TOKEN manquant — arrêt (voir .env.example).");
   process.exit(1);
@@ -138,6 +166,17 @@ function requireAuth(req, res, next) {
   const header = req.get("authorization") || "";
   const provided = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (timingSafeTokenEqual(provided, TOKEN) || verifyTicket(provided)) return next();
+  return res.status(401).json({ error: "unauthorized" });
+}
+
+// Jeton STATIQUE uniquement (pas de ticket signé) — réservé aux routes
+// /admin/*, jamais appelées depuis le navigateur : seul apps/web (après
+// vérification requireAdmin côté session) les relaie, avec le secret
+// partagé qui n'est jamais exposé au client.
+function requireStaticToken(req, res, next) {
+  const header = req.get("authorization") || "";
+  const provided = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (timingSafeTokenEqual(provided, TOKEN)) return next();
   return res.status(401).json({ error: "unauthorized" });
 }
 
@@ -273,9 +312,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON uniquement pour /meta-url et /fetch-url (ignoré pour le multipart de
-// /convert — Content-Type différent, multer s'en occupe).
-app.use(express.json({ limit: "10kb" }));
+// JSON uniquement pour /meta-url, /fetch-url et /admin/cookies (ignoré pour
+// le multipart de /convert — Content-Type différent, multer s'en occupe).
+// Limite remontée à 2 Mo pour accueillir le contenu d'un cookies.txt collé
+// via l'écran admin (COOKIES_MAX_BYTES, revérifié plus bas).
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
@@ -374,6 +415,48 @@ app.post(
   },
 );
 
+// Dépôt/retrait des cookies yt-dlp depuis l'écran admin de apps/web (jamais
+// le navigateur directement — requireStaticToken). Le contenu n'est JAMAIS
+// loggé ni renvoyé ; seul son statut (présent/absent, date) est consultable.
+app.post("/admin/cookies", requireStaticToken, async (req, res) => {
+  try {
+    const platform = String(req.body?.platform || "");
+    const content = String(req.body?.content || "");
+    const file = COOKIES_PATHS[platform];
+    if (!file) return res.status(400).json({ error: "bad_platform" });
+    if (!content.trim()) return res.status(400).json({ error: "empty_content" });
+    if (Buffer.byteLength(content, "utf8") > COOKIES_MAX_BYTES) {
+      return res.status(400).json({ error: "too_large" });
+    }
+    await mkdir(SECRETS_DIR, { recursive: true, mode: 0o700 });
+    await writeFile(file, content, { mode: 0o600 });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[admin/cookies]", err);
+    res.status(500).json({ error: "write_failed" });
+  }
+});
+
+app.get("/admin/cookies/status", requireStaticToken, async (_req, res) => {
+  const status = {};
+  for (const [platform, file] of Object.entries(COOKIES_PATHS)) {
+    try {
+      const s = await stat(file);
+      status[platform] = { configured: true, updatedAt: s.mtime.toISOString() };
+    } catch {
+      status[platform] = { configured: false, updatedAt: null };
+    }
+  }
+  res.json(status);
+});
+
+app.delete("/admin/cookies/:platform", requireStaticToken, async (req, res) => {
+  const file = COOKIES_PATHS[req.params.platform];
+  if (!file) return res.status(400).json({ error: "bad_platform" });
+  await rm(file, { force: true });
+  res.json({ ok: true });
+});
+
 // Métadonnées d'une vidéo par lien — AUCUN téléchargement (yt-dlp -J
 // --skip-download). Appelé server-à-serveur par apps/web
 // (/api/video-link/ticket) avant d'émettre un ticket, pour rejeter tôt les
@@ -385,7 +468,7 @@ app.post("/meta-url", requireAuth, async (req, res) => {
 
     const stdout = await runYtDlpExclusive(() =>
       runYtDlp(
-        ["-J", "--no-warnings", "--no-playlist", "--skip-download", url.toString()],
+        ["-J", "--no-warnings", "--no-playlist", "--skip-download", ...cookiesArgsFor(url), url.toString()],
         { timeoutMs: META_TIMEOUT_MS, captureStdout: true },
       ),
     );
@@ -430,6 +513,7 @@ app.post("/fetch-url", requireAuth, async (req, res) => {
           "--max-filesize", String(MAX_FETCH_BYTES),
           "--match-filter", `duration <= ${MAX_FETCH_DURATION_S}`,
           "--socket-timeout", "20",
+          ...cookiesArgsFor(url),
           "-o", outputTemplate,
           url.toString(),
         ],
@@ -496,6 +580,7 @@ app.post("/fetch-url-section", requireAuth, async (req, res) => {
           "--download-sections", `*${start}-${end}`,
           "--max-filesize", String(MAX_FETCH_BYTES),
           "--socket-timeout", "20",
+          ...cookiesArgsFor(url),
           "-o", outputTemplate,
           url.toString(),
         ],

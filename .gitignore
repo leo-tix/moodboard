@@ -29,3 +29,6 @@ packages/db/generated/
 
 # Uploads temp
 uploads/
+
+# Cookies yt-dlp (gif-worker) — jamais dans git, déposés manuellement sur le VPS
+apps/gif-worker/secrets/

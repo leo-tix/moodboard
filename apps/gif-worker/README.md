@@ -49,3 +49,39 @@ docker compose up -d --build
 ```
 
 Logs : `docker compose logs -f gif-worker`
+
+## Authentification yt-dlp (cookies)
+
+Instagram et YouTube bloquent de plus en plus les requêtes anonymes depuis
+l'IP datacenter du VPS (mur de connexion). yt-dlp supporte un fichier
+`cookies.txt` (format Netscape) pour s'authentifier avec un compte. Chemin
+fixe dans le conteneur : `/secrets/cookies-youtube.txt` et
+`/secrets/cookies-instagram.txt` (dossier `./secrets` monté par
+`compose.yaml`, jamais dans git). `cookiesArgsFor()` dans `server.mjs`
+ajoute automatiquement `--cookies <fichier>` quand il existe pour le
+domaine appelé — absent = comportement actuel (anonyme), inchangé.
+
+**Ce service ne gère jamais d'identifiants.** Toute la partie connexion se
+fait dans un vrai navigateur, sur le compte dédié — jamais ici.
+
+**Façon recommandée — écran admin de apps/web** (Réglages → Import vidéo,
+réservé au rôle ADMIN) : colle le contenu du `cookies.txt` exporté, la page
+l'envoie à `POST /admin/cookies` (jeton statique `GIF_WORKER_TOKEN`,
+jamais exposé au navigateur) qui écrit le fichier directement dans
+`./secrets/` avec les bonnes permissions (`chmod 600`). Rien à faire sur le
+VPS, pas de redéploiement. Un mini-tuto est affiché dans l'écran lui-même.
+
+**Façon manuelle — scp direct sur le VPS** (si l'écran admin est
+indisponible) :
+```bash
+scp -i ~/.ssh/moodboard-deploy/vps_key cookies-youtube.txt \
+  ubuntu@146.59.150.101:/opt/moodboard-gif/secrets/cookies-youtube.txt
+ssh -i ~/.ssh/moodboard-deploy/vps_key ubuntu@146.59.150.101 \
+  "chmod 600 /opt/moodboard-gif/secrets/cookies-youtube.txt"
+```
+(idem pour `cookies-instagram.txt`). Aucun redémarrage requis, le fichier
+est relu à chaque requête.
+
+Dans les deux cas : si un cookie expire, yt-dlp retombe simplement en
+anonyme pour ce domaine (le symptôme est le retour du mur de connexion) —
+ré-exporter une session fraîche et redéposer suffit.
