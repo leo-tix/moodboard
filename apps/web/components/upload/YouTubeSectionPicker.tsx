@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { RangeScrubber } from "./RangeScrubber";
 
 // Sous-flux YouTube dédié (#7) : contrairement à TikTok/Instagram (vidéos
 // déjà courtes, cf. VideoLinkImportClient), une vidéo YouTube peut être
@@ -301,9 +302,20 @@ export function YouTubeSectionPicker({
       </div>
 
       <p className="text-[10px] text-[var(--text-tertiary)]">
-        Scrube dans le lecteur pour repérer un passage, puis utilise les boutons ou les champs mm:ss.s pour fixer
-        précisément le début et la fin ({sectionLength.toFixed(1)}s / {maxSectionDurationS}s max).
+        Glisse les poignées pour régler le début et la fin, ou le losange central pour déplacer tout le passage sans
+        changer sa durée — ou touche la piste ailleurs pour la recentrer là ({sectionLength.toFixed(1)}s /{" "}
+        {maxSectionDurationS}s max).
       </p>
+
+      <RangeScrubber
+        duration={duration}
+        start={start}
+        end={end}
+        maxWindowS={maxSectionDurationS}
+        onChange={(s, e) => { setStart(s); setEnd(e); }}
+        onPreview={seekTo}
+        disabled={!playerReady || downloading}
+      />
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">

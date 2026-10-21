@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, Film, Loader2, Play, Pause } from "lucide-react";
+import { RangeScrubber, clampResizeStart, clampResizeEnd } from "./RangeScrubber";
 
 // Upload vidéo → GIF (retour utilisateur 2026-10-16) : trim in/out puis
 // conversion sur le petit service dédié du VPS (apps/gif-worker), appelé
@@ -315,19 +316,26 @@ export function VideoTrimModal({
   };
 
   const onChangeStart = useCallback((val: number) => {
-    const next = Math.min(val, end - 0.2);
+    const next = clampResizeStart(val, end, { duration, maxWindowS: maxDurationS });
     setStart(next);
     seekPreview(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [end]);
+  }, [end, duration, maxDurationS]);
 
   const onChangeEnd = useCallback((val: number) => {
-    const maxEnd = Math.min(duration, start + maxDurationS);
-    const next = Math.max(val, start + 0.2) > maxEnd ? maxEnd : Math.max(val, start + 0.2);
+    const next = clampResizeEnd(val, start, { duration, maxWindowS: maxDurationS });
     setEnd(next);
     seekPreview(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start, duration, maxDurationS]);
+
+  // Déplace toute la fenêtre (poignées de bord OU losange central de
+  // RangeScrubber) — durée conservée, seule la position change. Le preview
+  // (seek) est géré séparément par la prop onPreview, voir plus bas.
+  const onChangeWindow = useCallback((newStart: number, newEnd: number) => {
+    setStart(newStart);
+    setEnd(newEnd);
+  }, []);
 
   // Champs numériques mm:ss.s — synchronisés bidirectionnellement avec les
   // poignées : ils reflètent start/end tant que l'utilisateur n'est pas en
@@ -399,9 +407,6 @@ export function VideoTrimModal({
     bytes >= 1024 * 1024 * 1024
       ? `${Math.round((bytes / 1024 / 1024 / 1024) * 10) / 10} Go`
       : `${Math.round(bytes / 1024 / 1024)} Mo`;
-  const startPct = duration > 0 ? (start / duration) * 100 : 0;
-  const endPct = duration > 0 ? (end / duration) * 100 : 0;
-  const headPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   if (typeof document === "undefined") return null;
 
@@ -480,34 +485,28 @@ export function VideoTrimModal({
             <span>{(end - start).toFixed(1)}s / {maxDurationS}s max</span>
             <span>Fin {fmt(end)}</span>
           </div>
-          {/* Piste/poignées entièrement custom (divs décoratives) — les trois
-              <input type=range> réels (début, fin, tête de lecture) restent
-              superposés par-dessus mais INVISIBLES (opacity:0), avec le
-              toucher limité à leur seule poignée native (CSS plus bas).
-              Rendre fiable ET lisible : avant ce changement, les pistes
-              natives des deux curseurs se chevauchaient visuellement (rendu
-              confus — retour utilisateur 2026-10-16). La tête de lecture
-              (losange ambre) a un z-index inférieur aux poignées de trim :
-              en cas de chevauchement pixel-exact, le trim reste prioritaire
-              au toucher. */}
-          <div className="relative h-8 dual-range">
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-white/15 pointer-events-none" />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 h-1 rounded-full bg-white pointer-events-none"
-              style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
-            />
-            <div
-              className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
-              style={{ left: `${startPct}%`, transform: "translate(-50%, -50%)" }}
-            />
-            <div
-              className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
-              style={{ left: `${endPct}%`, transform: "translate(-50%, -50%)" }}
-            />
-            <div
-              className="absolute top-1/2 w-2.5 h-2.5 bg-amber-400 shadow-[0_0_0_1px_rgba(0,0,0,0.4)] pointer-events-none"
-              style={{ left: `${headPct}%`, transform: "translate(-50%, -50%) rotate(45deg)" }}
-            />
+          {/* Fenêtre de trim déplaçable (retour utilisateur 2026-10-21) :
+              poignées de bord pour régler la durée, losange central pour
+              glisser TOUTE la fenêtre sans changer sa durée — ou un simple
+              clic ailleurs sur la piste pour la recentrer là. */}
+          <RangeScrubber
+            duration={duration}
+            start={start}
+            end={end}
+            maxWindowS={maxDurationS}
+            onChange={onChangeWindow}
+            onPreview={seekPreview}
+            disabled={busy}
+            variant="overlay"
+          />
+
+          {/* Tête de lecture — navigation libre dans toute la vidéo,
+              indépendante du passage sélectionné (retour utilisateur
+              2026-10-16 : repérer un moment avant de fixer le trim dessus).
+              Rangée séparée plutôt que superposée à la piste ci-dessus :
+              évite tout conflit de geste avec les poignées de trim. */}
+          <div className="relative h-5 mt-1">
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 rounded-full bg-white/10 pointer-events-none" />
             <input
               type="range"
               min={0}
@@ -516,33 +515,8 @@ export function VideoTrimModal({
               value={currentTime}
               onChange={(e) => seekPreview(Number(e.target.value))}
               disabled={busy}
-              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0 playhead-range"
-              style={{ zIndex: 1 }}
+              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full playhead-range"
               aria-label="Tête de lecture (navigation libre)"
-            />
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.1}
-              value={start}
-              onChange={(e) => onChangeStart(Number(e.target.value))}
-              disabled={busy}
-              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0"
-              style={{ zIndex: start > end - (duration * 0.05) ? 4 : 2 }}
-              aria-label="Début du passage"
-            />
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.1}
-              value={end}
-              onChange={(e) => onChangeEnd(Number(e.target.value))}
-              disabled={busy}
-              className="absolute inset-x-0 top-1/2 -translate-y-1/2 w-full opacity-0"
-              style={{ zIndex: 3 }}
-              aria-label="Fin du passage"
             />
           </div>
 
@@ -599,37 +573,45 @@ export function VideoTrimModal({
           </div>
         </div>
       )}
-      {/* Balise <style> ordinaire (pas styled-jsx — deux <style jsx> dans le
-          même composant, l'un global pour @keyframes et l'autre scopé pour
-          .dual-range, déclenchaient "nested styled-jsx tag" au build). Les
-          sélecteurs sont assez spécifiques (.dual-range, @keyframes
-          indeterminate) pour ne rien heurter ailleurs dans l'app. */}
+      {/* Balise <style> ordinaire (pas styled-jsx — cf. historique : deux
+          <style jsx> dans le même composant déclenchaient "nested
+          styled-jsx tag" au build). Sélecteur spécifique (.playhead-range)
+          pour ne rien heurter ailleurs dans l'app. */}
       <style>{`
         @keyframes indeterminate {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(300%); }
         }
-        .dual-range input[type="range"] {
-          pointer-events: none;
+        input.playhead-range {
+          -webkit-appearance: none;
+          appearance: none;
+          background: transparent;
+          cursor: pointer;
         }
-        .dual-range input[type="range"]::-webkit-slider-thumb {
-          pointer-events: auto;
-          width: 28px;
-          height: 28px;
+        input.playhead-range::-webkit-slider-runnable-track {
+          background: transparent;
+          height: 2px;
         }
-        .dual-range input[type="range"]::-moz-range-thumb {
-          pointer-events: auto;
-          width: 28px;
-          height: 28px;
+        input.playhead-range::-moz-range-track {
+          background: transparent;
+          height: 2px;
+        }
+        input.playhead-range::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 10px;
+          height: 10px;
+          margin-top: -4px;
+          border-radius: 9999px;
+          background: #fbbf24;
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+        }
+        input.playhead-range::-moz-range-thumb {
+          width: 10px;
+          height: 10px;
           border: none;
-        }
-        .dual-range input.playhead-range::-webkit-slider-thumb {
-          width: 16px;
-          height: 28px;
-        }
-        .dual-range input.playhead-range::-moz-range-thumb {
-          width: 16px;
-          height: 28px;
+          border-radius: 9999px;
+          background: #fbbf24;
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
         }
       `}</style>
 
