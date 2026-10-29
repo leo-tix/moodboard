@@ -80,3 +80,38 @@ siteToggle.addEventListener('change', () => {
     chrome.storage.local.set({ disabledSites: next });
   });
 });
+
+// ── Mise à jour ───────────────────────────────────────────────────────────────
+// Rien n'auto-update une extension en "mode développeur" (voir
+// background.js, checkForUpdate) — on affiche juste ce qu'il trouve et on
+// simplifie le pas suivant : télécharger le zip à jour en un clic, puis
+// recharger depuis chrome://extensions (seule étape qu'aucune API n'automatise).
+const updateBanner       = document.getElementById('updateBanner');
+const updateTitleEl      = document.getElementById('updateTitle');
+const updateNotesEl      = document.getElementById('updateNotes');
+const updateDownloadBtn  = document.getElementById('updateDownload');
+const updateOpenExtBtn   = document.getElementById('updateOpenExtensions');
+
+function renderUpdateBanner(r) {
+  if (!r.updateAvailable) { updateBanner.style.display = 'none'; return; }
+  updateTitleEl.textContent = r.latestVersion ? `Nouvelle version disponible (v${r.latestVersion})` : 'Nouvelle version disponible';
+  updateNotesEl.textContent = r.updateNotes || '';
+  updateNotesEl.style.display = r.updateNotes ? 'block' : 'none';
+  updateBanner.style.display = 'block';
+}
+
+chrome.storage.local.get(['updateAvailable', 'latestVersion', 'updateNotes'], renderUpdateBanner);
+// Le popup est ré-ouvert souvent — une vérif à la demande ici coûte peu et
+// évite d'attendre jusqu'à 4h (l'alarme périodique) pour voir le badge.
+chrome.runtime.sendMessage({ action: 'checkUpdate' }, (r) => { if (r) renderUpdateBanner(r); });
+
+updateDownloadBtn.addEventListener('click', () => {
+  chrome.storage.local.get(['appUrl'], (r) => {
+    const appUrl = (r.appUrl || 'https://moodboard.leotix.fr').replace(/\/$/, '');
+    chrome.downloads.download({ url: `${appUrl}/moodboard-extension.zip`, filename: 'moodboard-extension.zip' });
+  });
+});
+
+updateOpenExtBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: 'chrome://extensions/' });
+});

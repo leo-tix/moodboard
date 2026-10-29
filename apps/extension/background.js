@@ -138,4 +138,79 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     })();
     return true;
   }
+
+  // Vérification à la demande (bouton "Vérifier" du popup) — ne bloque pas
+  // sur l'alarme périodique de checkForUpdate.
+  if (msg.action === 'checkUpdate') {
+    checkForUpdate().then(() => {
+      chrome.storage.local.get(['updateAvailable', 'latestVersion', 'updateNotes'], sendResponse);
+    });
+    return true;
+  }
+});
+
+// ── Vérification de mise à jour ──────────────────────────────────────────────
+// Une extension chargée en "mode développeur" (Load unpacked) n'est JAMAIS
+// mise à jour automatiquement par Chrome, contrairement au Chrome Web Store —
+// il n'existe aucune API permettant à une extension de remplacer ses propres
+// fichiers sur disque. On réduit la friction plutôt que de prétendre
+// l'éliminer : on interroge périodiquement un petit marqueur de version
+// public (régénéré par scripts/zip-extension.ps1 à chaque publication), on
+// pose un badge rouge sur l'icône dès qu'une version plus récente existe, et
+// le popup propose alors un téléchargement en un clic du zip à jour.
+const UPDATE_CHECK_ALARM = 'mb-check-update';
+const UPDATE_CHECK_PERIOD_MIN = 240; // 4h
+
+function parseVersion(v) {
+  return String(v || '0').split('.').map((n) => parseInt(n, 10) || 0);
+}
+
+function isNewerVersion(remote, local) {
+  const r = parseVersion(remote);
+  const l = parseVersion(local);
+  for (let i = 0; i < Math.max(r.length, l.length); i++) {
+    const rv = r[i] || 0, lv = l[i] || 0;
+    if (rv !== lv) return rv > lv;
+  }
+  return false;
+}
+
+async function checkForUpdate() {
+  const data = await cfg();
+  const appUrl = (data.appUrl || DEFAULT_APP_URL).replace(/\/$/, '');
+  const localVersion = chrome.runtime.getManifest().version;
+
+  try {
+    const res = await fetch(`${appUrl}/extension-version.json`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const info = await res.json();
+    const available = !!info.version && isNewerVersion(info.version, localVersion);
+
+    await chrome.storage.local.set({
+      updateAvailable: available,
+      latestVersion: info.version || null,
+      updateNotes: info.notes || '',
+    });
+
+    if (available) {
+      chrome.action.setBadgeText({ text: '●' });
+      chrome.action.setBadgeBackgroundColor({ color: '#f87171' });
+    } else {
+      chrome.action.setBadgeText({ text: '' });
+    }
+  } catch {
+    // Réseau indisponible, ou moodboard.leotix.fr injoignable — on retentera
+    // à la prochaine alarme (4h), pas de bruit pour l'utilisateur.
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create(UPDATE_CHECK_ALARM, { periodInMinutes: UPDATE_CHECK_PERIOD_MIN });
+  checkForUpdate();
+});
+chrome.runtime.onStartup.addListener(() => {
+  checkForUpdate();
+});
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === UPDATE_CHECK_ALARM) checkForUpdate();
 });
