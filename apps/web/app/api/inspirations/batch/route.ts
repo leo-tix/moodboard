@@ -8,6 +8,7 @@ const batchSchema = z.object({
   ids: z.array(z.string()).min(1).max(200),
   patch: z.object({
     title: z.string().min(1).max(255).optional(),
+    author: z.string().max(255).optional(),
     addCategory: z.object({
       categoryId: z.string(),
       subcategoryId: z.string().nullable().optional(),
@@ -48,9 +49,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true, restored: ids.length });
   }
 
-  // Scalar fields (title, year)
+  // Scalar fields (title, author, year)
   const scalarData: Record<string, unknown> = {};
   if (scalarFields.title !== undefined) scalarData.title = scalarFields.title;
+  if (scalarFields.author !== undefined) scalarData.author = scalarFields.author;
   if (scalarFields.year !== undefined) scalarData.year = scalarFields.year;
 
   if (Object.keys(scalarData).length > 0) {

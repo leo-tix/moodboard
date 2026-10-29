@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface TriageItem {
+export interface TriageItem {
   id:          string;
   title:       string;
   author:      string | null;
@@ -318,6 +318,20 @@ export function TriageClient() {
       setAllCategories(cats);
       setLoading(false);
     }).catch(() => setLoading(false));
+  }, []);
+
+  // Recharge la file depuis le serveur sans tout réinitialiser (contrairement
+  // à un rechargement de page) — utilisé après une édition par lot (métadonnées
+  // ou suggestions IA appliquées en vue galerie) pour que la grille reflète
+  // tout de suite les tags/catégories à jour. La sélection courante reste
+  // valide : les ids ne changent pas.
+  const refreshQueue = useCallback(async () => {
+    try {
+      const data = await fetch("/api/triage").then((r) => r.json());
+      setQueue(data.items ?? []);
+    } catch {
+      // best-effort — la prochaine action réessaiera
+    }
   }, []);
 
   const current = queue[0] ?? null;
@@ -1004,9 +1018,11 @@ export function TriageClient() {
         {viewMode === "gallery" && selectedIds.size > 0 && (
           <TriageBatchBar
             selectedIds={Array.from(selectedIds)}
+            items={queue}
+            allCategories={allCategories}
             onClear={clearSelection}
             onDecided={handleBatchDecided}
-            onMetaSaved={() => {}}
+            onMetaSaved={refreshQueue}
           />
         )}
       </AnimatePresence>
