@@ -1,5 +1,24 @@
 'use strict';
 
+// ── Ré-injection propre ──────────────────────────────────────────────────────
+// Recharger l'extension (icône ↻ dans chrome://extensions, fréquent en dev)
+// réinjecte content.js dans tous les onglets déjà ouverts, mais Chrome ne tue
+// jamais l'ancienne instance : elle continue d'écouter `mouseover` et crée
+// SON PROPRE bouton flottant au survol — d'où plusieurs "Sauvegarder"
+// superposés (capture d'écran remontée par l'utilisateur, 2026-10-29), un
+// par génération encore vivante sur la page. On neutralise toute instance
+// précédente AVANT de poser nos propres écouteurs : un AbortController
+// partagé sur `window` sert de relais entre générations — la nouvelle
+// injection l'annule (coupe tous les écouteurs document-level de l'ancienne),
+// retire le DOM orphelin, puis publie son propre contrôleur pour la suivante.
+if (window.__mbClipperAbort) {
+  try { window.__mbClipperAbort.abort(); } catch { /* déjà invalidé */ }
+}
+document.querySelectorAll('[data-mb]').forEach((el) => el.remove());
+const mbAbort = new AbortController();
+window.__mbClipperAbort = mbAbort;
+const mbSignal = mbAbort.signal;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let wrap = null;          // outer container (button + dropdown)
 let dropdown = null;      // moodboard picker
@@ -783,7 +802,7 @@ function initListeners() {
     clearTimeout(videoHideTimer);
     currentVideo = video;
     positionVideoBtn(video);
-  }, { passive: true });
+  }, { passive: true, signal: mbSignal });
 
   document.addEventListener('mouseout', (e) => {
     if (e.target.closest('[data-mb]')) return;
@@ -801,7 +820,7 @@ function initListeners() {
       if (rel && rel.closest('[data-mb]')) return;
       scheduleVideoHide();
     }
-  }, { passive: true });
+  }, { passive: true, signal: mbSignal });
 
   document.addEventListener('scroll', (e) => {
     // Ignore scroll events originating inside our own dropdown
@@ -811,7 +830,7 @@ function initListeners() {
     currentImg = null;
     if (videoBtn) videoBtn.style.display = 'none';
     currentVideo = null;
-  }, { passive: true, capture: true });
+  }, { passive: true, capture: true, signal: mbSignal });
 }
 
 chrome.storage.local.get(['disabledSites'], (r) => {
