@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { X, Check, ArrowUp, CircleSlash, RotateCcw, Copy, Maximize2, PartyPopper } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import { X, Check, ArrowUp, CircleSlash, RotateCcw, Copy, Maximize2, PartyPopper, LayoutGrid, Layers } from "lucide-react";
 // NOTE: `Copy` était déjà importé (bouton copier métadonnées) — réutilisé
 // aussi pour le badge "quasi-doublon".
 import { getThumbnailUrl, getImageUrl } from "@/lib/storage/urls";
@@ -11,6 +12,8 @@ import { TagInput } from "@/components/inspiration/TagInput";
 import { AiSuggestPanel } from "@/components/inspiration/AiSuggestPanel";
 import { AutocompleteInput } from "@/components/inspiration/AutocompleteInput";
 import type { Category } from "@/components/inspiration/CategorySelect";
+import { InspirationGrid, type InspirationGridItem } from "@/components/inspiration/InspirationGrid";
+import { TriageBatchBar } from "@/components/triage/TriageBatchBar";
 import { notifyTriageCountChanged } from "@/lib/triage/events";
 import { Skeleton } from "@/components/ui/Skeleton";
 
@@ -232,6 +235,56 @@ export function TriageClient() {
     item: TriageItem; fields: LocalFields; action: "accept" | "archive";
   } | null>(null);
   const [undoing, setUndoing] = useState(false);
+
+  // Vue galerie — navigation en grille + édition par lot, en alternative au
+  // tri carte par carte. Le triage reste une file unique (`queue`) dans les
+  // deux vues ; la galerie en affiche simplement toutes les cartes à la fois.
+  const [viewMode, setViewMode] = useState<"card" | "gallery">("card");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const galleryItems: InspirationGridItem[] = useMemo(
+    () => queue.map((item): InspirationGridItem => ({
+      id:         item.id,
+      title:      item.title,
+      year:       item.year,
+      categories: [],
+      images: item.images.map((img) => ({
+        storageKey:   img.storageKey,
+        thumbnailKey: img.thumbnailKey,
+        blurHash:     null,
+        width:        img.width,
+        height:       img.height,
+        isMain:       true,
+      })),
+      tags:              item.tags,
+      possibleDuplicate: item.possibleDuplicate,
+    })),
+    [queue],
+  );
+
+  // Une décision en masse (accepter/archiver/supprimer) retire les images
+  // concernées de la file — même sémantique que doAction en vue carte.
+  const handleBatchDecided = useCallback((ids: string[]) => {
+    const removed = new Set(ids);
+    setQueue((q) => q.filter((item) => !removed.has(item.id)));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    notifyTriageCountChanged();
+  }, []);
 
   const fieldsRef   = useRef<LocalFields | null>(null);
   fieldsRef.current = fields;
@@ -701,30 +754,77 @@ export function TriageClient() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          {/* Bascule carte (tri un par un) / galerie (navigation + édition par lot) */}
+          <div className="flex items-center p-0.5 rounded-lg border border-[var(--border-subtle)] flex-shrink-0">
+            <button
+              onClick={() => setViewMode("card")}
+              title="Vue carte"
+              className={`w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center rounded-md transition-colors ${
+                viewMode === "card" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              }`}
+            >
+              <Layers size={13} strokeWidth={1.75} />
+            </button>
+            <button
+              onClick={() => setViewMode("gallery")}
+              title="Vue galerie"
+              className={`w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center rounded-md transition-colors ${
+                viewMode === "gallery" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              }`}
+            >
+              <LayoutGrid size={13} strokeWidth={1.75} />
+            </button>
+          </div>
           <a href="/search?archived=true"
             className="text-[10px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-2 py-1 rounded-lg hidden sm:flex items-center gap-1">
             <CircleSlash size={11} strokeWidth={1.75} /> Archives
           </a>
-          {/* Rewind (Tinder) — annule la dernière décision accept/archive */}
-          <button
-            onClick={undo}
-            disabled={!lastAction || undoing}
-            title="Annuler la dernière décision (z)"
-            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-25 disabled:hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] rounded-lg flex-shrink-0"
-          >
-            <RotateCcw size={15} strokeWidth={1.75} />
-          </button>
-          <button
-            onClick={() => !isExiting && animateExit("up", () => doAction("skip"))}
-            className="h-9 sm:h-auto flex items-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-3 sm:py-1.5 rounded-lg flex-shrink-0"
-            title="Passer (↑)"
-          >
-            <span className="inline-flex items-center gap-1">Passer <ArrowUp size={13} strokeWidth={1.75} /></span>
-          </button>
+          {viewMode === "card" && (
+            <>
+              {/* Rewind (Tinder) — annule la dernière décision accept/archive */}
+              <button
+                onClick={undo}
+                disabled={!lastAction || undoing}
+                title="Annuler la dernière décision (z)"
+                className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-25 disabled:hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] rounded-lg flex-shrink-0"
+              >
+                <RotateCcw size={15} strokeWidth={1.75} />
+              </button>
+              <button
+                onClick={() => !isExiting && animateExit("up", () => doAction("skip"))}
+                className="h-9 sm:h-auto flex items-center text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors border border-[var(--border-subtle)] px-3 sm:py-1.5 rounded-lg flex-shrink-0"
+                title="Passer (↑)"
+              >
+                <span className="inline-flex items-center gap-1">Passer <ArrowUp size={13} strokeWidth={1.75} /></span>
+              </button>
+            </>
+          )}
+          {viewMode === "gallery" && selectedIds.size > 0 && (
+            <button
+              onClick={clearSelection}
+              className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-default)] hover:border-[var(--border-strong)] transition-colors flex-shrink-0"
+            >
+              Désélectionner
+            </button>
+          )}
         </div>
       </div>
 
       {/* ── Body ── */}
+      {viewMode === "gallery" ? (
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6" style={{ paddingBottom: selectedIds.size > 0 ? "11rem" : undefined }}>
+          <p className="text-[10px] text-[var(--text-tertiary)] mb-3">
+            {total} image{total > 1 ? "s" : ""} en attente — clique pour sélectionner, édite ou décide en masse.
+          </p>
+          <InspirationGrid
+            inspirations={galleryItems}
+            columns={4}
+            selectable
+            selectedIds={selectedIds}
+            onSelect={toggleSelect}
+          />
+        </div>
+      ) : (
       <div className="flex-1 flex overflow-hidden min-h-0">
 
         {/* ── Card area ── */}
@@ -897,6 +997,19 @@ export function TriageClient() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ── Barre d'édition par lot (vue galerie) ── */}
+      <AnimatePresence>
+        {viewMode === "gallery" && selectedIds.size > 0 && (
+          <TriageBatchBar
+            selectedIds={Array.from(selectedIds)}
+            onClear={clearSelection}
+            onDecided={handleBatchDecided}
+            onMetaSaved={() => {}}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ── Mobile metadata bottom sheet ── */}
       <BottomSheet open={metaOpen} onClose={() => setMetaOpen(false)}>

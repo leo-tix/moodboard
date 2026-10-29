@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, X } from "lucide-react";
 import { getThumbnailUrl } from "@/lib/storage/urls";
@@ -46,8 +46,8 @@ function extFromContentType(contentType: string | null): string {
   return "mp4";
 }
 
-export function VideoLinkImportClient() {
-  const [url, setUrl] = useState("");
+export function VideoLinkImportClient({ initialUrl }: { initialUrl?: string } = {}) {
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [step, setStep] = useState<"idle" | "ticket" | "downloading" | "uploading">("idle");
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
@@ -121,6 +121,15 @@ export function VideoLinkImportClient() {
       setStep("idle");
     }
   };
+
+  // Lancement auto si on arrive avec un lien pré-rempli (ex. l'extension
+  // Chrome, qui ouvre cette page avec ?url=… depuis une vidéo survolée) —
+  // même pattern que YouTubeImportClient. handleImport() ignore déjà les
+  // liens invalides/YouTube en interne (isValid / youtubeVideoId).
+  useEffect(() => {
+    if (initialUrl?.trim()) handleImport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleConverted = async (gifFile: File, meta: PendingImport) => {
     setPending(null);

@@ -8,8 +8,82 @@ let hideTimer = null;
 let moodboards = [];      // cached list
 let moodboardsLoaded = false;
 
+// ── Video → GIF state ─────────────────────────────────────────────────────────
+let videoBtn = null;
+let currentVideo = null;
+let videoHideTimer = null;
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 const S = (el, styles) => Object.assign(el.style, styles);
+
+// Feuille de style minimale — seule l'animation du spinner a besoin d'un
+// @keyframes (les autres animations, pulse au clic et miniature qui s'envole,
+// sont pilotées en JS via des transitions inline, dans le même esprit que le
+// reste du fichier). Injectée une seule fois, avant tout usage.
+function injectStyles() {
+  if (document.getElementById('mb-style')) return;
+  const style = document.createElement('style');
+  style.id = 'mb-style';
+  style.textContent = '@keyframes mb-spin { to { transform: rotate(360deg); } }';
+  document.documentElement.appendChild(style);
+}
+
+// Petite pulsation d'appui — feedback tactile/visuel immédiat au clic, avant
+// même la réponse réseau.
+function pulse(el) {
+  el.style.transition = 'transform 0.12s ease';
+  el.style.transform = 'scale(0.92)';
+  setTimeout(() => {
+    el.style.transform = 'scale(1)';
+    setTimeout(() => { el.style.transition = ''; }, 150);
+  }, 100);
+}
+
+// Miniature qui s'envole vers le coin supérieur droit en rétrécissant —
+// feedback visuel clair de CE QUI vient d'être capturé (pattern "ajouté au
+// panier"), surtout utile pour une sauvegarde carousel/galerie où plusieurs
+// images partent coup sur coup.
+function flyThumbnail(imgEl) {
+  if (!imgEl) return;
+  const src = imgEl.currentSrc || imgEl.src;
+  if (!src) return;
+  const r = imgEl.getBoundingClientRect();
+  if (r.width < 4 || r.height < 4) return;
+
+  const clone = document.createElement('div');
+  clone.setAttribute('data-mb', '1');
+  S(clone, {
+    position: 'fixed',
+    zIndex: '2147483647',
+    top: `${r.top}px`,
+    left: `${r.left}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+    borderRadius: '8px',
+    backgroundImage: `url("${src}")`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
+    pointerEvents: 'none',
+    opacity: '1',
+    transform: 'scale(1)',
+    transition: 'top 0.55s cubic-bezier(0.2,0.8,0.2,1), left 0.55s cubic-bezier(0.2,0.8,0.2,1), width 0.55s cubic-bezier(0.2,0.8,0.2,1), height 0.55s cubic-bezier(0.2,0.8,0.2,1), opacity 0.5s ease 0.1s, transform 0.55s cubic-bezier(0.2,0.8,0.2,1)',
+  });
+  document.documentElement.appendChild(clone);
+
+  requestAnimationFrame(() => {
+    S(clone, {
+      top: '14px',
+      left: `${window.innerWidth - 46}px`,
+      width: '32px',
+      height: '32px',
+      opacity: '0',
+      transform: 'rotate(10deg)',
+    });
+  });
+
+  setTimeout(() => clone.remove(), 700);
+}
 
 function makeWrap() {
   const w = document.createElement('div');
@@ -30,10 +104,10 @@ function makeWrap() {
     pointerEvents: 'all',
   });
 
-  // Main save button
+  // Main save button — icône spinner + libellé, pour pouvoir basculer entre
+  // texte et animation de chargement sans reconstruire le bouton.
   const main = document.createElement('button');
   main.setAttribute('data-mb', '1');
-  main.textContent = 'Sauvegarder';
   S(main, {
     background: 'rgba(10,10,10,0.88)',
     backdropFilter: 'blur(6px)',
@@ -43,8 +117,32 @@ function makeWrap() {
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     lineHeight: '1.4',
+    transition: 'transform 0.12s ease',
   });
-  main.addEventListener('click', (e) => { e.stopPropagation(); doSave(null); });
+
+  const spin = document.createElement('span');
+  spin.setAttribute('data-mb', '1');
+  spin.setAttribute('data-mb-spin', '1');
+  S(spin, {
+    display: 'none',
+    width: '10px',
+    height: '10px',
+    marginRight: '6px',
+    verticalAlign: '-1px',
+    border: '2px solid currentColor',
+    borderTopColor: 'transparent',
+    borderRadius: '50%',
+    animation: 'mb-spin 0.6s linear infinite',
+  });
+
+  const label = document.createElement('span');
+  label.setAttribute('data-mb', '1');
+  label.setAttribute('data-mb-label', '1');
+  label.textContent = 'Sauvegarder';
+
+  main.appendChild(spin);
+  main.appendChild(label);
+  main.addEventListener('click', (e) => { e.stopPropagation(); pulse(main); doSave(null); });
   main.addEventListener('mouseenter', () => clearTimeout(hideTimer));
   main.addEventListener('mouseleave', onWrapLeave);
 
@@ -454,7 +552,8 @@ function doSave(moodboardId) {
     return;
   }
 
-  showFeedback('…', 'rgba(255,255,255,0.5)');
+  const capturedImg = currentImg; // la souris peut avoir quitté l'image avant la réponse réseau
+  showLoading('…');
   const meta = extractMetadata(currentImg);
 
   chrome.runtime.sendMessage({
@@ -466,6 +565,7 @@ function doSave(moodboardId) {
   }, (resp) => {
     if (resp?.ok) {
       showFeedback(moodboardId ? '✓ Dans la planche' : '✓ Sauvegardé', '#4ade80');
+      flyThumbnail(capturedImg);
       scheduleHide(2200);
     } else if (resp?.error === 'no_token') {
       showFeedback('⚠ Token manquant', '#fb923c');
@@ -476,17 +576,30 @@ function doSave(moodboardId) {
   });
 }
 
-function showFeedback(text, color) {
+// Bascule libellé + couleur + spinner du bouton principal. `spinning` garde
+// le spinner visible tant qu'un état terminal (succès/erreur) ne vient pas
+// le remplacer — pas de minuteur de retour en arrière pour un état transitoire.
+function setMain(text, color, spinning) {
   if (!wrap) return;
-  const main = wrap.querySelector('button:first-child');
-  if (main) { main.textContent = text; main.style.color = color; }
-  setTimeout(() => { if (main) { main.textContent = 'Sauvegarder'; main.style.color = 'white'; } }, 2200);
+  const btn = wrap.querySelector('button:first-child');
+  const label = wrap.querySelector('[data-mb-label]');
+  const spin = wrap.querySelector('[data-mb-spin]');
+  if (btn) btn.style.color = color;
+  if (label) label.textContent = text;
+  if (spin) spin.style.display = spinning ? 'inline-block' : 'none';
+}
+
+function showLoading(text) {
+  setMain(text, 'rgba(255,255,255,0.5)', true);
+}
+
+function showFeedback(text, color) {
+  setMain(text, color, false);
+  setTimeout(() => setMain('Sauvegarder', 'white', false), 2200);
 }
 
 function showStatus(text) {
-  if (!wrap) return;
-  const main = wrap.querySelector('button:first-child');
-  if (main) { main.textContent = text; main.style.color = 'rgba(255,255,255,0.5)'; }
+  showLoading(text);
 }
 
 async function doSaveCarousel(total, cx, cy, nextSel) {
@@ -550,6 +663,93 @@ function scheduleHide(delay = 280) {
 
 function onWrapLeave() { scheduleHide(); }
 
+// ── Video → GIF ───────────────────────────────────────────────────────────────
+// Pas de téléchargement/trim/conversion dans l'extension : on s'appuie sur le
+// pipeline GIF déjà existant côté web (VideoLinkImportClient → apps/gif-worker,
+// yt-dlp + ffmpeg) en ouvrant simplement /import/video-link pré-rempli avec
+// l'URL de la vidéo survolée, dans un nouvel onglet (session déjà ouverte là-bas,
+// pas besoin du jeton de l'extension). Évite de dupliquer tout ce pipeline
+// (téléchargement serveur, choix du passage à convertir, limites de poids/durée)
+// dans le content script.
+const DEFAULT_APP_URL_CT = 'https://moodboard.leotix.fr';
+
+function makeVideoBtn() {
+  const btn = document.createElement('button');
+  btn.setAttribute('data-mb', '1');
+  S(btn, {
+    position: 'fixed',
+    zIndex: '2147483647',
+    display: 'none',
+    background: 'rgba(10,10,10,0.88)',
+    backdropFilter: 'blur(6px)',
+    color: 'white',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '6px',
+    padding: '5px 10px',
+    cursor: 'pointer',
+    fontFamily: 'system-ui,-apple-system,sans-serif',
+    fontSize: '12px',
+    fontWeight: '500',
+    whiteSpace: 'nowrap',
+    boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+    transition: 'transform 0.12s ease',
+  });
+  btn.textContent = '▸ GIF';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    pulse(btn);
+    doSaveVideoGif();
+  });
+  btn.addEventListener('mouseenter', () => clearTimeout(videoHideTimer));
+  btn.addEventListener('mouseleave', () => scheduleVideoHide());
+  document.documentElement.appendChild(btn);
+  return btn;
+}
+
+function positionVideoBtn(video) {
+  const r = video.getBoundingClientRect();
+  if (!videoBtn) videoBtn = makeVideoBtn();
+  videoBtn.style.display = 'block';
+  videoBtn.style.top = `${r.top + 8}px`;
+  videoBtn.style.left = `${r.right - 8}px`;
+  videoBtn.style.transform = 'translateX(-100%)';
+}
+
+// currentSrc résout les <source> enfants / la piste active ; src direct en repli.
+function bestVideoUrl(video) {
+  if (video.currentSrc) return video.currentSrc;
+  if (video.src) return video.src;
+  const source = video.querySelector('source[src]');
+  return source ? source.src : '';
+}
+
+function doSaveVideoGif() {
+  if (!currentVideo || !videoBtn) return;
+  const src = bestVideoUrl(currentVideo);
+  // blob:/data: = flux généré côté client (lecteur custom, MSE/HLS) —
+  // injoignable depuis le serveur, pas de repli possible ici.
+  if (!src || src.startsWith('blob:') || src.startsWith('data:')) {
+    videoBtn.textContent = '⚠ Non supporté';
+    setTimeout(() => { if (videoBtn) videoBtn.textContent = '▸ GIF'; }, 2200);
+    return;
+  }
+  chrome.storage.local.get(['appUrl'], (r) => {
+    const appUrl = (r.appUrl || DEFAULT_APP_URL_CT).replace(/\/$/, '');
+    window.open(`${appUrl}/import/video-link?url=${encodeURIComponent(src)}`, '_blank');
+  });
+  videoBtn.textContent = '↗ Ouvert';
+  setTimeout(() => { if (videoBtn) videoBtn.textContent = '▸ GIF'; }, 2200);
+}
+
+function scheduleVideoHide(delay = 280) {
+  clearTimeout(videoHideTimer);
+  videoHideTimer = setTimeout(() => {
+    if (document.querySelector('[data-mb]:hover')) return;
+    if (videoBtn) videoBtn.style.display = 'none';
+    currentVideo = null;
+  }, delay);
+}
+
 // ── Activation ────────────────────────────────────────────────────────────────
 // Le site peut être désactivé depuis le popup (liste `disabledSites`) : dans ce
 // cas on n'attache aucun écouteur, plutôt que de les attacher puis les ignorer.
@@ -566,21 +766,41 @@ function initListeners() {
       img = els.find((el) => el.tagName === 'IMG') || null;
     }
 
-    if (!img) return;
-    const r = img.getBoundingClientRect();
-    if (r.width < 80 || r.height < 80) return;
-    clearTimeout(hideTimer);
-    currentImg = img;
-    position(img);
+    if (img) {
+      const r = img.getBoundingClientRect();
+      if (r.width < 80 || r.height < 80) return;
+      clearTimeout(hideTimer);
+      currentImg = img;
+      position(img);
+      return;
+    }
+
+    // <video> hover → bouton GIF dédié (indépendant du système image/moodboard)
+    const video = e.target.closest('video');
+    if (!video) return;
+    const vr = video.getBoundingClientRect();
+    if (vr.width < 120 || vr.height < 80) return;
+    clearTimeout(videoHideTimer);
+    currentVideo = video;
+    positionVideoBtn(video);
   }, { passive: true });
 
   document.addEventListener('mouseout', (e) => {
     if (e.target.closest('[data-mb]')) return;
-    const img = e.target.closest('img');
-    if (!img || img !== currentImg) return;
     const rel = e.relatedTarget;
-    if (rel && rel.closest('[data-mb]')) return;
-    scheduleHide();
+
+    const img = e.target.closest('img');
+    if (img && img === currentImg) {
+      if (rel && rel.closest('[data-mb]')) return;
+      scheduleHide();
+      return;
+    }
+
+    const video = e.target.closest('video');
+    if (video && video === currentVideo) {
+      if (rel && rel.closest('[data-mb]')) return;
+      scheduleVideoHide();
+    }
   }, { passive: true });
 
   document.addEventListener('scroll', (e) => {
@@ -589,6 +809,8 @@ function initListeners() {
     if (wrap) wrap.style.display = 'none';
     if (dropdown) dropdown.style.display = 'none';
     currentImg = null;
+    if (videoBtn) videoBtn.style.display = 'none';
+    currentVideo = null;
   }, { passive: true, capture: true });
 }
 
@@ -596,5 +818,6 @@ chrome.storage.local.get(['disabledSites'], (r) => {
   const disabled = r.disabledSites || [];
   const host = location.hostname.replace(/^www\./, '');
   if (disabled.includes(host)) return;
+  injectStyles();
   initListeners();
 });

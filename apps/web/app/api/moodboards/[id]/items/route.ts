@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getAuthUserId } from "@/lib/auth/withToken";
 import { randomUUID } from "crypto";
 import type { CanvasElement, ImageElement } from "@/lib/moodboard/types";
+import { regenerateMoodboardPreview } from "@/lib/moodboard/savePreview";
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -53,6 +54,16 @@ export async function POST(req: NextRequest, { params }: Params) {
     where: { id },
     data: { canvasData: [...existing, element] as object[] },
   });
+
+  // La grille des planches n'affiche plus `canvasData` mais l'aperçu
+  // précalculé (previewKey, voir moodboards/page.tsx) — contrairement à
+  // l'éditeur (qui le régénère via son debounce schedulePreview), cette
+  // route est appelée hors éditeur (extension Chrome) et doit régénérer
+  // l'aperçu elle-même, sinon l'image ajoutée reste invisible sur la
+  // planche tant que personne n'ouvre l'éditeur. Best-effort : une image
+  // encore en triage (non acceptée) doit quand même apparaître — l'aperçu
+  // compose `canvasData` tel quel, sans filtrer par statut.
+  await regenerateMoodboardPreview(id).catch(() => {});
 
   return NextResponse.json({ ok: true, elementId: element.id });
 }
