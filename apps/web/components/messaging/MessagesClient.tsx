@@ -54,7 +54,7 @@ export function MessagesClient({ initialConversationId }: { initialConversationI
     };
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);
-    const i = window.setInterval(tick, 12000);
+    const i = window.setInterval(tick, 30000);
     return () => { window.removeEventListener("focus", tick); document.removeEventListener("visibilitychange", tick); window.clearInterval(i); };
   }, [selected, loadConvos, loadThread]);
 
