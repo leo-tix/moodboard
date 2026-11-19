@@ -33,7 +33,7 @@ export function TriageBadge() {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") refresh();
-    }, 30_000);
+    }, 90_000);
 
     return () => {
       window.removeEventListener(TRIAGE_COUNT_CHANGED_EVENT, refresh);
